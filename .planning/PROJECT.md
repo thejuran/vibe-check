@@ -16,22 +16,15 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Current Milestone: v2.14 Decision reliability
+## Next Milestone Goals: Lean orchestration (not yet activated)
 
-**Goal:** Close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable — without changing reviewer coverage or scoring policy.
+Reduce model-interpreted mechanical instructions and fragile handoffs, starting with Finalize extraction. The first step is a bounded cost-visibility feasibility check from existing records (999.12). Behaviour delivered by v2.14 must be preserved, and Reviewer efficiency stays conditional. This milestone activates via `/bm:new-milestone` after 2.14.0 ships. Scope: [Roadmap](ROADMAP.md) "Next milestone: Lean orchestration".
 
-**Target features:**
-- Stale decisions and lost deferrals (999.23): reproduce CR-01, CR-02, CR-04 and the `min_confidence=45` deferred-member loss through the real score → carry → card → finalize chain; reopen with the correct reason when evidence changes, keep unchanged decisions stable; SA-02 reproduced once or recorded and dropped. One bounded implementation/review cycle, then record residuals and re-scope.
-- Exact change evidence and reliable Finalize (999.24, 999.25): nearby/in-diff ranges from actual additions/deletions, not display context; Finalize's blob-file path survives fresh Bash calls via the printed-path convention.
-- Release gate: targeted real-chain regressions, full offline suite, archived replay (only named reopen/retention differences allowed), mode/recovery checks; live checks only under a separately approved bounded proposal, else documented gap + waiver. Ships independently.
+## Last Milestone: v2.14 Decision reliability (complete 2026-10-30; 2.14.0 release in progress)
 
-**Progress:** Phases 59–61 complete (2026-10-30). Phase 61 release gate: candidate 47978aa (2.14.0) passed G1–G9 and the approved live smoke; owner re-signed with C1 (decisions on uncommitted code re-asked each pass) stated as a known limit in README and release notes (999.28). Next: Phase 61 PR, then milestone close via 61-CLOSE-RUNBOOK.md.
+**Goal (met, with owner-accepted known limits):** close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy. The milestone met 16/16 requirements (STALE-01..06, DEFR-01..02, EVID-01..03, FINL-01..02, GATE-01..03). The audit is tech_debt: integration 8/9, flows 5/5. The suite ran 3821 passed with 0 failed. Replay against 2.13 gave 170 runs with 0 differing. This was not B3-measured. Candidate 47978aa was signed off by the owner (Decision 1 = B: README states C1). The release follows `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. Full record: [archive](milestones/v2.14-ROADMAP.md), [MILESTONES.md](MILESTONES.md).
 
-**Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
-
-**Codex integration (owner, 2026-10-28):** Keep the existing optional OpenAI Codex plugin/companion and the user's configured Codex default. No bundled replacement, direct adapter or model-gateway routing is planned. Dependency/setup, run/skip and model-label clarity, plus bounded companion-update compatibility checks, belong to [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure), outside v2.14 and without expanding its requirements or release gates.
-
-## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
+## Earlier Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
 
 **Goal (met, with owner-accepted known limits):** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable. 14/14 requirements (VFIX-01..06, DECN-01..03, RECV-01..02, ANSR-01..03); audit tech_debt; suite 3588/0. Not B3-measured. Known limits: 999.23 (wrong-keep shapes, D-19 hard stop), 999.24 (diff context), 999.25 ($BLOBFILE), 999.26 (wordier title references); live ref extraction unverified (D-15). Archive: `.planning/milestones/v2.13-ROADMAP.md`.
 
@@ -98,7 +91,11 @@ results + README. Backlog effects: 999.12 promoted in, 999.8 absorbed, 999.13 re
 after this milestone; gitleaks (999.2), SARIF (999.3), PR-posting (999.5) unchanged/deferred.
 Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
 
-## Current State: v2.13 shipped (2026-10-28)
+## Current State: v2.14 complete (2026-10-30), 2.14.0 release in progress
+
+**v2.14 Decision reliability is complete. Plugin 2.14.0 is signed off on candidate 47978aa, and the release PR, tag `v2.14` on origin/main and GitHub release are pending per the close runbook.** Decided findings are re-asked when their evidence changes, regardless of row order, lead, or grouping. Deferred findings dropped by `min_confidence` stay open. Nearby/in-diff evidence uses only lines actually added or deleted, on every route. Finalize survives fresh shell calls, and a failed attempt writes nothing. Known limits: the 999.23 residuals (WR-01 card wording, WR-02 note after pass 3), 999.26, 999.27, and 999.28/C1, which is the first README known limit (default-route decisions on uncommitted code are re-asked every pass). The last measured efficacy is still v2.11 (5/18 · 15/15).
+
+### Earlier: v2.13 shipped (2026-10-28)
 
 **v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Current milestone: v2.14 Decision reliability (Phases 59–61); Lean orchestration follows; Reviewer efficiency conditional.
 
@@ -343,17 +340,19 @@ crash-proofed and built the test-sufficiency agent on top of.
 - ⚠ Owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence — v2.13, with known limits (999.23 wrong-keep shapes, 999.24 over-asks)
 - ✓ Action labels match behavior; an inconclusive re-check has a clear, bounded recovery path — v2.13
 - ✓ A clear owner answer is acted on, not asked again; an unclear one gets one follow-up — v2.13 (live model extraction unverified; wordier phrasings ask, 999.26)
+- ✓ Stale decisions reopen when evidence changes, independent of row order/lead/grouping; deferred obligations survive `min_confidence` filtering — v2.14 (residuals WR-01 card wording, WR-02 note after pass 3: 999.23)
+- ✓ Nearby/in-diff evidence uses only actually changed lines on every route — v2.14 (PR route tests-only; fails closed above GitHub diff limits; uncommitted-code re-ask C1: 999.28)
+- ✓ Finalize works across fresh shell calls; a failed or refused attempt writes no report and a retry revalidates freshness — v2.14 (state-file scope trust deferred: 999.27)
+- ✓ Release gate passed with no replay differences (170 runs) and a bounded live smoke — v2.14
 
 ### Active
 
-<!-- v2.14 Decision reliability — full REQ-IDs in REQUIREMENTS.md. -->
+<!-- Next: Lean orchestration. Requirements are defined by /bm:new-milestone. -->
 
-- [ ] Stale decisions reopen with the correct reason when evidence changes; deferred obligations survive filtering (999.23)
-- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24) — Phase 60 complete 2026-10-30, ships with v2.14; known limits R6 (live PR fetch unexercised) and R17 (PRs over GitHub's diff limits fail closed, owner-accepted)
-- [ ] Finalize works across fresh shell calls (999.25) — Phase 60 complete 2026-10-30, ships with v2.14; state-file scope trust deferred as 999.27
-- [ ] Release gate passes with only named replay differences
+- [ ] Finalize mechanical steps extracted to helpers with equivalent gate decisions and reports (Lean orchestration)
+- [ ] Cost visibility feasibility from existing records, or an explicit no-go (999.12)
 
-(v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
+(v2.14 and v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
 
 Deferred to a later milestone: gitleaks deterministic secret-scan (999.2 — owner-deferred at
@@ -449,6 +448,10 @@ hardening (CLOSE-01 PASS, owner sign-off).
 | v2.13 (D-19/D-22): hard stop Phase 57 after four structural rounds; carry remaining wrong-keeps as 999.23 | Each "root fix" round moved the pooling gap to the next unpooled path; diminishing returns | ⚠️ Revisit — 999.23 shapes can silently keep a decided finding; a fix must merge at carry_state's per-hash read |
 | v2.13 (D-23): roll back the best-unique title matcher; strict all-words match, else ask | The looser matcher misdirected a dismissal in review | ✓ Good — fails safe; wordier phrasings ask (999.26) |
 | v2.13: one branch and one PR per phase | Smaller reviewable units than one milestone branch | ✓ Good — three clean squash merges |
+| v2.14: no growth per round; add work only for the four qualifying classes (gate failure, data loss, silent finding loss, broken required workflow) | Phase 57 ran four open-ended rounds; bound each round | ✓ Good — Phase 60 took three gap rounds, each tied to a reproduced FINL-02 failure; everything else was carried |
+| v2.14: park Phase 59 WR-01 (card wording) and WR-02 (note after pass 3) to 999.23 under the STALE-06 one-cycle stop | Both fail toward asking and lose no finding | — Pending — reopen with the 999.23 follow-up |
+| v2.14 Decision 1 = B: state C1 (uncommitted-code re-ask) in the README and re-gate a README-only candidate (47978aa) | The README made positive claims that C1 contradicts | ✓ Good — plugins/ byte-identical, G1–G9 re-run PASS |
+| v2.14: tag origin/main after the squash merge and a tree-identity check, never the branch tip | A squash merge leaves the branch commit off main's ancestry | — Pending — runbook steps 5–6 |
 
 ## Evolution
 
@@ -468,4 +471,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-30 after Phase 61 (release gate — decision reliability)*
+*Last updated: 2026-10-30 after v2.14 milestone (archived; 2.14.0 release in progress)*

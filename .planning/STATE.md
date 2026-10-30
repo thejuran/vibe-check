@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: phase_complete
-stopped_at: Phase 61 complete — owner re-signed candidate 47978aa (Decision 1 = B); next: Phase 61 PR to main, then milestone close via 61-CLOSE-RUNBOOK.md
-last_updated: "2026-10-30T22:49:46.000Z"
-last_activity: "2026-10-30 -- Phase 61 verified (passed) and owner re-signed 2.14.0 candidate 47978aa; nothing published"
+status: "v2.14 complete and archived; 2.14.0 release in progress (unpublished)"
+stopped_at: "Milestone v2.14 archived (audit tech_debt 16/16); next: 61-CLOSE-RUNBOOK.md steps 2-10 (freshness, release PR, owner OK, merge, tag origin/main, GitHub release, install update)"
+last_updated: "2026-10-30T23:55:00Z"
+last_activity: 2026-10-30 -- v2.14 audited (tech_debt, 16/16) and archived to milestones/; 2.14.0 not yet published
 progress:
   total_phases: 3
   completed_phases: 3
@@ -18,45 +18,40 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-28)
+See: .planning/PROJECT.md (updated 2026-10-30)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 61: release-gate-decision-reliability
+**Current focus:** 2.14.0 release per 61-CLOSE-RUNBOOK.md; Lean orchestration next via /bm:new-milestone
 
 ## Current Position
 
-Phase: 61 (release-gate-decision-reliability) — VERIFYING (all 5 plans done; re-gated on C2; awaiting re-sign; not published)
+Phase: 61 (release-gate-decision-reliability) — COMPLETE; milestone archived; release in progress
 Plan: 5 of 5
-Status: Phase 61 awaiting owner re-sign on candidate C2 47978aa (Decision 1 switched A -> B, owner 2026-10-30); then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md
-Last activity: 2026-10-30 -- Phase 61 option B: README-only candidate C2 47978aa supersedes 0d2be77 (plugins/ byte-identical); G1-G9 re-run PASS; live smoke carried over; nothing published
+Status: v2.14 complete and archived; 2.14.0 release in progress (not published)
+Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, flows 5/5); archived to .planning/milestones/v2.14-*; no tag made
 
 ## Operator Next Steps
 
-- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Re-verification round 2 (60-VERIFICATION.md, review e90c6a7) = gaps_found 5/6: CR-01 and the stale-GATEFILE re-run are closed; two new blocking FINL-02 gaps from the round-2 review — WR-01 (step-3 recount reuses the pre-card BLOBFILE, so a mid-card edit can let a stale fix verdict close a finding and Finalize writes APPROVED) and WR-02 (head_sha bind fence runs on --finalize and can wedge it with no remedy). Third gap round 60-14..60-16 executed 2026-10-30 (WR-01 green 9b3f055, WR-02 green 07bb448; 60-REPRO.md V15-V16, R22-R26 carried; full suite 3821 passed at cef9a1e). EVID-03 marked Complete. Re-verification round 3 = human_needed 6/6; 60-HUMAN-UAT.md 3/3 on 2026-10-30 (R16 live Write-tool check passed; R17 PR size limit accepted as a known limit; R25 status quo accepted, hardening deferred as 999.27). Phase 60 COMPLETE; FINL-02 Complete. Next: Phase 60 PR (merge feat/v2.14-phase-60, delete branch), then Phase 61.
-- Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R17 PR-size fail-closed limit (owner-accepted), R5 install resync before any manual check, replay deltas none.
-- Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
-- Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
-- Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
-- Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
+- Run 61-CLOSE-RUNBOOK.md (now at .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/) steps 2-4: freshness assert, Dependabot note, push + open release PR; merge only on the owner's OK
+- Then steps 5-10: tree-identity check, tag v2.14 on origin/main, GitHub release, remote check, plugin update + relaunch, branch cleanup; flip ROADMAP/STATE to shipped and mark GATE-03 "ships" in milestones/v2.14-REQUIREMENTS.md
+- After 2.14.0 ships: /bm:new-milestone for Lean orchestration
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-10-28:
+Items acknowledged and deferred at milestone close on 2026-10-30. All were deferred earlier by the owner and are carried, not re-decided:
 
 | Category | Item | Status |
 |----------|------|--------|
-| debug | dryrun-replace-retired-ignored | awaiting_human_verify (v2.12 holdout kit) |
-| debug | finder-check-blocked-sandbox | awaiting_human_verify (v2.12 holdout kit) |
-| debug | role-session-shared-tmp-leak | awaiting_human_verify (v2.12 holdout kit) |
-| uat_gap | Phase 58 58-HUMAN-UAT.md | partial — live plain-English answer scenario pending (D-15) |
-| verification_gap | Phase 57 57-VERIFICATION.md | gaps_found, non-blocking — SC-3 tracked as 999.24 |
-| verification_gap | Phase 58 58-VERIFICATION.md | human_needed — owner-approved |
+| debug | dryrun-replace-retired-ignored | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
+| debug | finder-check-blocked-sandbox | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
+| debug | role-session-shared-tmp-leak | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
+| verification_gap | Phase 59 59-VERIFICATION.md | gaps_found, non-blocking; WR-01/WR-02 owner-parked to 999.23 (2026-10-29) |
 
 Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Active milestone | 999.23–999.25 v2.13 known limits | v2.14 Phases 59 (999.23) and 60 (999.24–999.25); reproduce first |
+| Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.28 | Carried from v2.14; reproduce first |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |

@@ -78,7 +78,7 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 | EVID-02 | Phase 60 | Complete |
 | EVID-03 | Phase 60 | Complete (re-verified 2026-10-30, 60-VERIFICATION.md truth 3; gap closure 60-06, 60-07, 60-10, 60-11) |
 | FINL-01 | Phase 60 | Complete |
-| FINL-02 | Phase 60 | Gap closure landed (60-08: c0ece7e; second round 60-12: c112ca6; third round 60-14, 60-15: 9b3f055, 07bb448); awaiting re-verification |
+| FINL-02 | Phase 60 | Complete (re-verified 2026-10-30, 60-VERIFICATION.md passed 6/6; gap closure 60-08, 60-12, 60-14, 60-15) |
 | GATE-01 | Phase 61 | Complete on candidate 47978aa (option-B regate: G1 3821 / G2 193 / G3 520 passed; first run on superseded 0d2be77); re-run required if the candidate changes |
 | GATE-02 | Phase 61 | Complete on candidate 47978aa (option-B regate: replay vs v2.13 170 runs, 0 differing, no allowances; REGRESSED 0); re-run required if the candidate changes |
 | GATE-03 | Phase 61 | Complete through sign-off (61-05: record, notes, runbook; owner re-signed 2026-10-30 on 47978aa, Decision 1 = B (README states C1), waivers re-confirmed); the "ships" clause is pending close per 61-CLOSE-RUNBOOK.md |
