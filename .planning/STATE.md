@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T22:02:00.000Z"
-last_activity: 2026-10-30 -- Phase 61 plan 03 complete (gates G1-G9 PASS on candidate 0d2be77)
+last_updated: "2026-10-30T22:19:59.095Z"
+last_activity: 2026-10-30 -- Phase 61 plan 04 complete (live smoke PASS on candidate 0d2be77)
 progress:
   total_phases: 3
   completed_phases: 2
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 61 (release-gate-decision-reliability) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Executing Phase 61
-Last activity: 2026-10-30 -- Phase 61 plan 03 complete (gates G1-G9 PASS on candidate 0d2be77)
+Last activity: 2026-10-30 -- Phase 61 plan 04 complete (live smoke PASS on candidate 0d2be77)
 
 ## Operator Next Steps
 
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 plan 04 complete (0866858 setup, 5784b37 result). Live smoke of candidate 0d2be77 = PASS (61-LIVE-SMOKE.md): S1 review+defer, S2 re-asked after a nearby edit with "code next to it changed since your decision on pass 1", S3 --finalize carried the printed BLOBFILE=/GATEFILE= paths and wrote .turingmind/REVIEW.md (no "Finalize stopped"); provenance 100% snapshot; installed 2.13.0 cache restored (empty diff), snapshot removed. Carried D-07 C1 (owner-relevant, raise at 61-05 sign-off): on the default route a decision on uncommitted code is re-asked every pass with no change (pass>=2 ranges = git diff HEAD until a commit), card wording claims a nearby change. C2-C5 minor. GATE-03 stays Pending until 61-05. Next: 61-05.
 
 2026-10-30: Phase 61 plan 02 complete (81069b0 proposal, a638f34 ruling). 61-LIVE-SMOKE-PROPOSAL.md reads `Status: APPROVED (owner, 2026-10-30)`: the owner's own AskUserQuestion selection "Approve (Recommended)" in the main session, no added conditions. Scope: three tmux sessions on candidate 0d2be77 (review + defer, nearby edit, re-review, --finalize), default route + Close out only, est. $20-30 (not a cap); a qualifying failure uses the one fix round (D-05), still failing = 2.14.0 does not ship. Nothing paid ran. GATE-03 stays Pending until 61-04 runs the smoke. Next: 61-03 (wave 2).
 

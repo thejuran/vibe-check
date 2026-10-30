@@ -35,7 +35,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
 | 60. Exact change evidence and reliable Finalize | 16/16 | Complete    | 2026-10-30 |
-| 61. Release gate — decision reliability | 3/5 | In Progress|  |
+| 61. Release gate — decision reliability | 4/5 | In Progress|  |
 
 ## Phase Details
 
@@ -146,7 +146,7 @@ Plans:
   2. Archived replay differs only in the named, expected reopen/retention repairs; any unrelated change in detection, filtering or closure blocks release
   3. The release record states unsupported fixtures, residuals and any validation gap explicitly; live checks ran only under an approved bounded proposal, otherwise the gap is documented with an owner waiver, and the milestone ships through the existing close workflow
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -157,7 +157,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 61-03-PLAN.md — Gates G1-G9 on C: full suite, real-chain and mode/recovery selectors, archived replay vs 2.13 (no allowances), D-03 live PR fetch, manifest, stdlib scan; D-11 route map
-- [ ] 61-04-PLAN.md — Live smoke on a sealed snapshot of C (default route + --finalize, tmux, cache parity, restored after) — or NOT RUN gap for waiver
+- [x] 61-04-PLAN.md — Live smoke on a sealed snapshot of C (default route + --finalize, tmux, cache parity, restored after) — or NOT RUN gap for waiver
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
