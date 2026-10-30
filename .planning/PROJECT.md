@@ -347,8 +347,8 @@ crash-proofed and built the test-sufficiency agent on top of.
 <!-- v2.14 Decision reliability — full REQ-IDs in REQUIREMENTS.md. -->
 
 - [ ] Stale decisions reopen with the correct reason when evidence changes; deferred obligations survive filtering (999.23)
-- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24)
-- [ ] Finalize works across fresh shell calls (999.25)
+- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24) — Phase 60 complete 2026-10-30, ships with v2.14; known limits R6 (live PR fetch unexercised) and R17 (PRs over GitHub's diff limits fail closed, owner-accepted)
+- [ ] Finalize works across fresh shell calls (999.25) — Phase 60 complete 2026-10-30, ships with v2.14; state-file scope trust deferred as 999.27
 - [ ] Release gate passes with only named replay differences
 
 (v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
@@ -466,4 +466,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-29 after Phase 59 (stale decisions and lost deferrals)*
+*Last updated: 2026-10-30 after Phase 60 (exact change evidence and reliable Finalize)*

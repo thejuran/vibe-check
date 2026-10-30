@@ -1,7 +1,8 @@
 ---
 phase: 60-exact-change-evidence-and-reliable-finalize
 verified: 2026-10-30T20:40:00Z
-status: human_needed
+status: passed
+human_verification_resolved: 2026-10-30 (60-HUMAN-UAT.md 3/3 — R16 live-checked pass; R17 accepted limit; R25 deferred to 999.27)
 score: 6/6 must-haves verified
 has_blocking_gaps: false
 overrides_applied: 0
@@ -28,7 +29,7 @@ human_verification:
 
 **Phase Goal:** The nearby window is exactly what the decision rules say on every review route, and Finalize either completes from a fresh shell or stops safely without writing (999.24, 999.25)
 **Verified:** 2026-10-30
-**Status:** human_needed
+**Status:** passed (human items resolved 2026-10-30 in 60-HUMAN-UAT.md: R16 Write-tool live check passed; R17 accepted as a known limit; R25 status quo accepted, hardening deferred to backlog 999.27)
 **Re-verification:** Yes — after the THIRD gap-closure round (plans 60-14, 60-15, 60-16), re-verifying against the 2 blocking gaps found at the prior re-verification (`2de0fc9`), plus the third round's own code review (`60-REVIEW.md`, commit `af37636`)
 
 ## Goal Achievement

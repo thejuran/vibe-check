@@ -34,7 +34,7 @@
 ### Reliable Finalize (FINL) — 999.25
 
 - [x] **FINL-01**: Finalize's blob-file path is printed and reused literally, so a fresh-shell walk through every fence reaches counts → gate → report with a valid path
-- [ ] **FINL-02**: When the path is missing or a step fails or is refused, that attempt stops safely and writes no final report; a later successful retry may complete after revalidating snapshot freshness. The no-write-on-failure behavior and independent fix verification are not weakened
+- [x] **FINL-02**: When the path is missing or a step fails or is refused, that attempt stops safely and writes no final report; a later successful retry may complete after revalidating snapshot freshness. The no-write-on-failure behavior and independent fix verification are not weakened
 
 ### Release gate (GATE)
 
