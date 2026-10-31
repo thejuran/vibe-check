@@ -694,10 +694,10 @@ _MUTANTS = {
             "    out[\"probe\"] = 1\n    return _sanitize_nonfinite(out)\n"),
     # Member records carry no orchestrator_score (_MEMBER_EXCLUDED_KEYS), so the
     # member-only mutant shifts each member record's own line in the group loop.
-    "member": ("                    changed_line_ranges)\n"
+    "member": ("                    stamp_ranges)\n"
                "            members.append(ref)\n"
                "            kept_by_ident[ident] = ref\n",
-               "                    changed_line_ranges)\n"
+               "                    stamp_ranges)\n"
                "            ref[\"line\"] = (ref[\"line\"] or 0) + 1\n"
                "            members.append(ref)\n"
                "            kept_by_ident[ident] = ref\n"),
