@@ -33,7 +33,6 @@ sys.path.insert(0, SCRIPTS_DIR)
 import carry_state  # noqa: E402
 import gitfixture  # noqa: E402
 import gitsnap  # noqa: E402
-import score  # noqa: E402
 import state_shape  # noqa: E402
 import test_decision_continuity as tdc  # noqa: E402
 import test_diff_ranges as tdr  # noqa: E402
@@ -43,6 +42,21 @@ PLUGIN_ROOT = os.path.dirname(SCRIPTS_DIR)
 PERSIST_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "45-persist.md")
 SCHEMA = os.path.join(SCRIPTS_DIR, "fixtures", "future-schema.json")
 COLLECT_CALL = 'worktree_snap.py" collect'
+TRIAGE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "10-triage.md")
+TAKE_CALL = 'worktree_snap.py" take'
+TAKE_RANGE = 'take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --range'
+TAKE_PR = 'take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --pr-head'
+PR_BIND = "PR_HEAD=$(gh pr view"
+
+
+def _triage_text():
+    with open(TRIAGE_MD, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _scope_text():
+    with open(tdr.SCOPE_MD, encoding="utf-8") as fh:
+        return fh.read()
 NEARBY_TEXT = "code next to it changed since your decision on pass 1"
 BLOCK = range(35, 46)  # the uncommitted block; the finding sits at 40
 TITLE = "SQL injection"
@@ -85,6 +99,8 @@ class _Chain(tdc._RealChain):
                              "30-collect-score.md has no worktree_snap fence")
         with open(tdr.STATE_MD, encoding="utf-8") as fh:
             self.bind_fence = tdr._fence_holding(fh.read(), tdr.HEAD_SHA_CALL)
+        # Phase 1's pre-dispatch call (None on code that predates it).
+        self.take_fence = tdr._fence_holding(_triage_text(), TAKE_CALL)
 
     # -- the prose fences ------------------------------------------------- #
     def ranges(self, row, placeholder=None, value=None):
@@ -97,7 +113,14 @@ class _Chain(tdc._RealChain):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
-    def collect(self, state_path):
+    def collect(self, state_path, between=None):
+        """Phase 1's take (before the reviewers), `between` (what happens
+        while they run), then Phase 3's collect."""
+        if self.take_fence is not None:
+            proc = _bash(self.take_fence, self.repo.repo, {})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        if between is not None:
+            between()
         proc = _bash(self.collect_fence, self.repo.repo,
                      {"STATE_FILE": state_path})
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -296,6 +319,43 @@ class TestFallsBackTowardAsking(_Chain):
         self.assertFalse(os.path.exists(marker))
 
 
+class TestMidPassEditDefault(_Chain):
+    """Deep-review WR (cc5c92a): the tree must be the one the reviewers
+    read. An edit near the finding after Phase 1's snapshot and before
+    Phase 3's collect must not be recorded as reviewed, so pass 2 (with no
+    further change) re-asks instead of keeping the decision."""
+
+    def test_edit_during_pass_one_reasks_on_pass_two(self):
+        self.L0 = tdc.base_file()
+        self.repo = tdc.RealDiffRepo.make(self, self.L0)
+        self.L1 = _uncommitted(self.L0)
+        self.repo.write(self.L1)
+        head = self.repo.git("rev-parse", "HEAD").stdout.strip()
+        r1 = self.ranges("default")
+        L1b = list(self.L1)
+        L1b[36] = "uncommitted_37 = guard_removed_mid_pass"
+        tree, _ = self.collect(os.path.join(self.repo.repo, "absent"),
+                               between=lambda: self.repo.write(L1b))
+        s1, res = tdc.run_pass(tdc.empty_state(), L1b, [self.finding(L1b)], 1, r1)
+        self.h = res["findings"][0]["stable_hash"]
+        s1 = tdc.decide_on(s1, self.h, kind="defer", reason="later")
+        self.s1, self.state_path = self.persist(s1, head, tree)
+        self.L1 = L1b
+        s2, _, _, nearby = self.pass2(L1b)
+        self.assert_reopens(s2, self.h, 40)
+        self.assertEqual((tree, nearby), ("", ""))
+
+    def test_no_edit_during_pass_records_the_tree(self):
+        self.pass1()
+        self.assertIn("reviewed_tree", self.s1["passes"][-1])
+
+    def test_collect_without_take_records_nothing(self):
+        self.pass1()
+        self.take_fence = None
+        tree, _ = self.collect(self.state_path)
+        self.assertEqual(tree, "")
+
+
 class TestRepoUntouched(_Chain):
     """The snapshot writes nothing to `.git`: no object, ref or index."""
 
@@ -327,6 +387,24 @@ class TestRepoUntouched(_Chain):
         self.assertNotEqual(
             gitfixture.git(self.repo.repo, "cat-file", "-t", tree,
                            check=False).returncode, 0)
+
+
+class TestSplitIndexRepo(_Chain):
+    """A repo with `core.splitIndex=true`: the temporary index must never
+    add or expire a `sharedindex.*` file in the git dir."""
+
+    def test_split_index_repo_git_dir_unchanged(self):
+        self.L0 = tdc.base_file()
+        self.repo = tdc.RealDiffRepo.make(self, self.L0)
+        self.repo.git("config", "core.splitIndex", "true")
+        self.repo.git("update-index", "--split-index")
+        self.repo.write(_uncommitted(self.L0))
+        git_dir = os.path.join(self.repo.repo, ".git")
+        before = sorted(os.listdir(git_dir))
+        self.assertTrue(any(n.startswith("sharedindex.") for n in before))
+        tree, _ = self.collect(os.path.join(self.repo.repo, "absent"))
+        self.assertRegex(tree, r"^[0-9a-f]{40}$")
+        self.assertEqual(sorted(os.listdir(git_dir)), before)
 
 
 class TestScorerInput(tdc._RealChain):
@@ -387,9 +465,12 @@ class TestScorerStampSites(tdc._Base):
 
     def _sidecar(self, over):
         L0 = tdc.base_file()
-        a = lambda L: tdc.fresh("bugs", 10, L, tdc.TITLE_A, conf=tdc.STABLE_CONF)
-        b = lambda L: tdc.fresh("security", 12, L, "Injection at B", conf=95,
-                                severity="critical", category="injection")
+        def a(L):
+            return tdc.fresh("bugs", 10, L, tdc.TITLE_A, conf=tdc.STABLE_CONF)
+
+        def b(L):
+            return tdc.fresh("security", 12, L, "Injection at B", conf=95,
+                             severity="critical", category="injection")
         s1, r1 = tdc.run_pass(tdc.empty_state(), L0, [a(L0)], 1, {F: [[1, 200]]})
         hA = r1["findings"][0]["stable_hash"]
         s1 = tdc.decide_on(s1, hA)
@@ -447,6 +528,11 @@ class _CommittedChain(tdc._RealChain):
         self.assertIsNotNone(self.collect_fence,
                              "30-collect-score.md has no %s collect fence"
                              % self.ROUTE)
+        # Phase 0's PR head bind and Phase 1's take (None on older code).
+        self.take_fence = tdr._fence_holding(
+            _triage_text(), TAKE_RANGE if self.ROUTE == "range" else TAKE_PR)
+        self.pr_bind = (tdr._fence_holding(_scope_text(), PR_BIND)
+                        if self.ROUTE == "PR" else None)
         self.L0 = tdc.base_file()
         self.repo = tdc.RealDiffRepo.make(self, self.L0)
         self.L1 = _block(self.L0, "committed")
@@ -481,7 +567,7 @@ class _CommittedChain(tdc._RealChain):
 
     def fill(self, fence):
         if self.ROUTE == "range":
-            return fence.replace("<range>", "%s..%s" % (self.repo.base, self.end))
+            return fence.replace("<range>", "%s..HEAD" % self.repo.base)
         return fence.replace("<ref>", "7")
 
     def ranges(self, state_path):
@@ -491,7 +577,21 @@ class _CommittedChain(tdc._RealChain):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
-    def collect(self, state_path):
+    def collect(self, state_path, between=None):
+        """Phase 0's PR head bind, Phase 1's take (before the reviewers),
+        `between` (what happens while they run), then Phase 3's collect."""
+        pr_head = ""
+        if self.pr_bind is not None:
+            proc = _bash(self.fill(self.pr_bind), self.repo.repo,
+                         self.env(state_path))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            pr_head = _printed(proc.stdout, "PR_HEAD")
+        if self.take_fence is not None:
+            proc = _bash(self.fill(self.take_fence).replace("<PR_HEAD>", pr_head),
+                         self.repo.repo, self.env(state_path))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        if between is not None:
+            between()
         proc = _bash(self.fill(self.collect_fence), self.repo.repo,
                      self.env(state_path))
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -625,17 +725,44 @@ class _CommittedCases:
         self.assert_reopens(s2, self.h, 40)
 
 
-class TestRangeRoute(_CommittedCases, _CommittedChain):
+class _MidPassCases:
+    """Deep-review WR (cc5c92a): a commit or push near the finding while
+    the reviewers run must not be recorded as reviewed."""
+
+    def test_change_during_pass_one_reasks_on_pass_two(self):
+        if self.ROUTE == "PR":
+            self.publish(self.end)
+        absent = os.path.join(self.repo.repo, "absent")
+        r1 = self.ranges(absent)
+        L1b = list(self.L1)
+        L1b[36] = "committed_37 = guard_removed_mid_pass"
+        tree, _ = self.collect(absent, between=lambda: self.move_end(L1b))
+        s1, res = tdc.run_pass(tdc.empty_state(), L1b, [self.finding(L1b)], 1, r1)
+        self.h = res["findings"][0]["stable_hash"]
+        s1 = tdc.decide_on(s1, self.h, kind="defer", reason="later")
+        s1["passes"][-1]["head_sha"] = self.end
+        if tree:
+            s1["passes"][-1]["reviewed_tree"] = tree
+        self.s1 = s1
+        self.state_path = os.path.join(os.path.dirname(self.repo.repo),
+                                       "state.json")
+        self.save()
+        s2, _, _, nearby, _ = self.pass2(L1b)
+        self.assert_reopens(s2, self.h, 40)
+        self.assertEqual((tree, nearby), ("", ""))
+
+
+class TestRangeRoute(_MidPassCases, _CommittedCases, _CommittedChain):
     ROUTE = "range"
 
     def test_range_end_is_resolved_not_trusted(self):
         self.pass1()
-        self.end = "--output=/tmp/x"
-        _, nearby = self.collect(self.state_path)
-        self.assertEqual(nearby, "")
+        self.fill = lambda fence: fence.replace("<range>", "a..--output=/tmp/x")
+        tree, nearby = self.collect(self.state_path)
+        self.assertEqual((tree, nearby), ("", ""))
 
 
-class TestPRRoute(_CommittedCases, _CommittedChain):
+class TestPRRoute(_MidPassCases, _CommittedCases, _CommittedChain):
     ROUTE = "PR"
 
     def test_unchanged_head_not_local_keeps(self):

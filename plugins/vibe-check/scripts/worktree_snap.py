@@ -9,11 +9,23 @@ ranges on every pass, and score.py stamped every owner decision inside it as
 the persisted re-check trigger); the decision stamp needs a second input: the
 lines that changed since the working tree the last pass reviewed.
 
-`collect` does both halves in one call and prints exactly two lines:
+Two calls per pass:
 
-    REVIEWED_TREE=<object id>      what this pass reviews, or empty
+- `take`, BEFORE any reviewer runs (Phase 1 next to the git-safety snapshot;
+  on the PR route in Phase 0, before the reviewed diff is fetched), writes
+  what this pass is about to review to `--out` (`{"route", "id"}`) and prints
+  `REVIEWED_TREE_BEFORE=<id>` (informational).
+- `collect`, at Phase 3, consumes that file and prints exactly two lines:
+
+    REVIEWED_TREE=<object id>      what this pass reviewed, or empty
     NEARBY_LINE_RANGES=<json>      lines changed since what the last pass
                                    reviewed, or empty when that is unknown
+
+  REVIEWED_TREE is the pre-dispatch id, and only while the code is still the
+  same at collect time. If the working tree, range end or PR head moved
+  during the pass, it is empty: recording the newer state would tell the next
+  pass "nothing changed" about code the reviewers never read (fail-open). An
+  empty value makes the next pass stamp from changed_line_ranges (re-asks).
 
 What "reviewed" means depends on the route (the PR and range routes had the
 same defect on committed code: their range source is the same fixed diff on
@@ -35,8 +47,15 @@ on the same branch state (they share the state file) is diffed the same way.
   and unstaged edits; untracked files are out of scope, as they are for
   `git diff HEAD`). It is built with a temporary index and written to a
   vibe-check-owned object store, `.turingmind/worktree-snap/objects`, whose
-  alternate is the repo's own object store. Nothing is written to `.git`: no
-  object, no ref, no index, and the real index file is only read.
+  alternate is the repo's own object store. vibe-check writes nothing to
+  `.git`: no object, ref or index (the temporary index lives in the store and
+  is never split, `core.splitIndex=false`), and the real index file is only
+  read. One exception is outside its control: `git add` runs the repo's
+  configured clean filters, as `git diff` against the working tree already
+  does. Filters cannot be switched off as a whole (only per driver, and
+  turning them off would make filtered files always differ), so a clean
+  filter such as Git LFS may store content in its own area (`.git/lfs/`)
+  exactly as it would for an ordinary `git add`.
 - The prior tree id is the last pass's `reviewed_tree` in the state file. It
   is passed to git only when it is a 40- or 64-hex id that names a tree in the
   store. The ranges come from ONE `git diff <prior tree>` (working tree vs that
@@ -50,8 +69,10 @@ on the same branch state (they share the state file) is diffed the same way.
 
 CLI:
 
-    python3 worktree_snap.py collect --root <repo top> [--state <state file>]
+    python3 worktree_snap.py take --root <repo top> --out <file>
         [--range <range> | --pr-head <sha>]
+    python3 worktree_snap.py collect --root <repo top> [--state <state file>]
+        --before <file> [--range <range> | --pr-head <sha>]
 """
 
 import json
@@ -71,8 +92,13 @@ OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 DIFF_FLAGS = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
               "--src-prefix=a/", "--dst-prefix=b/")
 GIT_TIMEOUT = 120
-USAGE = ("usage: worktree_snap.py collect --root <repo top> "
-         "[--state <state file>] [--range <range> | --pr-head <sha>]\n")
+# The temporary index is a plain, self-contained file: never split, so no
+# sharedindex.* file is written into (or expired out of) the git dir.
+TEMP_INDEX_CFG = ("-c", "core.splitIndex=false")
+USAGE = ("usage: worktree_snap.py take --root <repo top> --out <file> "
+         "[--range <range> | --pr-head <sha>]\n"
+         "       worktree_snap.py collect --root <repo top> [--state <state file>] "
+         "--before <file> [--range <range> | --pr-head <sha>]\n")
 
 
 class SnapUnavailable(Exception):
@@ -127,9 +153,9 @@ def take(root):
         if os.path.isfile(real):
             shutil.copyfile(real, idx)
         else:
-            _git(root, ["read-tree", "HEAD"], env=env)
-        _git(root, ["add", "-u", "--", "."], env=env)
-        tree = _git(root, ["write-tree"], env=env).strip()
+            _git(root, [*TEMP_INDEX_CFG, "read-tree", "HEAD"], env=env)
+        _git(root, [*TEMP_INDEX_CFG, "add", "-u", "--", "."], env=env)
+        tree = _git(root, [*TEMP_INDEX_CFG, "write-tree"], env=env).strip()
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if not OBJECT_ID_RE.match(tree):
@@ -211,52 +237,134 @@ def _current(root, rng=None, pr_head=None):
     return take(root)
 
 
-def collect(root, state_path, rng=None, pr_head=None):
-    """(reviewed id or "", nearby ranges JSON or "", notes)."""
+def _route(rng, pr_head):
+    if rng is not None:
+        return "range"
+    if pr_head is not None:
+        return "pr"
+    return "worktree"
+
+
+def take_before(root, out_path, rng=None, pr_head=None):
+    """Pre-dispatch half: record what this pass is about to review in
+    `out_path` as {"route", "id"} -> (id or "", notes). Any stale file is
+    removed first, so a failure leaves no file and the pass records nothing."""
     notes = []
+    try:
+        os.remove(out_path)
+    except FileNotFoundError:
+        pass
+    try:
+        current = _current(root, rng, pr_head)
+    except (SnapUnavailable, OSError) as exc:
+        notes.append("reviewed tree not taken: %s" % exc)
+        return "", notes
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    tmp = out_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"route": _route(rng, pr_head), "id": current}, fh)
+    os.replace(tmp, out_path)
+    return current, notes
+
+
+def _read_before(path, route):
+    """The pre-dispatch id for `route`, consuming the file (a later pass can
+    never reuse it). None when absent, unreadable, or for another route."""
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if (not isinstance(data, dict) or data.get("route") != route
+            or not isinstance(data.get("id"), str)
+            or not OBJECT_ID_RE.match(data["id"])):
+        return None
+    return data["id"]
+
+
+def collect(root, state_path, rng=None, pr_head=None, before_path=None):
+    """Collect-time half -> (reviewed id or "", nearby ranges JSON or "",
+    notes).
+
+    The reviewed id is the one `take` recorded BEFORE the reviewers ran, and
+    only while what is there now is still the same: the same working tree,
+    range end or PR head. If it moved during the pass (an edit, a commit, a
+    push), the reviewers may have read the older code, so nothing is recorded:
+    the next pass then has no prior id and stamps from changed_line_ranges,
+    which can only re-ask. Recording the newer id instead would let the next
+    pass see "nothing changed" for code the reviewers never saw (fail-open).
+    The nearby ranges compare the PRIOR pass's id with what is there now."""
+    notes = []
+    route = _route(rng, pr_head)
     try:
         current = _current(root, rng, pr_head)
     except (SnapUnavailable, OSError) as exc:
         current = None
-        notes.append("reviewed tree not recorded: %s" % exc)
-    worktree = rng is None and pr_head is None
+        notes.append("current tree unknown: %s" % exc)
+    before = _read_before(before_path, route)
+    if before is None:
+        reviewed = ""
+        notes.append("reviewed tree not recorded: no pre-dispatch snapshot")
+    elif before != current:
+        reviewed = ""
+        notes.append("reviewed tree not recorded: the code changed during "
+                     "this pass")
+    else:
+        reviewed = before
     try:
-        if current is None and not worktree:
-            raise SnapUnavailable("this pass's reviewed id is unknown")
+        if current is None:
+            raise SnapUnavailable("this pass's tree is unknown")
         nearby = json.dumps(
-            since(root, prior_tree(state_path), None if worktree else current),
+            since(root, prior_tree(state_path),
+                  None if route == "worktree" else current),
             separators=(",", ":"), sort_keys=True)
     except (SnapUnavailable, OSError) as exc:
         nearby = ""
         notes.append("nearby ranges unavailable: %s" % exc)
-    return current or "", nearby, notes
+    return reviewed, nearby, notes
 
 
 def run(argv):
-    if not argv or argv[0] != "collect":
+    if not argv or argv[0] not in ("take", "collect"):
         sys.stderr.write(USAGE)
         return 2
+    cmd = argv[0]
     opts = {}
     rest = argv[1:]
+    known = ("--root", "--state", "--range", "--pr-head", "--before", "--out")
     while rest:
-        if rest[0] in ("--root", "--state", "--range", "--pr-head") and len(rest) >= 2:
+        if rest[0] in known and len(rest) >= 2:
             opts[rest[0]] = rest[1]
             rest = rest[2:]
         else:
             sys.stderr.write(USAGE)
             return 2
     root = opts.get("--root")
-    if not root or not os.path.isdir(root):
+    if (not root or not os.path.isdir(root)
+            or ("--range" in opts and "--pr-head" in opts)
+            or (cmd == "take" and not opts.get("--out"))):
         sys.stderr.write(USAGE)
         return 2
+    root = os.path.abspath(root)
+    if cmd == "take":
+        tree, notes = take_before(root, opts["--out"], opts.get("--range"),
+                                  opts.get("--pr-head"))
+        for note in notes:
+            sys.stderr.write(note + "\n")
+        sys.stdout.write("REVIEWED_TREE_BEFORE=%s\n" % tree)
+        return 0
     state_path = opts.get("--state")
     if state_path and not os.path.isfile(state_path):
         state_path = None  # pass 1: no state file yet
-    if "--range" in opts and "--pr-head" in opts:
-        sys.stderr.write(USAGE)
-        return 2
-    tree, nearby, notes = collect(os.path.abspath(root), state_path,
-                                  opts.get("--range"), opts.get("--pr-head"))
+    tree, nearby, notes = collect(root, state_path, opts.get("--range"),
+                                  opts.get("--pr-head"), opts.get("--before"))
     for note in notes:
         sys.stderr.write(note + "\n")
     sys.stdout.write("REVIEWED_TREE=%s\nNEARBY_LINE_RANGES=%s\n" % (tree, nearby))

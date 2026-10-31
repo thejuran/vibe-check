@@ -43,7 +43,14 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ HEAD` only (working-tree line numbers; the `--staged` view above is for reviewers and is not a range source).
    If empty and Phase 0 printed `FINALIZE_MODE=0`: print "No changes to review." and stop — except on the fix loop's Rerun after Step B committed a fix (`50-fix-loop.md`, The Rerun): every fix is a commit, so an empty working tree is expected there; do NOT stop — continue to Phase 0.5, whose incremental diff (`$LAST_REVIEWED_SHA..HEAD` + staged + unstaged) holds the fix commits, so the rerun reviews them and rechecks the carried findings. On `FINALIZE_MODE=1` (e.g. Close out after a fix loop that committed every fix), an empty diff is expected: do NOT stop — continue to Phase 0.5, because Finalize reads `$STATE_FILE`, not the diff.
 
-2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`:
+2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`. FIRST, in its own Bash call before the diff below, bind the PR head the reviewers will read (999.28; Phase 1 records it, and Phase 3 records the pass as reviewed only if the head is still this one):
+   ```bash
+   PR_HEAD=$(gh pr view <ref> --json headRefOid --jq .headRefOid) || PR_HEAD=
+   case "$PR_HEAD" in *[!0-9a-f]*) PR_HEAD= ;; esac
+   [ "${#PR_HEAD}" -eq 40 ] || [ "${#PR_HEAD}" -eq 64 ] || PR_HEAD=
+   printf 'PR_HEAD=%s\n' "$PR_HEAD"
+   ```
+   Carry the printed literal to Phase 1 (a shell variable does not survive into a separate Bash call). The fence prints only a 40- or 64-hex commit id, or nothing: the value is substituted into a later command, so anything else (an error message, a crafted `$(...)`) is dropped here, where it is bound — the same rule as `LAST_REVIEWED_SHA=` and `PHASE_START=`. Then:
    ```bash
    gh pr diff <ref> --patch
    gh pr view <ref> --json title,body,author,headRefName
