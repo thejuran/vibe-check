@@ -411,13 +411,286 @@ class TestScorerStampSites(tdc._Base):
         self.assertEqual(self._sidecar({"nearby_line_ranges": {}}), "current")
 
 
+RANGE_CALL = '--range "<range>"'
+PR_CALL = "--pr-head"
+FAKE_GH = """#!/bin/sh
+# Stand-in for `gh` (no network): `pr view ... --jq .headRefOid` prints the
+# PR head sha, `pr diff ... --color never` prints the cumulative diff.
+case "$1 $2" in
+  "pr view") [ -s "$FAKE_PR_DIR/head" ] || exit 1; cat "$FAKE_PR_DIR/head" ;;
+  "pr diff") cat "$FAKE_PR_DIR/diff" ;;
+  *) exit 2 ;;
+esac
+"""
+
+
+def _block(lines, tag):
+    out = list(lines)
+    for n in BLOCK:
+        out[n - 1] = "%s_%d = query(user_input)" % (tag, n)
+    return out
+
+
+class _CommittedChain(tdc._RealChain):
+    """PR and range routes on COMMITTED code: the block 35-45 is committed
+    on top of `base`; pass 1 reviews base..<end>, the owner defers the
+    finding at 40, and pass 2 reviews again. Every fence is read from
+    30-collect-score.md and run in a fresh `bash -s`."""
+
+    ROUTE = None  # "range" or "PR"
+
+    def setUp(self):
+        self.text = tdr._collect_text()
+        self.range_fence = tdr.prose_range_fence(self.text)
+        needle = RANGE_CALL if self.ROUTE == "range" else PR_CALL
+        self.collect_fence = tdr._fence_holding(self.text, needle)
+        self.assertIsNotNone(self.collect_fence,
+                             "30-collect-score.md has no %s collect fence"
+                             % self.ROUTE)
+        self.L0 = tdc.base_file()
+        self.repo = tdc.RealDiffRepo.make(self, self.L0)
+        self.L1 = _block(self.L0, "committed")
+        self.repo.write(self.L1)
+        self.repo.commit("work under review")
+        self.end = self.head()
+        tmp = os.path.dirname(self.repo.repo)
+        self.fake = os.path.join(tmp, "fakepr")
+        os.makedirs(os.path.join(self.fake, "bin"))
+        gh = os.path.join(self.fake, "bin", "gh")
+        with open(gh, "w", encoding="utf-8") as fh:
+            fh.write(FAKE_GH)
+        os.chmod(gh, 0o755)
+
+    def head(self):
+        return self.repo.git("rev-parse", "HEAD").stdout.strip()
+
+    def env(self, state_path):
+        return {"STATE_FILE": state_path, "FAKE_PR_DIR": self.fake,
+                "PATH": os.path.join(self.fake, "bin") + os.pathsep
+                + os.environ.get("PATH", "")}
+
+    def publish(self, head_sha, gh_head=True):
+        """What `gh` reports for the PR: head sha and cumulative diff."""
+        diff = self.repo.git("diff", "--no-color", "--src-prefix=a/",
+                             "--dst-prefix=b/", self.repo.base,
+                             head_sha).stdout
+        with open(os.path.join(self.fake, "diff"), "w", encoding="utf-8") as fh:
+            fh.write(diff)
+        with open(os.path.join(self.fake, "head"), "w", encoding="utf-8") as fh:
+            fh.write(head_sha + "\n" if gh_head else "")
+
+    def fill(self, fence):
+        if self.ROUTE == "range":
+            return fence.replace("<range>", "%s..%s" % (self.repo.base, self.end))
+        return fence.replace("<ref>", "7")
+
+    def ranges(self, state_path):
+        source = self.fill(tdr.prose_range_source(self.text, self.ROUTE))
+        proc = _bash(self.range_fence.replace("<range source>", source),
+                     self.repo.repo, self.env(state_path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def collect(self, state_path):
+        proc = _bash(self.fill(self.collect_fence), self.repo.repo,
+                     self.env(state_path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return (_printed(proc.stdout, "REVIEWED_TREE"),
+                _printed(proc.stdout, "NEARBY_LINE_RANGES"))
+
+    def finding(self, lines):
+        return tdc.fresh("security", 40, lines, TITLE, conf=75)
+
+    def pass1(self, record=True):
+        if self.ROUTE == "PR":
+            self.publish(self.end)
+        absent = os.path.join(self.repo.repo, "absent")
+        r1 = self.ranges(absent)
+        self.assertEqual(r1, {F: [[35, 45]]})
+        tree, nearby = self.collect(absent)
+        self.assertEqual(tree, self.end)
+        self.assertEqual(nearby, "")
+        s1, res = tdc.run_pass(tdc.empty_state(), self.L1,
+                               [self.finding(self.L1)], 1, r1)
+        self.h = res["findings"][0]["stable_hash"]
+        s1 = tdc.decide_on(s1, self.h, kind="defer", reason="later")
+        s1["passes"][-1]["head_sha"] = self.end
+        if record:
+            s1["passes"][-1]["reviewed_tree"] = tree
+        self.assertEqual(state_shape.check_state(
+            s1, state_shape.load_schema("future")), [])
+        self.s1 = s1
+        self.state_path = os.path.join(os.path.dirname(self.repo.repo),
+                                       "state.json")
+        self.save()
+
+    def save(self):
+        with open(self.state_path, "w", encoding="utf-8") as fh:
+            json.dump(self.s1, fh)
+
+    def move_end(self, L2, msg="new commit on the PR / range end"):
+        self.repo.write(L2)
+        self.repo.commit(msg)
+        self.end = self.head()
+        if self.ROUTE == "PR":
+            self.publish(self.end)
+
+    def pass2(self, L2, use_nearby=True):
+        changed = self.ranges(self.state_path)
+        tree, nearby = self.collect(self.state_path)
+        over = {}
+        if use_nearby and nearby:
+            over["nearby_line_ranges"] = json.loads(nearby)
+        s2, res = tdc.run_pass(self.s1, L2, [self.finding(L2)], 2, changed,
+                               decided=tdc.target_decided(self.s1), **over)
+        return s2, res, changed, nearby, tree
+
+
+class _CommittedCases:
+    """Shared cases for the PR and range routes."""
+
+    def test_old_input_reasks_unchanged_code(self):
+        """The reproduction, kept as a documenting test."""
+        self.pass1()
+        s2, _, changed, _, _ = self.pass2(self.L1, use_nearby=False)
+        self.assertEqual(changed, {F: [[35, 45]]})
+        self.assert_reopens(s2, self.h, 40)
+        self.assertIn(NEARBY_TEXT, tdc.card_text_full(s2))
+
+    def test_unchanged_keeps(self):
+        self.pass1()
+        s2, _, changed, nearby, tree = self.pass2(self.L1)
+        self.assertEqual(changed, {F: [[35, 45]]})
+        self.assertEqual(json.loads(nearby), {})
+        self.assertEqual(tree, self.end)
+        self.assert_keeps(s2, self.h, 40)
+        self.assertNotIn("code next to it changed", tdc.card_text_full(s2))
+
+    def test_new_commit_near_the_finding_reopens(self):
+        self.pass1()
+        L2 = list(self.L1)
+        L2[36] = "committed_37 = guard_removed"
+        self.move_end(L2)
+        s2, _, _, nearby, _ = self.pass2(L2)
+        self.assertEqual(json.loads(nearby), {F: [[37, 37]]})
+        self.assert_reopens(s2, self.h, 40)
+        self.assertIn(NEARBY_TEXT, tdc.card_text_full(s2))
+
+    def test_new_commit_far_from_the_finding_keeps(self):
+        self.pass1()
+        L2 = tdc._edited(self.L1, 55)
+        self.move_end(L2)
+        s2, _, _, nearby, _ = self.pass2(L2)
+        self.assertEqual(json.loads(nearby), {F: [[55, 55]]})
+        self.assert_keeps(s2, self.h, 40)
+
+    def test_moved_end_ignores_uncommitted_edits(self):
+        """The PR and range routes review commits, so an uncommitted edit
+        near the finding in the local checkout is not a change to them."""
+        self.pass1()
+        L2 = tdc._edited(self.L1, 55)
+        self.move_end(L2)
+        local = list(L2)
+        local[36] = "local_37 = uncommitted"
+        self.repo.write(local)
+        s2, _, _, nearby, _ = self.pass2(L2)
+        self.assertEqual(json.loads(nearby), {F: [[55, 55]]})
+        self.assert_keeps(s2, self.h, 40)
+
+    def test_rewritten_history_near_the_finding_reopens(self):
+        """A force-push / rebased range end: the end commit is replaced by
+        a different one whose line 43 differs."""
+        self.pass1()
+        self.repo.git("reset", "-q", "--hard", self.repo.base)
+        L2 = _block(self.L0, "committed")
+        L2[42] = "committed_43 = rewritten"
+        self.move_end(L2, "rewritten history")
+        s2, _, _, nearby, _ = self.pass2(L2)
+        self.assertEqual(json.loads(nearby), {F: [[43, 43]]})
+        self.assert_reopens(s2, self.h, 40)
+
+    def test_scores_unchanged_by_the_new_input(self):
+        self.pass1()
+        _, with_n, c1, _, _ = self.pass2(self.L1)
+        _, without, c2, _, _ = self.pass2(self.L1, use_nearby=False)
+        self.assertEqual(c1, c2)
+        self.assertEqual(
+            [(f["orchestrator_score"], f["band"]) for f in with_n["findings"]],
+            [(f["orchestrator_score"], f["band"]) for f in without["findings"]])
+
+    def test_state_without_snapshot_reasks(self):
+        self.pass1(record=False)
+        s2, _, _, nearby, _ = self.pass2(self.L1)
+        self.assertEqual(nearby, "")
+        self.assert_reopens(s2, self.h, 40)
+
+
+class TestRangeRoute(_CommittedCases, _CommittedChain):
+    ROUTE = "range"
+
+    def test_range_end_is_resolved_not_trusted(self):
+        self.pass1()
+        self.end = "--output=/tmp/x"
+        _, nearby = self.collect(self.state_path)
+        self.assertEqual(nearby, "")
+
+
+class TestPRRoute(_CommittedCases, _CommittedChain):
+    ROUTE = "PR"
+
+    def test_unchanged_head_not_local_keeps(self):
+        """An unchanged PR head needs no local objects: same id, `{}`."""
+        self.pass1()
+        ghost = "ab" * 20
+        self.s1["passes"][-1]["reviewed_tree"] = ghost
+        self.save()
+        self.publish(self.end)
+        with open(os.path.join(self.fake, "head"), "w", encoding="utf-8") as fh:
+            fh.write(ghost + "\n")
+        s2, _, _, nearby, tree = self.pass2(self.L1)
+        self.assertEqual(tree, ghost)
+        self.assertEqual(json.loads(nearby), {})
+        self.assert_keeps(s2, self.h, 40)
+
+    def test_moved_head_with_old_head_not_local_reasks(self):
+        """Toward asking: the previous head is not available locally."""
+        self.pass1()
+        self.s1["passes"][-1]["reviewed_tree"] = "cd" * 20
+        self.save()
+        s2, _, _, nearby, _ = self.pass2(self.L1)
+        self.assertEqual(nearby, "")
+        self.assert_reopens(s2, self.h, 40)
+
+    def test_gh_failure_records_nothing_and_reasks(self):
+        self.pass1()
+        self.publish(self.end, gh_head=False)
+        s2, _, _, nearby, tree = self.pass2(self.L1)
+        self.assertEqual((tree, nearby), ("", ""))
+        self.assert_reopens(s2, self.h, 40)
+
+    def test_crafted_pr_head_never_reaches_git(self):
+        self.pass1()
+        marker = os.path.join(os.path.dirname(self.repo.repo), "pwned")
+        with open(os.path.join(self.fake, "head"), "w", encoding="utf-8") as fh:
+            fh.write("$(touch %s)\n" % marker)
+        tree, nearby = self.collect(self.state_path)
+        self.assertEqual((tree, nearby), ("", ""))
+        self.assertFalse(os.path.exists(marker))
+
+
 class TestProse(unittest.TestCase):
 
     def test_collect_fence_is_one_call_with_state_file(self):
-        fence = tdr._fence_holding(tdr._collect_text(), COLLECT_CALL)
-        self.assertIsNotNone(fence)
-        self.assertIn('--state "$STATE_FILE"', fence)
-        self.assertIn('--root "$GREPO"', fence)
+        text = tdr._collect_text()
+        fences = [tdr._fence_holding(text, n)
+                  for n in (COLLECT_CALL, RANGE_CALL, PR_CALL)]
+        self.assertEqual(len({f for f in fences if f}), 3, fences)
+        for fence in fences:
+            self.assertEqual(fence.count('worktree_snap.py" collect'), 1)
+            self.assertIn('--state "$STATE_FILE"', fence)
+            self.assertIn('--root "$GREPO"', fence)
+        self.assertNotIn("--range", fences[0])
+        self.assertNotIn("--pr-head", fences[0])
 
     def test_persist_names_reviewed_tree(self):
         with open(PERSIST_MD, encoding="utf-8") as fh:

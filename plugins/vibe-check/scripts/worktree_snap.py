@@ -11,9 +11,25 @@ lines that changed since the working tree the last pass reviewed.
 
 `collect` does both halves in one call and prints exactly two lines:
 
-    REVIEWED_TREE=<tree id>        the working tree this pass reviews, or empty
-    NEARBY_LINE_RANGES=<json>      lines changed since the tree the last pass
+    REVIEWED_TREE=<object id>      what this pass reviews, or empty
+    NEARBY_LINE_RANGES=<json>      lines changed since what the last pass
                                    reviewed, or empty when that is unknown
+
+What "reviewed" means depends on the route (the PR and range routes had the
+same defect on committed code: their range source is the same fixed diff on
+every pass):
+
+- default and GSD (no route flag): the working tree, recorded as a tree id;
+- range (`--range <range>`): the commit the range ends at (`a..b` -> b; an
+  empty end is HEAD, as for `git diff`), recorded as its commit id;
+- PR (`--pr-head <sha>`): the PR's head commit, recorded as its commit id. The
+  head commit need not exist locally: an unchanged head gives `{}` by id alone,
+  and a changed head is diffed only when both commits are present locally.
+
+In every case the ranges are new-side lines of ONE `git diff <prior> <current>`
+(`<current>` is the working tree on the default and GSD routes), the same line
+space as that route's `changed_line_ranges`. A prior recorded by another route
+on the same branch state (they share the state file) is diffed the same way.
 
 - The reviewed tree is the tree of every tracked file as it is on disk (staged
   and unstaged edits; untracked files are out of scope, as they are for
@@ -35,6 +51,7 @@ lines that changed since the working tree the last pass reviewed.
 CLI:
 
     python3 worktree_snap.py collect --root <repo top> [--state <state file>]
+        [--range <range> | --pr-head <sha>]
 """
 
 import json
@@ -55,7 +72,7 @@ DIFF_FLAGS = ("--no-color", "--no-ext-diff", "--no-textconv", "--no-relative",
               "--src-prefix=a/", "--dst-prefix=b/")
 GIT_TIMEOUT = 120
 USAGE = ("usage: worktree_snap.py collect --root <repo top> "
-         "[--state <state file>]\n")
+         "[--state <state file>] [--range <range> | --pr-head <sha>]\n")
 
 
 class SnapUnavailable(Exception):
@@ -138,35 +155,81 @@ def prior_tree(state_path):
     return value
 
 
-def since(root, tree):
-    """Exact changed-line ranges of the working tree against `tree`."""
-    if not OBJECT_ID_RE.match(tree or ""):
+def range_end(root, rng):
+    """The commit id the range `rng` ends at (`a..b` / `a...b` -> b; an
+    empty end is HEAD). The end is resolved with --end-of-options, and an end
+    that starts with `-` is refused, so it can never be read as an option."""
+    if not isinstance(rng, str) or ".." not in rng:
+        raise SnapUnavailable("not a range")
+    end = rng.rsplit("..", 1)[1].lstrip(".") or "HEAD"
+    if end.startswith("-"):
+        raise SnapUnavailable("range end looks like an option")
+    out = _git(root, ["rev-parse", "--verify", "--quiet", "--end-of-options",
+                      end + "^{commit}"]).strip()
+    if not OBJECT_ID_RE.match(out):
+        raise SnapUnavailable("range end is not a commit")
+    return out
+
+
+def _treeish(root, env, oid):
+    if not OBJECT_ID_RE.match(oid or ""):
         raise SnapUnavailable("not an object id")
+    if _git(root, ["cat-file", "-t", oid], env=env).strip() not in ("tree", "commit"):
+        raise SnapUnavailable("not a tree or commit")
+
+
+def since(root, prior, current=None):
+    """Exact changed-line ranges of `current` (a commit id; None = the
+    working tree) against `prior`. An unchanged id is `{}` with no git call,
+    so an unchanged PR head needs no local objects."""
+    if not OBJECT_ID_RE.match(prior or ""):
+        raise SnapUnavailable("not an object id")
+    if current is not None and current == prior:
+        return {}
     env = _store_env(root)
-    if _git(root, ["cat-file", "-t", tree], env=env).strip() != "tree":
-        raise SnapUnavailable("not a tree")
-    text = _git(root, ["diff", *DIFF_FLAGS, tree, "--"], env=env)
+    _treeish(root, env, prior)
+    ends = [prior]
+    if current is not None:
+        _treeish(root, env, current)
+        ends.append(current)
+    text = _git(root, ["diff", *DIFF_FLAGS, *ends, "--"], env=env)
     try:
         return diff_ranges.ranges_from_diff(text)
     except diff_ranges.RangeError as exc:
         raise SnapUnavailable(str(exc))
 
 
-def collect(root, state_path):
-    """(reviewed_tree or "", nearby ranges JSON or "", notes)."""
+def _current(root, rng=None, pr_head=None):
+    """The id this pass reviews: the working tree's tree (default/GSD), the
+    range's end commit, or the PR head commit."""
+    if rng is not None:
+        return range_end(root, rng)
+    if pr_head is not None:
+        if not OBJECT_ID_RE.match(pr_head):
+            raise SnapUnavailable("PR head is not a commit id")
+        return pr_head
+    return take(root)
+
+
+def collect(root, state_path, rng=None, pr_head=None):
+    """(reviewed id or "", nearby ranges JSON or "", notes)."""
     notes = []
     try:
-        nearby = json.dumps(since(root, prior_tree(state_path)),
-                            separators=(",", ":"), sort_keys=True)
-    except SnapUnavailable as exc:
+        current = _current(root, rng, pr_head)
+    except (SnapUnavailable, OSError) as exc:
+        current = None
+        notes.append("reviewed tree not recorded: %s" % exc)
+    worktree = rng is None and pr_head is None
+    try:
+        if current is None and not worktree:
+            raise SnapUnavailable("this pass's reviewed id is unknown")
+        nearby = json.dumps(
+            since(root, prior_tree(state_path), None if worktree else current),
+            separators=(",", ":"), sort_keys=True)
+    except (SnapUnavailable, OSError) as exc:
         nearby = ""
         notes.append("nearby ranges unavailable: %s" % exc)
-    try:
-        tree = take(root)
-    except (SnapUnavailable, OSError) as exc:
-        tree = ""
-        notes.append("reviewed tree not recorded: %s" % exc)
-    return tree, nearby, notes
+    return current or "", nearby, notes
 
 
 def run(argv):
@@ -176,7 +239,7 @@ def run(argv):
     opts = {}
     rest = argv[1:]
     while rest:
-        if rest[0] in ("--root", "--state") and len(rest) >= 2:
+        if rest[0] in ("--root", "--state", "--range", "--pr-head") and len(rest) >= 2:
             opts[rest[0]] = rest[1]
             rest = rest[2:]
         else:
@@ -189,7 +252,11 @@ def run(argv):
     state_path = opts.get("--state")
     if state_path and not os.path.isfile(state_path):
         state_path = None  # pass 1: no state file yet
-    tree, nearby, notes = collect(os.path.abspath(root), state_path)
+    if "--range" in opts and "--pr-head" in opts:
+        sys.stderr.write(USAGE)
+        return 2
+    tree, nearby, notes = collect(os.path.abspath(root), state_path,
+                                  opts.get("--range"), opts.get("--pr-head"))
     for note in notes:
         sys.stderr.write(note + "\n")
     sys.stdout.write("REVIEWED_TREE=%s\nNEARBY_LINE_RANGES=%s\n" % (tree, nearby))
