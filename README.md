@@ -358,6 +358,8 @@ This is **AI-assisted** code review. It's powerful, but:
   - If your working tree, the PR or the range end changes while a review is running, that pass records nothing, so its decisions may be asked once more on the next pass.
   - Each default or GSD review adds a small snapshot of the changed files under `.turingmind/worktree-snap/`, which is never cleaned up. You can delete that folder at any time; the next pass then asks decided findings once more. A review that stops early (for example "No changes to review.") can also leave a small `vc-worktree-snap-*` folder in your system temp directory; no later review uses it.
   - With Git LFS (or another configured clean filter), taking that snapshot runs the filter as `git diff` does, so LFS may store content under `.git/lfs/`.
+  - If a reviewer re-reports a finding you already decided under a reworded title, the reworded version is shown as a new finding; your decision on the original is kept.
+  - Only the default review was checked live for 2.14.1: a deferral was kept on an unchanged working tree and asked again after an edit 3 lines above it. The GSD, PR and range routes are covered by tests only.
 - ⚠️ **Known limitations (2.14):**
   - Plain-English answers name a row only when its title contains every word you used. Wordier references (e.g. "the Browse recovery issue from earlier") get one follow-up question with the likely row as a button.
   - Plain-English answer handling is covered by tests of everything after Claude reads your answer; Claude's own reading of a free-text answer in a live session has not been release-tested.
