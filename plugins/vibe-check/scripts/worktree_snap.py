@@ -46,7 +46,8 @@ every pass):
   and a changed head is diffed only when both commits are present locally.
 
 In every case the ranges are new-side lines of ONE `git diff <prior> <current>`
-(`<current>` is the working tree on the default and GSD routes), the same line
+(`<current>` is the matched tree id on the default and GSD routes, never the
+live working tree), the same line
 space as that route's `changed_line_ranges`. A prior recorded by another route
 on the same branch state (they share the state file) is diffed the same way.
 
@@ -220,8 +221,8 @@ def _treeish(root, env, oid):
 
 
 def since(root, prior, current=None):
-    """Exact changed-line ranges of `current` (a commit id; None = the
-    working tree) against `prior`. An unchanged id is `{}` with no git call,
+    """Exact changed-line ranges of `current` (a tree or commit id; None =
+    the live working tree, which `collect` never uses) against `prior`. An unchanged id is `{}` with no git call,
     so an unchanged PR head needs no local objects."""
     if not OBJECT_ID_RE.match(prior or ""):
         raise SnapUnavailable("not an object id")
@@ -312,9 +313,19 @@ def _import_objects(root, src):
         rel = os.path.relpath(d, src)
         for f in files:
             target = os.path.join(dst, rel, f)
-            if not os.path.exists(target):
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                shutil.copyfile(os.path.join(d, f), target)
+            if os.path.exists(target):
+                continue
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            # Copy to a temporary name in the same directory, then rename:
+            # an interrupted copy never leaves a truncated object under its
+            # final name in the shared store.
+            tmp = "%s.tmp-%d-%s" % (target, os.getpid(), secrets.token_hex(4))
+            try:
+                shutil.copyfile(os.path.join(d, f), tmp)
+                os.replace(tmp, target)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
 
 
 def _consume_before(root, nonce, route):
@@ -368,8 +379,10 @@ def collect(root, state_path, rng=None, pr_head=None, nonce=None):
         return "", "", notes
     try:
         nearby = json.dumps(
-            since(root, prior_tree(state_path),
-                  None if route == "worktree" else current),
+            # Tree to tree, on every route: `current` is the id just matched
+            # against the snapshot. Diffing the live working tree instead
+            # would read whatever lands on disk after that match.
+            since(root, prior_tree(state_path), current),
             separators=(",", ":"), sort_keys=True)
     except (SnapUnavailable, OSError) as exc:
         nearby = ""

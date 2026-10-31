@@ -102,7 +102,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    ```
    (Fail closed both ways: an empty `$GUARD_PY` short-circuits `&&` to the refusal arm, and a non-zero guard exit refuses.)
 
-   Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way.
+   Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way. Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`, exactly as in mode 1: those runs never reach Phase 3's collect, so a snapshot would only be left behind.
 
    Compute phase commit range (`$PHASE_DIR` is the path resolved above):
    ```bash

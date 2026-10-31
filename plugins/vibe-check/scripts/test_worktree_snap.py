@@ -23,9 +23,12 @@ batch_card.py. Run with bare `pytest`.
 
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
@@ -33,6 +36,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 import carry_state  # noqa: E402
 import gitfixture  # noqa: E402
 import gitsnap  # noqa: E402
+import worktree_snap  # noqa: E402
 import state_shape  # noqa: E402
 import test_decision_continuity as tdc  # noqa: E402
 import test_diff_ranges as tdr  # noqa: E402
@@ -524,6 +528,76 @@ class TestReReview999_28(_Chain):
         self.assertEqual(os.listdir(victim), [])
 
 
+class TestCollectInternals(unittest.TestCase):
+    """Re-review of 695aeb9, at the helper level (the races are inside one
+    `collect` call, so they are driven through hooks, not prose fences)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = gitfixture.make_repo(tmp.name)
+        self.L0 = tdc.base_file()
+        self.write(self.L0)
+        gitfixture.git(self.root, "add", F)
+        gitfixture.git(self.root, "commit", "-q", "-m", "base")
+        self.L1 = _uncommitted(self.L0)
+        self.write(self.L1)
+        prior = worktree_snap.take(self.root)
+        self.state = os.path.join(tmp.name, "state.json")
+        with open(self.state, "w", encoding="utf-8") as fh:
+            json.dump({"passes": [{"pass_number": 1, "reviewed_tree": prior}]}, fh)
+
+    def write(self, lines):
+        gitfixture.write(self.root, F, "\n".join(lines) + "\n")
+
+    def test_nearby_ranges_are_the_matched_tree_not_the_live_one(self):
+        """Pass 2's reviewers read line 38 edited (T1). Right after collect
+        matches T1, the edit is reverted on disk. The ranges must still be
+        T1's (line 38), not the live tree's (nothing)."""
+        L1b = list(self.L1)
+        L1b[37] = "uncommitted_38 = guard_removed"
+        self.write(L1b)
+        nonce, _ = worktree_snap.take_before(self.root)
+        orig = worktree_snap._current
+
+        def hooked(*args, **kw):
+            out = orig(*args, **kw)
+            self.write(self.L1)  # lands between the match and the diff
+            return out
+
+        with mock.patch.object(worktree_snap, "_current", hooked):
+            tree, nearby, _ = worktree_snap.collect(self.root, self.state,
+                                                    nonce=nonce)
+        self.assertRegex(tree, r"^[0-9a-f]{40}$")
+        self.assertEqual(json.loads(nearby), {F: [[38, 38]]})
+
+    def test_interrupted_object_import_leaves_no_partial_object(self):
+        """A kill mid-copy must not leave a truncated object at its final
+        name in the shared store (it would never be repaired)."""
+        L1b = tdc._edited(self.L1, 50)
+        self.write(L1b)
+        nonce, _ = worktree_snap.take_before(self.root)
+        src = os.path.join(worktree_snap._snap_dir(nonce), "objects")
+        names = [os.path.relpath(os.path.join(d, f), src)
+                 for d, _, fs in os.walk(src) for f in fs]
+        self.assertTrue(names)
+
+        def dying_copy(a, b, *args, **kw):
+            with open(a, "rb") as fin, open(b, "wb") as fout:
+                fout.write(fin.read()[:3])
+            raise OSError("killed mid-copy")
+
+        with mock.patch.object(worktree_snap.shutil, "copyfile", dying_copy):
+            worktree_snap.collect(self.root, self.state, nonce=nonce)
+        store = os.path.join(self.root, worktree_snap.STORE_REL, "objects")
+        for name in names:
+            self.assertFalse(os.path.exists(os.path.join(store, name)), name)
+        leftovers = [f for d, _, fs in os.walk(store) for f in fs
+                     if not re.match(r"^[0-9a-f]{38}$", f)
+                     and not d.endswith(("info", "pack"))]
+        self.assertEqual(leftovers, [])
+
+
 class TestPhase0DoesNotCreateTuringmind(_Chain):
     """Phase 0's take runs before Phase 0.7's first-run check, which keys on
     `.turingmind/` existing: it must not create it."""
@@ -996,6 +1070,19 @@ class TestRangeAfterDiff(_CommittedChain):
 
 
 class TestProse(unittest.TestCase):
+
+    def test_every_snapshot_call_states_the_finalize_and_all_skip(self):
+        """`/review <phase> --finalize` must not take a snapshot nobody
+        collects: each route's take states the skip (GSD included)."""
+        scope = _scope_text()
+        for take in (P0_DEFAULT, P0_PR, P0_RANGE,
+                     "take the same working-tree snapshot as mode 1"):
+            with self.subTest(take=take):
+                at = scope.index(take)
+                para = scope[at:scope.index("\n\n", at)]
+                self.assertIn("--finalize", para)
+                self.assertIn("FINALIZE_MODE=1", para)
+                self.assertIn("--all", para)
 
     def test_snapshot_is_taken_before_each_reviewed_diff(self):
         """Phase 0 takes the snapshot before the diff the reviewers get, on
