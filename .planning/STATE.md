@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: "Awaiting next milestone — v2.14 shipped as 2.14.0"
-stopped_at: "v2.14 shipped 2026-10-30 as 2.14.0 (PR #7 squash ecc3299, tag v2.14, GitHub release); next: /bm:new-milestone for Lean orchestration"
-last_updated: "2026-10-31T00:20:00Z"
-last_activity: 2026-10-30 -- 2.14.0 released (PR #7 merged, tag v2.14 on origin/main, GitHub release v2.14, plugin updated 2.13.0 -> 2.14.0)
+status: "Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1"
+stopped_at: "2.14.1 shipped 2026-10-30 (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release; fixes 999.28); next: /bm:new-milestone for Lean orchestration"
+last_updated: "2026-10-31T03:30:00Z"
+last_activity: 2026-10-30 -- 2.14.1 released (PR #8 merged, tag v2.14.1, GitHub release v2.14.1); 999.28 fixed on all routes except --all
 progress:
   total_phases: 3
   completed_phases: 3
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-10-30)
 
 Phase: 61 (release-gate-decision-reliability) — SHIPPED (last phase of v2.14)
 Plan: 5 of 5
-Status: Awaiting next milestone — v2.14 shipped as 2.14.0
+Status: Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1
 Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, flows 5/5); archived to .planning/milestones/v2.14-*; no tag made
 
 ## Operator Next Steps
 
-- Relaunch Claude Code fully so the installed vibe-check 2.14.0 (updated from 2.13.0) is loaded, then confirm the installed version and SHA match origin/main (61-CLOSE-RUNBOOK.md step 9)
+- Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
 - /bm:new-milestone for Lean orchestration (999.12 feasibility, Finalize-first extraction)
 
 ## Deferred Items
@@ -50,7 +50,8 @@ Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.28 | Carried from v2.14; reproduce first |
+| Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
+| Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
@@ -76,6 +77,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: 2.14.1 shipped (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release). Fixes 999.28 via /bm:debug (session .planning/debug/999-28-uncommitted-reask.md): per-pass snapshot (scripts/worktree_snap.py) feeds score.py `nearby_line_ranges`; snapshot taken in Phase 0 before the reviewers' diff and confirmed at Phase 3; PR/range routes fixed too (owner chose B). Deep review (1 Warning, snapshot timing) + 3 Codex/Opus re-review rounds, final Codex approve. Gates on the release commit: suite 3886, replay 170/0, guardrail 25/26 (amendment 008), validate, stdlib-only. Live check default route only (owner approved; PR live skipped by owner): unchanged tree kept the deferral, edit 3 lines above re-asked with the true reason; C4 reproduced again. New backlog 999.29 (reworded re-report shows as new), 999.30 (pruning). Plugin cache restored to 2.14.0 after the check; installed plugin not yet updated to 2.14.1.
 
 2026-10-30: Phase 61 option B (owner switched Decision 1 from A to B after verification WR-01: "Switch to B (Recommended)"). New candidate C2 = 47978aad41eccc13c594820a8ab8386904439f31, README-only (qualifies README:33 and :38, adds C1 as first "Known limitations (2.14)" bullet); plugins/ byte-identical to 0d2be77 (tree 9387dcd). G1-G9 re-run on C2: all PASS (3821 / 193 / 520 / 64; replay 170 runs 0 diffs; guardrail 25/26, 0 regressed; PR #6, #4 identical; validate passed; stdlib-only; replay frozen). Live smoke carried over. 61-CANDIDATE/RELEASE-RECORD/RELEASE-NOTES/LIVE-SMOKE/SIGNOFF/CLOSE-RUNBOOK updated; 61-SIGNOFF.md Status: AWAITING RE-SIGN (owner). WR-02, IN-01..03 carried unfixed. Nothing pushed, tagged or published. Next: owner re-sign, then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md.
 
