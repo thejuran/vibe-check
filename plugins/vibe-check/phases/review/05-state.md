@@ -112,5 +112,3 @@ After a copy, step 1 below sees "state file present" and the run continues as a 
    ```
 
    On the else branch, print `git-safety snapshot could not be taken — review HALTED before any agent ran` as message text and STOP the review: do not continue to Phase 3. Do not announce Phase 1 or dispatch any agent — only the snapshot is taken.
-
-   Then run Phase 1's "What this pass reviews" call for this route (`10-triage.md`, `worktree_snap.py take`), in its own Bash call — Phase 3's `worktree_snap.py collect` consumes the file it writes; without it the pass records no reviewed tree and the next pass re-asks.

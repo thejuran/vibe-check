@@ -34,7 +34,12 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
 
 **One-line mode conclusion (LEGIBLE-02):** after resolving the mode/scope above, print EXACTLY ONE conclusion line `Mode: <resolved mode + scope>` and proceed — do NOT narrate the resolution reasoning, and do NOT ask a disambiguation question for an unambiguous alias (the bare-`all` normalization already resolves silently, so this line is the only resolution output the user sees). Example forms (exact wording is discretion within this behavioral bar): `Mode: --all (whole-tree, docs excluded)` / `Mode: --all --include-docs (whole-tree)` / `Mode: --all src/api (narrowed)` / `Mode: diff (uncommitted changes)` / `Mode: PR #42` / `Mode: range a..b` / `Mode: GSD phase 02-foo`. This is PROSE-tightening of the orchestrator's self-narration ONLY — it does NOT change WHICH mode is chosen; the five modes' selection logic below is byte-stable.
 
-1. **No positional scope arg (default diff)** — selected when `$SCOPE_ARGS` is EMPTY (the branch-flip guard did not fire and neither PR/range/GSD matched `$SCOPE_ARGS`): review all uncommitted changes. This tests `$SCOPE_ARGS` being empty, NOT raw `$ARGUMENTS` — a flag-only invocation like `/review --min-confidence 75`, `/deep-review --codex off` or `/review --finalize` (the Close-out re-entry from a default-diff pass) has a non-empty `$ARGUMENTS` but an EMPTY `$SCOPE_ARGS`, so it MUST resolve the DEFAULT diff mode here (never fall through to PR/range/GSD validation on the leftover flag), while the flag token still reaches Phase 0.6 in `$ARGUMENTS` (HIGH-A). Assemble diff via:
+1. **No positional scope arg (default diff)** — selected when `$SCOPE_ARGS` is EMPTY (the branch-flip guard did not fire and neither PR/range/GSD matched `$SCOPE_ARGS`): review all uncommitted changes. This tests `$SCOPE_ARGS` being empty, NOT raw `$ARGUMENTS` — a flag-only invocation like `/review --min-confidence 75`, `/deep-review --codex off` or `/review --finalize` (the Close-out re-entry from a default-diff pass) has a non-empty `$ARGUMENTS` but an EMPTY `$SCOPE_ARGS`, so it MUST resolve the DEFAULT diff mode here (never fall through to PR/range/GSD validation on the leftover flag), while the flag token still reaches Phase 0.6 in `$ARGUMENTS` (HIGH-A). FIRST, in its own Bash call BEFORE the diff below is assembled, snapshot what the reviewers will read:
+   ```bash
+   GREPO=$(git rev-parse --show-toplevel)
+   python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO"
+   ```
+   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then assemble diff via:
    ```bash
    git diff HEAD
    git diff --staged
@@ -43,14 +48,15 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ HEAD` only (working-tree line numbers; the `--staged` view above is for reviewers and is not a range source).
    If empty and Phase 0 printed `FINALIZE_MODE=0`: print "No changes to review." and stop — except on the fix loop's Rerun after Step B committed a fix (`50-fix-loop.md`, The Rerun): every fix is a commit, so an empty working tree is expected there; do NOT stop — continue to Phase 0.5, whose incremental diff (`$LAST_REVIEWED_SHA..HEAD` + staged + unstaged) holds the fix commits, so the rerun reviews them and rechecks the carried findings. On `FINALIZE_MODE=1` (e.g. Close out after a fix loop that committed every fix), an empty diff is expected: do NOT stop — continue to Phase 0.5, because Finalize reads `$STATE_FILE`, not the diff.
 
-2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`. FIRST, in its own Bash call before the diff below, bind the PR head the reviewers will read (999.28; Phase 1 records it, and Phase 3 records the pass as reviewed only if the head is still this one):
+2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`. FIRST, in its own Bash call BEFORE the diff below, bind the PR head the reviewers will read and snapshot it:
    ```bash
+   GREPO=$(git rev-parse --show-toplevel)
    PR_HEAD=$(gh pr view <ref> --json headRefOid --jq .headRefOid) || PR_HEAD=
    case "$PR_HEAD" in *[!0-9a-f]*) PR_HEAD= ;; esac
    [ "${#PR_HEAD}" -eq 40 ] || [ "${#PR_HEAD}" -eq 64 ] || PR_HEAD=
-   printf 'PR_HEAD=%s\n' "$PR_HEAD"
+   python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --pr-head "$PR_HEAD"
    ```
-   Carry the printed literal to Phase 1 (a shell variable does not survive into a separate Bash call). The fence prints only a 40- or 64-hex commit id, or nothing: the value is substituted into a later command, so anything else (an error message, a crafted `$(...)`) is dropped here, where it is bound — the same rule as `LAST_REVIEWED_SHA=` and `PHASE_START=`. Then:
+   The head is kept only when it is a 40- or 64-hex commit id (anything else — an error message, a crafted `$(...)` — is dropped where it is bound, never passed on). It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then:
    ```bash
    gh pr diff <ref> --patch
    gh pr view <ref> --json title,body,author,headRefName
@@ -58,7 +64,12 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    Range source for 30-collect-score: `gh pr diff <ref> --color never` (cumulative; never the per-commit patch series the reviewers' command above prints).
    Stateless. No intent context.
 
-3. **Range mode** — `$SCOPE_ARGS` matches `<ref>..<ref>`:
+3. **Range mode** — `$SCOPE_ARGS` matches `<ref>..<ref>`. FIRST, in its own Bash call BEFORE the diff below, snapshot the commit the range ends at:
+   ```bash
+   GREPO=$(git rev-parse --show-toplevel)
+   python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --range "<range>"
+   ```
+   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then:
    ```bash
    git diff <range>
    ```
@@ -90,6 +101,8 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
      || { echo "Phase resolution escaped .planning/ — refusing."; exit 1; }
    ```
    (Fail closed both ways: an empty `$GUARD_PY` short-circuits `&&` to the refusal arm, and a non-zero guard exit refuses.)
+
+   Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way.
 
    Compute phase commit range (`$PHASE_DIR` is the path resolved above):
    ```bash

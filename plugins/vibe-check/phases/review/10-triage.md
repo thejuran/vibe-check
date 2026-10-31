@@ -19,23 +19,6 @@ fi
 - In `--all` mode take it ONCE, before the first chunk's triage — never once per chunk. The comparison in Phase 3 covers the whole pass.
 - `--finalize` dispatches no agents and never reaches this phase, so it takes no snapshot.
 
-**What this pass reviews (999.28) — its own Bash call, right after the git-safety snapshot, BEFORE the triage Task; every route except `--all`.** Record what the reviewers are about to read, so the next pass can tell what changed since. Run the call for this route; it always exits 0 and an empty value is not an error. Default and GSD routes:
-```bash
-GREPO=$(git rev-parse --show-toplevel)
-python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json"
-```
-Range route (substitute the same `<range>` literal Phase 0 used):
-```bash
-GREPO=$(git rev-parse --show-toplevel)
-python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --range "<range>"
-```
-PR route (substitute the literal Phase 0 printed after `PR_HEAD=`, empty if it printed none):
-```bash
-GREPO=$(git rev-parse --show-toplevel)
-python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --pr-head "<PR_HEAD>"
-```
-Phase 3's `worktree_snap.py collect` call consumes this file: it records the pass as reviewed only if the code is still the same then (an edit, commit or push during the pass records nothing, so the next pass re-asks rather than trusting code the reviewers never read). In `--all` mode skip this call.
-
 Dispatch a single Task call to `triage` agent. Set `run_in_background: false` on it. Prompt:
 
 ````

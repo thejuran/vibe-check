@@ -11,21 +11,28 @@ lines that changed since the working tree the last pass reviewed.
 
 Two calls per pass:
 
-- `take`, BEFORE any reviewer runs (Phase 1 next to the git-safety snapshot;
-  on the PR route in Phase 0, before the reviewed diff is fetched), writes
-  what this pass is about to review to `--out` (`{"route", "id"}`) and prints
-  `REVIEWED_TREE_BEFORE=<id>` (informational).
-- `collect`, at Phase 3, consumes that file and prints exactly two lines:
+- `take`, in Phase 0 BEFORE the reviewed diff is collected (the PR head is
+  bound in the same call), snapshots what the reviewers are about to read
+  into a private per-pass directory under the system temp dir and prints
+  `REVIEWED_SNAPSHOT=<nonce>`. The 32-hex nonce is the only handle: the
+  directory is derived from it, never from a path the caller passes, so a
+  pass consumes only its own snapshot (overlapping passes, a halted pass's
+  leftover). Nothing is written under `.turingmind/` (Phase 0.7's first-run
+  check keys on it) or `.git` at this point.
+- `collect`, at Phase 3, consumes that snapshot (its objects move into the
+  store) and prints exactly two lines:
 
     REVIEWED_TREE=<object id>      what this pass reviewed, or empty
     NEARBY_LINE_RANGES=<json>      lines changed since what the last pass
                                    reviewed, or empty when that is unknown
 
-  REVIEWED_TREE is the pre-dispatch id, and only while the code is still the
-  same at collect time. If the working tree, range end or PR head moved
-  during the pass, it is empty: recording the newer state would tell the next
-  pass "nothing changed" about code the reviewers never read (fail-open). An
-  empty value makes the next pass stamp from changed_line_ranges (re-asks).
+  Both are the snapshot's, and only while the code is still the same at
+  collect time. If the working tree, range end or PR head moved after the
+  snapshot, or there is none, BOTH are empty: recording the newer state would
+  tell the next pass "nothing changed" about code the reviewers never read,
+  and ranges against the newer state are not in the line numbers the
+  reviewers' findings use. Empty values make this pass and the next one stamp
+  from changed_line_ranges, which can only re-ask.
 
 What "reviewed" means depends on the route (the PR and range routes had the
 same defect on committed code: their range source is the same fixed diff on
@@ -69,15 +76,16 @@ on the same branch state (they share the state file) is diffed the same way.
 
 CLI:
 
-    python3 worktree_snap.py take --root <repo top> --out <file>
+    python3 worktree_snap.py take --root <repo top>
         [--range <range> | --pr-head <sha>]
     python3 worktree_snap.py collect --root <repo top> [--state <state file>]
-        --before <file> [--range <range> | --pr-head <sha>]
+        --before <nonce> [--range <range> | --pr-head <sha>]
 """
 
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -95,10 +103,10 @@ GIT_TIMEOUT = 120
 # The temporary index is a plain, self-contained file: never split, so no
 # sharedindex.* file is written into (or expired out of) the git dir.
 TEMP_INDEX_CFG = ("-c", "core.splitIndex=false")
-USAGE = ("usage: worktree_snap.py take --root <repo top> --out <file> "
+USAGE = ("usage: worktree_snap.py take --root <repo top> "
          "[--range <range> | --pr-head <sha>]\n"
          "       worktree_snap.py collect --root <repo top> [--state <state file>] "
-         "--before <file> [--range <range> | --pr-head <sha>]\n")
+         "--before <nonce> [--range <range> | --pr-head <sha>]\n")
 
 
 class SnapUnavailable(Exception):
@@ -127,25 +135,32 @@ def _git_path(root, name):
     return os.path.join(root, out)
 
 
-def _store_env(root):
-    """Environment that reads the repo's objects and writes only to the
-    vibe-check store."""
+def _store_env(root, write_to=None):
+    """Environment that reads the repo's objects (and the vibe-check store)
+    and writes new objects only to `write_to` (default: the vibe-check store,
+    created on demand)."""
     store = os.path.join(root, STORE_REL, "objects")
-    os.makedirs(store, exist_ok=True)
+    alternates = [os.path.abspath(_git_path(root, "objects"))]
+    if write_to is None:
+        os.makedirs(store, exist_ok=True)
+        write_to = store
+    elif os.path.isdir(store):
+        alternates.append(store)
     env = dict(os.environ)
     for k in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
               "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
         env.pop(k, None)
-    env["GIT_OBJECT_DIRECTORY"] = store
-    env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.path.abspath(
-        _git_path(root, "objects"))
+    env["GIT_OBJECT_DIRECTORY"] = write_to
+    env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.pathsep.join(alternates)
     return env
 
 
-def take(root):
-    """The tree id of the tracked working tree, written to the store only."""
-    env = _store_env(root)
-    work = tempfile.mkdtemp(prefix="idx-", dir=os.path.join(root, STORE_REL))
+def take(root, write_to=None):
+    """The tree id of the tracked working tree. New objects go to the
+    vibe-check store, or to `write_to` (a pass's private directory, so the
+    Phase 0 call never creates `.turingmind/`)."""
+    env = _store_env(root, write_to)
+    work = tempfile.mkdtemp(prefix="idx-", dir=os.path.dirname(env["GIT_OBJECT_DIRECTORY"]))
     try:
         idx = os.path.join(work, "index")
         real = _git_path(root, "index")
@@ -245,82 +260,113 @@ def _route(rng, pr_head):
     return "worktree"
 
 
-def take_before(root, out_path, rng=None, pr_head=None):
-    """Pre-dispatch half: record what this pass is about to review in
-    `out_path` as {"route", "id"} -> (id or "", notes). Any stale file is
-    removed first, so a failure leaves no file and the pass records nothing."""
+SNAP_PREFIX = "vc-worktree-snap-"
+NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _snap_dir(nonce):
+    """A pass's private directory, derived from its nonce (never a path the
+    caller supplies, so `collect` can only consume and delete its own)."""
+    if not isinstance(nonce, str) or not NONCE_RE.match(nonce):
+        return None
+    return os.path.join(tempfile.gettempdir(), SNAP_PREFIX + nonce)
+
+
+def take_before(root, rng=None, pr_head=None):
+    """Phase 0 half, run BEFORE the reviewed diff is collected: record what
+    this pass is about to review in a private per-pass directory under the
+    system temp dir -> (nonce or "", notes). The nonce names that directory;
+    the prose carries it to `collect --before`, so overlapping passes and a
+    halted pass's leftover can never be consumed by another pass. On the
+    default and GSD routes the tree's new objects are written to the same
+    private directory (nothing under `.turingmind/` or `.git` yet), and
+    `collect` moves them into the store."""
     notes = []
+    nonce = secrets.token_hex(16)
+    path = _snap_dir(nonce)
     try:
-        os.remove(out_path)
-    except FileNotFoundError:
-        pass
-    try:
-        current = _current(root, rng, pr_head)
+        os.mkdir(path, 0o700)
+        objects = os.path.join(path, "objects")
+        os.mkdir(objects)
+        if rng is not None:
+            current = range_end(root, rng)
+        elif pr_head is not None:
+            if not OBJECT_ID_RE.match(pr_head):
+                raise SnapUnavailable("PR head is not a commit id")
+            current = pr_head
+        else:
+            current = take(root, write_to=objects)
+        with open(os.path.join(path, "before.json"), "w", encoding="utf-8") as fh:
+            json.dump({"route": _route(rng, pr_head), "id": current}, fh)
     except (SnapUnavailable, OSError) as exc:
+        shutil.rmtree(path, ignore_errors=True)
         notes.append("reviewed tree not taken: %s" % exc)
         return "", notes
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    tmp = out_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"route": _route(rng, pr_head), "id": current}, fh)
-    os.replace(tmp, out_path)
-    return current, notes
+    return nonce, notes
 
 
-def _read_before(path, route):
-    """The pre-dispatch id for `route`, consuming the file (a later pass can
-    never reuse it). None when absent, unreadable, or for another route."""
-    if not path:
+def _import_objects(root, src):
+    """Move a pass's loose objects into the vibe-check store."""
+    dst = os.path.join(root, STORE_REL, "objects")
+    for d, _, files in os.walk(src):
+        rel = os.path.relpath(d, src)
+        for f in files:
+            target = os.path.join(dst, rel, f)
+            if not os.path.exists(target):
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                shutil.copyfile(os.path.join(d, f), target)
+
+
+def _consume_before(root, nonce, route):
+    """This pass's pre-dispatch id for `route`, consuming its directory (its
+    objects move into the store first). None when absent, unreadable, or for
+    another route."""
+    path = _snap_dir(nonce)
+    if path is None or not os.path.isdir(path):
         return None
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(os.path.join(path, "before.json"), encoding="utf-8") as fh:
             data = json.load(fh)
+        if (not isinstance(data, dict) or data.get("route") != route
+                or not isinstance(data.get("id"), str)
+                or not OBJECT_ID_RE.match(data["id"])):
+            return None
+        _import_objects(root, os.path.join(path, "objects"))
+        return data["id"]
     except (OSError, ValueError):
         return None
     finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-    if (not isinstance(data, dict) or data.get("route") != route
-            or not isinstance(data.get("id"), str)
-            or not OBJECT_ID_RE.match(data["id"])):
-        return None
-    return data["id"]
+        shutil.rmtree(path, ignore_errors=True)
 
 
-def collect(root, state_path, rng=None, pr_head=None, before_path=None):
-    """Collect-time half -> (reviewed id or "", nearby ranges JSON or "",
-    notes).
+def collect(root, state_path, rng=None, pr_head=None, nonce=None):
+    """Phase 3 half -> (reviewed id or "", nearby ranges JSON or "", notes).
 
-    The reviewed id is the one `take` recorded BEFORE the reviewers ran, and
-    only while what is there now is still the same: the same working tree,
-    range end or PR head. If it moved during the pass (an edit, a commit, a
-    push), the reviewers may have read the older code, so nothing is recorded:
-    the next pass then has no prior id and stamps from changed_line_ranges,
-    which can only re-ask. Recording the newer id instead would let the next
-    pass see "nothing changed" for code the reviewers never saw (fail-open).
-    The nearby ranges compare the PRIOR pass's id with what is there now."""
+    The reviewed id is the one `take` recorded before the reviewed diff was
+    collected, and only while what is there now is still the same: the same
+    working tree, range end or PR head. If it moved during the pass (an edit,
+    a commit, a push), or this pass's snapshot is missing, BOTH values are
+    empty. Recording the newer id would let the next pass see "nothing
+    changed" for code the reviewers never read, and ranges computed against
+    the newer state are not in the line numbers the reviewers' findings use;
+    with both empty, this pass and the next stamp from changed_line_ranges,
+    which can only re-ask. Otherwise the nearby ranges compare the PRIOR
+    pass's id with what is there now (the same state the reviewers read)."""
     notes = []
     route = _route(rng, pr_head)
+    before = _consume_before(root, nonce, route)
     try:
         current = _current(root, rng, pr_head)
     except (SnapUnavailable, OSError) as exc:
         current = None
         notes.append("current tree unknown: %s" % exc)
-    before = _read_before(before_path, route)
     if before is None:
-        reviewed = ""
-        notes.append("reviewed tree not recorded: no pre-dispatch snapshot")
-    elif before != current:
-        reviewed = ""
-        notes.append("reviewed tree not recorded: the code changed during "
-                     "this pass")
-    else:
-        reviewed = before
+        notes.append("nothing recorded: no snapshot taken for this pass")
+        return "", "", notes
+    if before != current:
+        notes.append("nothing recorded: the code changed during this pass")
+        return "", "", notes
     try:
-        if current is None:
-            raise SnapUnavailable("this pass's tree is unknown")
         nearby = json.dumps(
             since(root, prior_tree(state_path),
                   None if route == "worktree" else current),
@@ -328,7 +374,7 @@ def collect(root, state_path, rng=None, pr_head=None, before_path=None):
     except (SnapUnavailable, OSError) as exc:
         nearby = ""
         notes.append("nearby ranges unavailable: %s" % exc)
-    return reviewed, nearby, notes
+    return before, nearby, notes
 
 
 def run(argv):
@@ -338,7 +384,7 @@ def run(argv):
     cmd = argv[0]
     opts = {}
     rest = argv[1:]
-    known = ("--root", "--state", "--range", "--pr-head", "--before", "--out")
+    known = ("--root", "--state", "--range", "--pr-head", "--before")
     while rest:
         if rest[0] in known and len(rest) >= 2:
             opts[rest[0]] = rest[1]
@@ -348,17 +394,15 @@ def run(argv):
             return 2
     root = opts.get("--root")
     if (not root or not os.path.isdir(root)
-            or ("--range" in opts and "--pr-head" in opts)
-            or (cmd == "take" and not opts.get("--out"))):
+            or ("--range" in opts and "--pr-head" in opts)):
         sys.stderr.write(USAGE)
         return 2
     root = os.path.abspath(root)
     if cmd == "take":
-        tree, notes = take_before(root, opts["--out"], opts.get("--range"),
-                                  opts.get("--pr-head"))
+        nonce, notes = take_before(root, opts.get("--range"), opts.get("--pr-head"))
         for note in notes:
             sys.stderr.write(note + "\n")
-        sys.stdout.write("REVIEWED_TREE_BEFORE=%s\n" % tree)
+        sys.stdout.write("REVIEWED_SNAPSHOT=%s\n" % nonce)
         return 0
     state_path = opts.get("--state")
     if state_path and not os.path.isfile(state_path):
