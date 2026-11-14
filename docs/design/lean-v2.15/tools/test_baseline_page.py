@@ -1305,6 +1305,31 @@ class TestMissingInputs(unittest.TestCase):
         self.assertIn(SUITE_FILE, str(ctx.exception))
 
 
+class TestReadme(LockCase):
+    def setUp(self):
+        if not os.path.isfile(README):
+            raise AssertionError("kit README missing: %s"
+                                 % os.path.relpath(README, REPO_ROOT))
+        with open(README, encoding="utf-8") as fh:
+            self.text = fh.read()
+
+    def test_every_tool_is_listed(self):
+        self.assertGreater(len(kit_tools(TOOLS_DIR)), 0)
+        self.assert_holds(readme_problems, self.text, TOOLS_DIR)
+
+    def test_mutant_tool_row_removed(self):
+        for name in kit_tools(TOOLS_DIR):
+            with self.subTest(tool=name):
+                row = "| `%s` |" % name
+                self.assertIn(row, self.text)
+                mutant = drop_line(self.text, row)
+                self.assertNotEqual(mutant, self.text)
+                problems = readme_problems(mutant, TOOLS_DIR)
+                self.assertEqual(problems,
+                                 ["readme: tool %s has no row in the tool table"
+                                  % name])
+
+
 class TestImportSet(unittest.TestCase):
     def _source(self):
         with open(THIS_FILE, encoding="utf-8") as fh:
