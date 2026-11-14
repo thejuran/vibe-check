@@ -20,7 +20,9 @@ present) and show the guarded case goes through. Each guard is load-bearing.
 
 import ast
 import copy
+import hashlib
 import importlib.util
+import io
 import itertools
 import json
 import os
@@ -843,6 +845,677 @@ class TestResultMutants(ResultCase):
         _, real = finalize_inputs.build_result(dismissed_all_state(), {},
                                                INTERACTIVE)
         self.assertEqual(real["action"], "write")
+
+
+
+# --------------------------------------------------------------------------- #
+# The command line: required switches, a fresh fingerprint file, exit codes.
+# --------------------------------------------------------------------------- #
+CARRY_STATE_PY = os.path.join(SCRIPTS_DIR, "carry_state.py")
+BATCH_CARD_PY = os.path.join(SCRIPTS_DIR, "batch_card.py")
+FINALIZE_GATE_PY = os.path.join(SCRIPTS_DIR, "finalize_gate.py")
+OWNER_SENTENCES = ("uncertain about Finalize", "Finalize stopped")
+NOT_UTF8 = b'{"passes": "\xff\xfe"}'
+
+
+def argv_for(state_file, blob_out, switches=None, drop=None, extra=()):
+    sw = dict(INTERACTIVE, **(switches or {}))
+    pairs = [("--state-file", state_file), ("--blob-out", blob_out),
+             ("--noninteractive", "true" if sw["noninteractive"] else "false"),
+             ("--pr-mode", "true" if sw["pr_mode"] else "false"),
+             ("--range-mode", "true" if sw["range_mode"] else "false")]
+    argv = []
+    for flag, value in pairs:
+        if flag != drop:
+            argv += [flag, value]
+    return argv + list(extra)
+
+
+def sha256_of(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def tree_listing(root):
+    out = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        if ".git" in dirnames:
+            dirnames.remove(".git")
+        for name in filenames:
+            out.add(os.path.relpath(os.path.join(dirpath, name), root))
+    return out
+
+
+class CliCase(ResultCase):
+    """ResultCase plus a side folder for state and fingerprint files, and
+    runners for the helper and the three 2.14.1 commands."""
+
+    def setUp(self):
+        super().setUp()
+        self.files = os.path.join(self.tmp, "files")
+        os.makedirs(self.files)
+        self._n = 0
+
+    def new_path(self, content=None, name=None):
+        """A fresh path in the side folder; written when `content` is given
+        (str, bytes, or a JSON-able object via `json.dumps`)."""
+        self._n += 1
+        path = os.path.join(self.files, name or "f%d" % self._n)
+        if content is not None:
+            if isinstance(content, bytes):
+                data = content
+            elif isinstance(content, str):
+                data = content.encode("utf-8")
+            else:
+                data = json.dumps(content).encode("utf-8")
+            with open(path, "wb") as fh:
+                fh.write(data)
+        return path
+
+    def empty(self):
+        return self.new_path(b"")
+
+    def cli(self, argv, cwd=None):
+        """Run the helper as a subprocess -> (code, stdout bytes, stderr
+        bytes). The state file (if any) and the working tree are unchanged."""
+        cwd = cwd or self.repo
+        state = argv[argv.index("--state-file") + 1] \
+            if "--state-file" in argv else None
+        before = sha256_of(state) if state and os.path.isfile(state) else None
+        listing = tree_listing(cwd)
+        proc = subprocess.run([sys.executable, MODULE_PATH] + argv, cwd=cwd,
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              timeout=120)
+        if before is not None:
+            self.assertEqual(sha256_of(state), before, "state file written")
+        self.assertEqual(tree_listing(cwd), listing, "working tree gained a file")
+        for text in OWNER_SENTENCES + ("Traceback",):
+            self.assertNotIn(text.encode(), proc.stdout + proc.stderr)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def inproc(self, argv, module=None, cwd=None):
+        """Run `run(argv)` in-process -> (code, stdout text, stderr text)."""
+        mod = module or finalize_inputs
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            code, out = mod.run(argv, cwd=cwd or self.repo)
+        return code, out, err.getvalue()
+
+    def old(self, script, args, stdin_path=None, stdin_bytes=None):
+        """A 2.14.1 command as a subprocess -> (code, stdout, stderr) bytes."""
+        if stdin_path is not None:
+            with open(stdin_path, "rb") as fh:
+                stdin_bytes = fh.read()
+        proc = subprocess.run([sys.executable, script] + list(args),
+                              cwd=self.repo, input=stdin_bytes or b"",
+                              capture_output=True, timeout=120)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def old_counts(self, state_path, blob_path):
+        return self.old(CARRY_STATE_PY, ["finalize-counts", "--head-blobs",
+                                         blob_path], stdin_path=state_path)
+
+    def old_report(self, state_path):
+        return self.old(BATCH_CARD_PY, ["decisions-report"],
+                        stdin_path=state_path)
+
+    def old_gate(self, flags):
+        return self.old(FINALIZE_GATE_PY, [],
+                        stdin_bytes=json.dumps({"flags": flags}).encode())
+
+
+class TestCliResult(CliCase):
+
+    def test_parity_cli_result_equals_build_result(self):
+        state = load_six_row()
+        sp = self.new_path(state)
+        bp = self.empty()
+        code, out, err = self.cli(argv_for(sp, bp))
+        self.assertEqual(code, 0)
+        self.assertEqual(err, b"")
+        blobs = finalize_inputs.head_blobs(state, cwd=self.repo)
+        self.assertEqual(json.loads(out),
+                         finalize_inputs.build_result(state, blobs,
+                                                      INTERACTIVE)[1])
+        with open(bp, "r", encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), blobs)
+
+    def test_parity_cli_against_the_2141_commands(self):
+        for label, state, _ in self.prepared():
+            for sw in (INTERACTIVE, dict(INTERACTIVE, pr_mode=True)):
+                with self.subTest(state=label, switches=sw):
+                    sp = self.new_path(state)
+                    bp = self.empty()
+                    code, out, err = self.cli(argv_for(sp, bp, sw))
+                    self.assertEqual((code, err), (0, b""))
+                    got = json.loads(out)
+                    c_code, c_out, _ = self.old_counts(sp, bp)
+                    self.assertEqual(c_code, 0)
+                    counts = json.loads(c_out)
+                    self.assertEqual(got["counts"], counts)
+                    flags = dict({"state_file_present": True,
+                                  "outstanding_cw": counts["outstanding_cw"],
+                                  "unacknowledged_medium":
+                                      counts["unacknowledged_medium"],
+                                  "undecided_nv": counts["undecided_nv"]}, **sw)
+                    g_code, g_out, _ = self.old_gate(flags)
+                    self.assertEqual(g_code, 0)
+                    gate = json.loads(g_out)
+                    self.assertEqual({"action": got["action"],
+                                      "reason": got["reason"]}, gate)
+                    if gate["action"] == "write":
+                        r_code, r_out, _ = self.old_report(sp)
+                        self.assertEqual(r_code, 0)
+                        self.assertEqual(got["report"], json.loads(r_out))
+                    else:
+                        self.assertIsNone(got["report"])
+
+    def test_parity_fix_obsolete_writes_through_the_cli(self):
+        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        code, out, _ = self.cli(argv_for(self.new_path(state), self.empty()))
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["action"], "write")
+
+    def test_parity_rows_accepts_the_written_blob_file(self):
+        sp = self.new_path(fix_obsolete_state(self.blob(ARCH_FILE)))
+        bp = self.empty()
+        self.assertEqual(self.cli(argv_for(sp, bp))[0], 0)
+        code, out, err = self.old(BATCH_CARD_PY, ["rows", "--mode", "finalize",
+                                                  "--head-blobs", bp],
+                                  stdin_path=sp)
+        self.assertEqual((code, err), (0, b""))
+        self.assertIsInstance(json.loads(out), dict)
+
+
+class TestCliRefusals(CliCase):
+
+    def test_refuse_bad_blob_out_beside_a_good_state(self):
+        sp = self.new_path(load_six_row())
+        cases = {
+            "missing": os.path.join(self.files, "nope"),
+            "directory": self.files,
+            "empty object": self.new_path("{}"),
+            "not json": self.new_path("not json"),
+        }
+        for label, bp in cases.items():
+            with self.subTest(blob_out=label):
+                before = (sha256_of(bp) if os.path.isfile(bp) else None)
+                code, out, err = self.cli(argv_for(sp, bp))
+                self.assertEqual(code, 2)
+                self.assertEqual(out, b"")
+                self.assertEqual(err, carry_state.REASON_HEAD_BLOBS.encode())
+                if before is not None:
+                    self.assertEqual(sha256_of(bp), before)
+                else:
+                    self.assertEqual(os.path.exists(bp), label == "directory")
+
+    def test_refuse_usage_missing_bad_unknown_or_repeated(self):
+        sp = self.new_path(load_six_row())
+        bp = self.empty()
+        cases = [("missing " + f, argv_for(sp, bp, drop=f))
+                 for f in finalize_inputs.ARGV_FLAGS]
+        good = argv_for(sp, bp)
+        for bad in ("<true|false>", "True", "1", "", "yes", "FALSE"):
+            for flag in ("--noninteractive", "--pr-mode", "--range-mode"):
+                argv = list(good)
+                argv[argv.index(flag) + 1] = bad
+                cases.append(("%s=%r" % (flag, bad), argv))
+        cases += [
+            ("unknown flag", good + ["--extra", "x"]),
+            ("repeated flag", good + ["--pr-mode", "false"]),
+            ("valueless flag", good[:-1]),
+            ("positional", good + ["x"]),
+            ("empty", []),
+        ]
+        for label, argv in cases:
+            with self.subTest(case=label):
+                code, out, err = self.inproc(argv)
+                self.assertEqual((code, out, err), (2, "", ""))
+        code, out, err = self.cli(argv_for(sp, bp, drop="--noninteractive"))
+        self.assertEqual((code, out, err), (2, b"", b""))
+        with open(bp, "rb") as fh:
+            self.assertEqual(fh.read(), b"")
+
+    def test_refuse_no_state_file_is_the_no_state_result(self):
+        cases = {"absent": os.path.join(self.files, "none.json"),
+                 "directory": self.files}
+        for label, sp in cases.items():
+            for bkind in ("empty", "missing", "non-empty"):
+                with self.subTest(state=label, blob_out=bkind):
+                    bp = {"empty": self.empty,
+                          "missing": lambda: os.path.join(self.files, "gone"),
+                          "non-empty": lambda: self.new_path("{}")}[bkind]()
+                    before = sha256_of(bp) if os.path.isfile(bp) else None
+                    rec = Recorder(finalize_inputs._git)
+                    with mock.patch.object(finalize_inputs, "_git", rec):
+                        code, out, err = self.inproc(argv_for(sp, bp))
+                    self.assertEqual((code, err), (0, ""))
+                    self.assertEqual(json.loads(out), finalize_inputs.build_result(
+                        None, {}, INTERACTIVE)[1])
+                    self.assertEqual(json.loads(out)["next"], "stop-no-state")
+                    self.assertEqual(rec.calls, [])
+                    if before is not None:
+                        self.assertEqual(sha256_of(bp), before)
+                    else:
+                        self.assertFalse(os.path.exists(bp))
+        code, out, err = self.cli(argv_for(cases["absent"], self.empty()))
+        self.assertEqual((code, err), (0, b""))
+        self.assertEqual(json.loads(out)["next"], "stop-no-state")
+
+    def test_gap_empty_state_file_path_is_no_state(self):
+        # 2.14.1: `[ -f "" ]` is false, so an empty STATE_FILE reads as no
+        # state file ("No prior review passes"), not a usage error.
+        bp = self.empty()
+        code, out, err = self.cli(argv_for("", bp))
+        self.assertEqual((code, err), (0, b""))
+        self.assertEqual(json.loads(out)["next"], "stop-no-state")
+        with open(bp, "rb") as fh:
+            self.assertEqual(fh.read(), b"")
+
+    def test_refuse_state_not_json_or_malformed(self):
+        cases = {
+            "not json": ("not json", carry_state.REASON_STATE_JSON),
+            "nan": ('{"passes": NaN}', carry_state.REASON_STATE_JSON),
+            "not utf-8": (NOT_UTF8, carry_state.REASON_STATE_JSON),
+            "no passes": ({"x": 1}, carry_state.state_reason({"x": 1})),
+            "bad fix_verdicts": (dict(load_fixture(), fix_verdicts=[]),
+                                 carry_state.REASON_FIX_VERDICTS),
+        }
+        for label, (content, line) in cases.items():
+            with self.subTest(state=label):
+                self.assertIsNotNone(line)
+                bp = self.empty()
+                code, out, err = self.cli(argv_for(self.new_path(content), bp))
+                self.assertEqual((code, out), (3, b""))
+                self.assertEqual(err, line.encode())
+                with open(bp, "rb") as fh:
+                    self.assertEqual(fh.read(), b"")
+
+
+class TestCliFreshness(CliCase):
+
+    def test_freshness_edit_after_a_write_reopens(self):
+        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        sp = self.new_path(state)
+        first = self.empty()
+        code, out, _ = self.cli(argv_for(sp, first))
+        self.assertEqual((code, json.loads(out)["action"]), (0, "write"))
+        write(self.repo, ARCH_FILE, "edited\n")
+        code, out, _ = self.cli(argv_for(sp, self.empty()))
+        self.assertEqual(code, 0)
+        self.assertNotEqual(json.loads(out)["action"], "write")
+        self.assertEqual(json.loads(out)["next"], "finalize-card")
+        # The first attempt's file is never reused.
+        code, out, err = self.cli(argv_for(sp, first))
+        self.assertEqual((code, out), (2, b""))
+        self.assertEqual(err, carry_state.REASON_HEAD_BLOBS.encode())
+
+
+class TestCliStderrParity(CliCase):
+    """D-18: the counting and report lines are the 2.14.1 commands' own."""
+
+    def counting_cases(self):
+        good = load_six_row()
+        return {
+            "state not json": (self.new_path("not json"), self.empty()),
+            "state not utf-8": (self.new_path(NOT_UTF8), self.empty()),
+            "state without passes": (self.new_path({"x": 1}), self.empty()),
+            "malformed fix_verdicts": (
+                self.new_path(dict(load_fixture(), fix_verdicts=[])),
+                self.empty()),
+            "fingerprint file missing": (
+                self.new_path(good), os.path.join(self.files, "absent")),
+            "fingerprint file not json": (
+                self.new_path(good), self.new_path("not json")),
+            "both bad": (self.new_path("not json"),
+                         os.path.join(self.files, "absent2")),
+        }
+
+    def test_parity_counting_stage_stderr(self):
+        for label, (sp, bp) in self.counting_cases().items():
+            with self.subTest(case=label):
+                o_code, o_out, o_err = self.old_counts(sp, bp)
+                code, out, err = self.cli(argv_for(sp, bp))
+                self.assertNotEqual(o_code, 0)
+                self.assertTrue(o_err)
+                self.assertIn(code, (2, 3))
+                self.assertEqual(out, b"")
+                self.assertEqual(err, o_err)
+        # The state's line wins over the fingerprint file's, as at 2.14.1.
+        sp, bp = self.counting_cases()["both bad"]
+        self.assertEqual(self.cli(argv_for(sp, bp))[2],
+                         carry_state.REASON_STATE_JSON.encode())
+
+    def swap_reader(self, path, second):
+        """Patch `_read_text` so the state file's content becomes `second`
+        (bytes) after the first read, or raises OSError when `second` is
+        OSError."""
+        real = finalize_inputs._read_text
+        calls = []
+
+        def reader(p):
+            calls.append(p)
+            if len(calls) == 2:
+                if second is OSError:
+                    raise OSError("unreadable")
+                with open(path, "wb") as fh:
+                    fh.write(second)
+            return real(p)
+        return reader, calls
+
+    def test_parity_report_stage_stderr(self):
+        cases = {"not json": b"not json", "not utf-8": NOT_UTF8,
+                 "malformed": json.dumps({"passes": []}).encode()}
+        for label, swapped in cases.items():
+            with self.subTest(case=label):
+                sp = self.new_path(dismissed_all_state())
+                reader, calls = self.swap_reader(sp, swapped)
+                with mock.patch.object(finalize_inputs, "_read_text", reader):
+                    code, out, err = self.inproc(argv_for(sp, self.empty()))
+                self.assertEqual(len(calls), 2)
+                self.assertEqual((code, out), (5, ""))
+                o_code, o_out, o_err = self.old_report(sp)
+                self.assertNotEqual(o_code, 0)
+                self.assertTrue(o_err)
+                self.assertEqual(err.encode(), o_err)
+
+    def test_parity_report_reads_the_state_again_unchanged(self):
+        state = dismissed_all_state()
+        sp = self.new_path(state)
+        real = finalize_inputs._read_text
+        calls = []
+
+        def reader(p):
+            calls.append(p)
+            return real(p)
+
+        with mock.patch.object(finalize_inputs, "_read_text", reader):
+            code, out, err = self.inproc(argv_for(sp, self.empty()))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(calls, [sp, sp])
+        self.assertEqual(json.loads(out)["report"],
+                         batch_card.decisions_report(state))
+
+    def test_report_second_read_unreadable_is_a_silent_report_stop(self):
+        sp = self.new_path(dismissed_all_state())
+        reader, _ = self.swap_reader(sp, OSError)
+        with mock.patch.object(finalize_inputs, "_read_text", reader):
+            code, out, err = self.inproc(argv_for(sp, self.empty()))
+        self.assertEqual((code, out, err), (5, "", ""))
+
+    def test_report_none_on_an_accepted_state_writes_nothing(self):
+        sp = self.new_path(dismissed_all_state())
+        with mock.patch.object(finalize_inputs.batch_card, "decisions_report",
+                               return_value=None):
+            code, out, err = self.inproc(argv_for(sp, self.empty()))
+        self.assertEqual((code, out, err), (5, "", ""))
+
+    def test_named_difference_unreadable_state(self):
+        # The one screen difference that cannot be removed: at 2.14.1 the
+        # shell's own `< "$STATE_FILE"` redirect printed a line naming the
+        # path; the helper exits 3 and writes nothing.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root reads any file")
+        sp = self.new_path(load_six_row())
+        bp = self.empty()
+        os.chmod(sp, 0)
+        try:
+            proc = subprocess.run(
+                [sys.executable, MODULE_PATH] + argv_for(sp, bp),
+                cwd=self.repo, capture_output=True, timeout=120)
+            self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                             (3, b"", b""))
+            script = ('python3 "$CARRY" finalize-counts --head-blobs "$BLOB" '
+                      '< "$STATE_FILE"\n')
+            env = dict(os.environ, CARRY=CARRY_STATE_PY, BLOB=bp,
+                       STATE_FILE=sp)
+            old = subprocess.run(["bash", "-s"], input=script.encode(),
+                                 env=env, cwd=self.repo, capture_output=True,
+                                 timeout=120)
+            lines = old.stderr.decode().splitlines()
+            self.assertNotEqual(old.returncode, 0)
+            self.assertEqual(len(lines), 1)
+            self.assertTrue(lines[0].endswith("Permission denied"))
+            self.assertIn(sp, lines[0])
+        finally:
+            os.chmod(sp, 0o600)
+
+    def test_stderr_empty_on_every_other_exit(self):
+        sp = self.new_path(load_six_row())
+        cases = {
+            "success": (None, None),
+            "usage": ("--pr-mode", None),
+            "gate raises": (None, ("finalize_gate", "run",
+                                   RuntimeError("x"))),
+            "unexpected exception": (None, ("finalize_inputs", "head_blobs",
+                                            RuntimeError("x"))),
+        }
+        for label, (drop, patch) in cases.items():
+            with self.subTest(case=label):
+                argv = argv_for(sp, self.empty(), drop=drop)
+                if patch is None:
+                    code, out, err = self.inproc(argv)
+                else:
+                    target = (finalize_inputs if patch[0] == "finalize_inputs"
+                              else finalize_inputs.finalize_gate)
+                    with mock.patch.object(target, patch[1],
+                                           side_effect=patch[2]):
+                        code, out, err = self.inproc(argv)
+                self.assertEqual(err, "")
+                self.assertEqual(code, {"success": 0, "usage": 2}.get(label, 4))
+                if code:
+                    self.assertEqual(out, "")
+
+
+class TestCliDisclosure(CliCase):
+
+    def test_markers_never_echoed_on_refusals(self):
+        marker = "ZZMARKERTITLE"
+        path_marker = "ZZMARKERPATH"
+        state = dict(load_fixture(), fix_verdicts=[])
+        row(state, ARCH_HASH)["title"] = marker
+        row(state, ARCH_HASH)["file"] = marker + ".ts"
+        good = load_fixture()
+        row(good, ARCH_HASH)["title"] = marker
+        bad_blob = self.new_path("x", name=path_marker)
+        runs = [argv_for(self.new_path(state), self.empty()),
+                argv_for(self.new_path(good), bad_blob),
+                argv_for(self.new_path(good),
+                         os.path.join(self.files, path_marker + "2")),
+                argv_for(self.new_path(good), bad_blob,
+                         switches={"pr_mode": True}, extra=["--x", "y"])]
+        for argv in runs:
+            with self.subTest(argv=argv[1::2][:2]):
+                code, out, err = self.cli(argv)
+                self.assertNotEqual(code, 0)
+                for m in (marker, path_marker):
+                    self.assertNotIn(m.encode(), out + err)
+
+    def test_no_owner_sentence_in_the_module(self):
+        with open(MODULE_PATH, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        for text in OWNER_SENTENCES:
+            self.assertNotIn(text, src)
+        code_lines = [ln for ln in src.splitlines()
+                      if not ln.lstrip().startswith("#")]
+        self.assertFalse(any("print(" in ln for ln in code_lines))
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                self.assertFalse(node.value.startswith("refused:"),
+                                 node.value)
+
+    def test_every_stderr_write_passes_a_carry_state_name(self):
+        with open(MODULE_PATH, "r", encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        writes = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                  and isinstance(n.func, ast.Attribute)
+                  and n.func.attr == "write"
+                  and isinstance(n.func.value, ast.Attribute)
+                  and n.func.value.attr == "stderr"]
+        self.assertEqual(len(writes), 1)
+        self.assertFalse(isinstance(writes[0].args[0], ast.Constant))
+
+
+class TestCliMutants(CliCase):
+    """Each CLI guard removed in turn lets its own case through."""
+
+    def multi_mutant(self, *pairs):
+        with open(MODULE_PATH, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        for old, new in pairs:
+            self.assertEqual(src.count(old), 1, old)
+            src = src.replace(old, new, 1)
+        spec = importlib.util.spec_from_loader("finalize_inputs_mutant",
+                                               loader=None)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__file__ = MODULE_PATH
+        exec(compile(src, MODULE_PATH, "exec"), mod.__dict__)
+        return mod
+
+    def test_mutant_accepting_non_empty_blob_out_trips(self):
+        sp = self.new_path(load_six_row())
+        argv = argv_for(sp, self.new_path("{}"))
+        self.assertEqual(self.inproc(argv)[0], 2)
+        mod = self.multi_mutant(("os.path.getsize(path) == 0", "True"))
+        self.assertEqual(self.inproc(argv, module=mod)[0], 0)
+
+    def test_mutant_defaulting_noninteractive_to_false_trips(self):
+        argv = argv_for(self.new_path(load_six_row()), self.empty(),
+                        drop="--noninteractive")
+        self.assertEqual(self.inproc(argv)[0], 2)
+        mod = self.multi_mutant((
+            "    if set(values) != set(ARGV_FLAGS):",
+            '    values.setdefault("--noninteractive", "false")\n'
+            "    if set(values) != set(ARGV_FLAGS):"))
+        code, out, _ = self.inproc(argv, module=mod)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["action"], "outstanding-to-phase-5")
+
+    def test_mutant_reading_an_existing_blob_out_trips_freshness(self):
+        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        sp = self.new_path(state)
+        first = self.empty()
+        self.assertEqual(json.loads(self.inproc(argv_for(sp, first))[1])
+                         ["action"], "write")
+        write(self.repo, ARCH_FILE, "edited\n")
+        self.assertEqual(self.inproc(argv_for(sp, first))[0], 2)
+        mod = self.multi_mutant(
+            ("os.path.getsize(path) == 0", "True"),
+            ("blobs = head_blobs(state, cwd)",
+             "blobs = carry_state.read_json_file(blob_out) or "
+             "head_blobs(state, cwd)"))
+        code, out, _ = self.inproc(argv_for(sp, first), module=mod)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["action"], "write")
+
+    def test_mutant_stderr_on_usage_or_gate_exit_trips(self):
+        sp = self.new_path(load_six_row())
+        usage = self.multi_mutant((
+            '        return EXIT_USAGE, ""',
+            '        sys.stderr.write("usage\\n")\n'
+            '        return EXIT_USAGE, ""'))
+        self.assertEqual(self.inproc(argv_for(sp, self.empty(),
+                                              drop="--pr-mode"),
+                                     module=usage)[2], "usage\n")
+        gate = self.multi_mutant((
+            '        return EXIT_GATE, ""',
+            '        sys.stderr.write("gate\\n")\n'
+            '        return EXIT_GATE, ""'))
+        with mock.patch.object(gate.finalize_gate, "run",
+                               side_effect=RuntimeError("x")):
+            self.assertEqual(self.inproc(argv_for(sp, self.empty()),
+                                         module=gate)[2], "gate\n")
+
+    def test_mutant_counting_line_changed_or_dropped_trips(self):
+        sp = self.new_path("not json")
+        bp = self.empty()
+        o_err = self.old_counts(sp, bp)[2].decode()
+        self.assertEqual(self.inproc(argv_for(sp, bp))[2], o_err)
+        changed = self.multi_mutant((
+            "    except ValueError:\n        return None, "
+            "carry_state.REASON_STATE_JSON",
+            "    except ValueError:\n        return None, "
+            "carry_state.REASON_STATE"))
+        self.assertNotEqual(self.inproc(argv_for(sp, bp), module=changed)[2],
+                            o_err)
+        dropped = self.multi_mutant(("return _refuse(EXIT_STATE, line)",
+                                     'return EXIT_STATE, ""'))
+        self.assertEqual(self.inproc(argv_for(sp, bp), module=dropped)[2], "")
+
+    def test_mutant_blob_out_checked_before_state_trips(self):
+        sp = self.new_path("not json")
+        bp = os.path.join(self.files, "absent")
+        self.assertEqual(self.inproc(argv_for(sp, bp))[2],
+                         carry_state.REASON_STATE_JSON)
+        mod = self.multi_mutant((
+            "    state, line = _load_state(state_file)\n",
+            "    if not _blob_out_ok(blob_out):\n"
+            "        return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)\n"
+            "    state, line = _load_state(state_file)\n"))
+        self.assertEqual(self.inproc(argv_for(sp, bp), module=mod)[2],
+                         carry_state.REASON_HEAD_BLOBS)
+
+    def report_swap_run(self, module, swapped):
+        sp = self.new_path(dismissed_all_state())
+        real = module._read_text
+        calls = []
+
+        def reader(p):
+            calls.append(p)
+            if len(calls) == 2:
+                if swapped is OSError:
+                    raise OSError("x")
+                with open(sp, "wb") as fh:
+                    fh.write(swapped)
+            return real(p)
+
+        with mock.patch.object(module, "_read_text", reader):
+            result = self.inproc(argv_for(sp, self.empty()), module=module)
+        return result, sp
+
+    def test_mutant_report_line_changed_or_dropped_trips(self):
+        (code, _, err), sp = self.report_swap_run(finalize_inputs, b"not json")
+        self.assertEqual(err.encode(), self.old_report(sp)[2])
+        changed = self.multi_mutant((
+            'return _refuse(code, report_line[0] if report_line else "")',
+            "return _refuse(code, carry_state.REASON_STATE)"))
+        (_, _, err), sp = self.report_swap_run(changed, b"not json")
+        self.assertNotEqual(err.encode(), self.old_report(sp)[2])
+        dropped = self.multi_mutant((
+            'return _refuse(code, report_line[0] if report_line else "")',
+            'return code, ""'))
+        (_, _, err), _ = self.report_swap_run(dropped, b"not json")
+        self.assertEqual(err, "")
+
+    def test_mutant_report_from_the_first_read_trips(self):
+        (code, _, _), _ = self.report_swap_run(finalize_inputs, b"not json")
+        self.assertEqual(code, 5)
+        mod = self.multi_mutant(("report_source=reread", "report_source=None"))
+        (code, out, _), _ = self.report_swap_run(mod, b"not json")
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(json.loads(out)["report"])
+
+    def test_mutant_decode_error_to_catch_all_trips(self):
+        sp = self.new_path(NOT_UTF8)
+        bp = self.empty()
+        self.assertEqual(self.inproc(argv_for(sp, bp))[:1] + (
+            self.inproc(argv_for(sp, bp))[2],),
+            (3, carry_state.REASON_STATE_JSON))
+        mod = self.multi_mutant((
+            "    except UnicodeDecodeError:\n"
+            "        return None, carry_state.REASON_STATE_JSON\n", ""))
+        code, _, err = self.inproc(argv_for(sp, bp), module=mod)
+        self.assertEqual((code, err), (4, ""))
+        (code, _, err), _ = self.report_swap_run(mod, NOT_UTF8)
+        self.assertEqual((code, err), (4, ""))
+
+    def test_mutant_oserror_to_catch_all_trips(self):
+        (code, _, _), _ = self.report_swap_run(finalize_inputs, OSError)
+        self.assertEqual(code, 5)
+        mod = self.multi_mutant((
+            "    except OSError:\n        return None, \"\"\n", ""))
+        (code, _, err), _ = self.report_swap_run(mod, OSError)
+        self.assertEqual((code, err), (4, ""))
 
 
 class TestImportSet(unittest.TestCase):
