@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "planning — Phase 63 plans revised after the first plan check (11 plans in 9 waves); re-check pending, not executed"
-stopped_at: "Phase 63 plans revised on feat/v2.15-phase-63 after the first plan check (63-01..63-11, D-01..D-18 traced; D-18 added and then extended to the report step by the owner 2026-11-14); no code changed, nothing pushed; next is the plan re-check, then /bm:execute-phase 63"
-last_updated: "2026-11-14T20:25:45Z"
-last_activity: 2026-11-14 -- Phase 63 plans revised after the first plan check (D-18 added); re-check pending
+status: "ready to execute — Phase 63 planned and plan-checked (11 plans in 9 waves); not executed"
+stopped_at: "Phase 63 plans passed the plan check on the third pass on feat/v2.15-phase-63 (63-01..63-11, D-01..D-18 traced; D-16..D-18 settled by the owner 2026-11-14); no code changed, nothing pushed; next is /bm:execute-phase 63"
+last_updated: "2026-11-14T20:28:50Z"
+last_activity: 2026-11-14 -- Phase 63 planned and plan-checked (11 plans in 9 waves); ready to execute
 progress:
   total_phases: 4
   completed_phases: 1
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 
 Phase: 63
 Plan: 0 of 11 (planned, not executed)
-Status: Planning — plans revised after the first plan check, re-check pending
-Last activity: 2026-11-14 -- Phase 63 plans revised on feat/v2.15-phase-63 (11 plans in 9 waves; D-18 added)
+Status: Ready to execute — plans passed the plan check on the third pass
+Last activity: 2026-11-14 -- Phase 63 planned and plan-checked (11 plans in 9 waves); ready to execute
 
 ## Operator Next Steps
 
