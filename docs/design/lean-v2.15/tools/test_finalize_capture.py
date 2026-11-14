@@ -701,9 +701,271 @@ class TestFailureRoutesDeterministic(unittest.TestCase):
                 self.assertEqual(fc.canonical_json(got[0]),
                                  fc.canonical_json(got[1]))
 
+# --------------------------------------------------------------------------- #
+# The committed five-situation record
+# --------------------------------------------------------------------------- #
+RECORD = os.path.join(REPO, "docs", "design", "lean-v2.15", "baseline",
+                      "finalize-situations-v2.14.1.json")
+PLANTS = ("/Users/x/work", "/home/runner/work", "/private/tmp/vc.abc")
+
+
+def _read_text(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _planted(text, plant):
+    """The committed record's text with `plant` added to one recorded
+    stdout."""
+    record = json.loads(text)
+    record["situations"]["clean-close"]["steps"][0]["stdout"] += " " + plant
+    return fc.record_text(record)
+
+
+def assert_plant_reported(case, text, plant):
+    """The planted-path break test: the plant is really in the text, and
+    the machine-path lock reports it."""
+    mutant = _planted(text, plant)
+    case.assertNotEqual(mutant, text)
+    case.assertIn(plant, mutant)
+    case.assertNotIn(plant, text)
+    problems = fc.machine_path_problems(mutant)
+    case.assertTrue(problems, "the lock missed %s" % plant)
+    head = "/" + plant.split("/")[1] + "/"
+    case.assertTrue(any(head in p for p in problems), problems)
+
+
+class TestRecord(unittest.TestCase):
+    """The committed record re-derives exactly, and any change is named."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _read_text(RECORD)
+        cls.record = json.loads(cls.text)
+        cls.fresh = fc.capture(REPO)
+
+    def _tampered(self, mutate):
+        """verify() on a temp copy of the committed record changed by
+        `mutate`; asserts the copy really differs."""
+        record = json.loads(self.text)
+        mutate(record)
+        text = fc.record_text(record)
+        self.assertNotEqual(text, self.text)
+        tmp = tempfile.mkdtemp(prefix="fc-tamper-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "record.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return fc.verify(REPO, path, fresh=self.fresh)
+
+    # -- shape --------------------------------------------------------------
+    def test_record_shape(self):
+        self.assertEqual(list(self.record["situations"]), SITUATION_IDS)
+        self.assertEqual(self.record["baseline_commit"], fc.BASELINE_COMMIT)
+        self.assertEqual(self.record["baseline_commit"],
+                         "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4")
+        self.assertEqual(self.record["driver"], "fence-walk-2.14.1")
+        self.assertEqual(self.record["schema"], fc.SCHEMA)
+        self.assertEqual(self.record["normalisation"],
+                         list(fc.NORMALISATION))
+        self.assertEqual(self.record["sha256"],
+                         fc.canonical_sha256(self.record["situations"]))
+        for sid, out in self.record["situations"].items():
+            self.assertEqual(set(out), set(fc.OUTPUT_KEYS) | {"legs"}, sid)
+
+    def test_sidecar_holds_the_same_fingerprint(self):
+        self.assertEqual(_read_text(RECORD + ".sha256"),
+                         self.record["sha256"] + "\n")
+
+    def test_record_text_is_written_as_capture_writes_it(self):
+        self.assertTrue(self.text.endswith("}\n"))
+        self.assertEqual(fc.record_text(self.record), self.text)
+
+    def test_situation_outcomes_in_the_record(self):
+        sit = self.record["situations"]
+        acts = {sid: [d["action"] for d in out["gate"]]
+                for sid, out in sit.items()}
+        self.assertEqual(acts["clean-close"], ["write"])
+        self.assertEqual(acts["card-first"][-1], "write")
+        self.assertEqual(acts["one-rebuild"], ["write"])
+        self.assertEqual(acts["refused-close"], [])
+        self.assertEqual(acts["fresh-shell-restart"],
+                         ["outstanding-to-phase-5", "write"])
+        stop = sit["refused-close"]["stop_sentence"]
+        self.assertTrue(stop.startswith("Finalize stopped"))
+        self.assertEqual(sit["one-rebuild"]["legs"]["second-failure"]
+                         ["stop_sentence"], stop)
+        for out in (sit["refused-close"],
+                    sit["refused-close"]["legs"]["unarchivable-report"]):
+            self.assertEqual((out["files_written"], out["files_archived"],
+                              out["state_closed"]), ([], [], False))
+
+    # -- re-derivation ------------------------------------------------------
+    def test_capture_twice_gives_equal_records(self):
+        roots = [tempfile.mkdtemp(prefix="fc-rec-") for _ in range(2)]
+        for root in roots:
+            self.addCleanup(shutil.rmtree, root, True)
+        a, b = (fc.capture(REPO, tmp_root=root) for root in roots)
+        self.assertEqual(fc.record_text(a), fc.record_text(b))
+        self.assertEqual(a["sha256"], b["sha256"])
+        for root in roots:
+            self.assertEqual(os.listdir(root), [])
+
+    def test_fresh_capture_equals_the_committed_text(self):
+        self.assertEqual(fc.record_text(self.fresh), self.text)
+
+    def test_verify_committed_record_is_clean(self):
+        self.assertEqual(fc.verify(REPO, RECORD), [])
+
+    # -- tamper mutants -----------------------------------------------------
+    def test_tamper_one_stdout_character_is_named(self):
+        def mutate(record):
+            step = record["situations"]["card-first"]["steps"][1]
+            old = step["stdout"]
+            step["stdout"] = old[:-2] + ("x" if old[-2] != "x" else "y") \
+                + old[-1:]
+            self.assertNotEqual(step["stdout"], old)
+        problems = self._tampered(mutate)
+        self.assertTrue(any(p.startswith("card-first") for p in problems),
+                        problems)
+
+    def test_tamper_gate_action_is_named(self):
+        def mutate(record):
+            gate = record["situations"]["one-rebuild"]["gate"][0]
+            self.assertEqual(gate["action"], "write")
+            gate["action"] = "fallback"
+        problems = self._tampered(mutate)
+        self.assertTrue(any(p.startswith("one-rebuild") for p in problems),
+                        problems)
+
+    def test_tamper_removed_situation_is_named(self):
+        def mutate(record):
+            del record["situations"]["fresh-shell-restart"]
+            self.assertNotIn("fresh-shell-restart", record["situations"])
+        problems = self._tampered(mutate)
+        self.assertTrue(any(p.startswith("fresh-shell-restart")
+                            for p in problems), problems)
+
+    def test_tamper_stored_sha256_is_named(self):
+        def mutate(record):
+            old = record["sha256"]
+            record["sha256"] = ("0" if old[0] != "0" else "1") + old[1:]
+            self.assertNotEqual(record["sha256"], old)
+        problems = self._tampered(mutate)
+        self.assertTrue(any(p.startswith("sha256") for p in problems),
+                        problems)
+        self.assertFalse(any(p.startswith(tuple(SITUATION_IDS))
+                             for p in problems), problems)
+
+    def test_driver_mutant_is_named_against_the_record(self):
+        self.assertEqual(fc.FenceWalk2141.REBUILDS, 1)
+        with mock.patch.object(fc.FenceWalk2141, "REBUILDS", 0):
+            self.assertEqual(fc.FenceWalk2141.REBUILDS, 0)
+            problems = fc.verify(REPO, RECORD)
+        self.assertTrue(any(p.startswith("one-rebuild") for p in problems),
+                        problems)
+        self.assertFalse(any(p.startswith("clean-close") for p in problems),
+                         problems)
+
+    # -- machine paths ------------------------------------------------------
+    def test_record_holds_no_machine_paths(self):
+        self.assertEqual(fc.machine_path_problems(self.text), [])
+
+    def test_lock_names_each_pattern(self):
+        for pattern in ("/Users/", "/private/", "/tmp/", "/home/"):
+            with self.subTest(pattern):
+                problems = fc.machine_path_problems("a %sb c" % pattern,
+                                                    account="")
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(pattern, problems[0])
+
+    def test_lock_names_the_account(self):
+        problems = fc.machine_path_problems("owner is someacct here",
+                                            account="someacct")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("account", problems[0])
+        self.assertEqual(fc.machine_path_problems("owner is abc",
+                                                  account="abc"), [])
+        user = fc.current_account()
+        if user and len(user) > 3:
+            self.assertTrue(fc.machine_path_problems("x %s y" % user))
+
+    def test_planted_users_path_is_reported(self):
+        assert_plant_reported(self, self.text, PLANTS[0])
+
+    def test_planted_home_path_is_reported(self):
+        assert_plant_reported(self, self.text, PLANTS[1])
+
+    def test_planted_private_tmp_path_is_reported(self):
+        assert_plant_reported(self, self.text, PLANTS[2])
+
+    # -- CLI ----------------------------------------------------------------
+    def test_cli_verify_committed_exits_zero(self):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            rc = fc.main(["verify", "--repo", REPO, "--record", RECORD])
+        self.assertEqual(rc, 0, out.getvalue())
+
+    def test_cli_verify_tampered_copy_exits_one(self):
+        tmp = tempfile.mkdtemp(prefix="fc-cli-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "record.json")
+        mutant = _planted(self.text, PLANTS[0])
+        self.assertIn(PLANTS[0], mutant)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(mutant)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = fc.main(["verify", "--repo", REPO, "--record", path])
+        self.assertEqual(rc, 1)
+        shown = out.getvalue() + err.getvalue()
+        self.assertIn("FINALIZE BASELINE DIFFERS — STOPPING", shown)
+        self.assertIn("clean-close", shown)
+
+    def test_cli_verify_unreadable_record_exits_two(self):
+        tmp = tempfile.mkdtemp(prefix="fc-cli-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "record.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("not json")
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            rc = fc.main(["verify", "--repo", REPO, "--record", path])
+        self.assertEqual(rc, 2)
+
+    def test_cli_capture_refuses_a_record_with_a_machine_path(self):
+        planted = json.loads(_planted(self.text, PLANTS[0]))
+        tmp = tempfile.mkdtemp(prefix="fc-cli-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "record.json")
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(fc, "capture", return_value=planted):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = fc.main(["capture", "--repo", REPO, "--out", path])
+        self.assertEqual(rc, 1)
+        self.assertIn("RECORD HOLDS A MACHINE PATH — STOPPING",
+                      out.getvalue() + err.getvalue())
+        self.assertEqual(os.listdir(tmp), [])
+
+
+class TestMutants(unittest.TestCase):
+    """The machine-path lock is the thing the planted-path tests test."""
+
+    def test_patched_off_lock_misses_the_plant(self):
+        text = _read_text(RECORD)
+        assert_plant_reported(self, text, PLANTS[0])
+
+        def never(text, account=None):
+            return []
+        with mock.patch.object(fc, "machine_path_problems", never):
+            self.assertIs(fc.machine_path_problems, never)
+            for plant in PLANTS:
+                with self.subTest(plant):
+                    with self.assertRaises(AssertionError):
+                        assert_plant_reported(self, text, plant)
+
 class TestImportSet(unittest.TestCase):
-    ALLOWED = {"argparse", "hashlib", "json", "os", "re", "shutil",
-               "subprocess", "sys", "tempfile", "textwrap"}
+    ALLOWED = {"argparse", "getpass", "hashlib", "json", "os", "re",
+               "shutil", "subprocess", "sys", "tempfile", "textwrap"}
 
     def _tree(self):
         with open(CAPTURE_PY, encoding="utf-8") as fh:
