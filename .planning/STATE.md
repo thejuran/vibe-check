@@ -4,7 +4,7 @@ milestone: v2.14
 milestone_name: Decision reliability
 status: "Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1"
 stopped_at: "2.14.1 shipped 2026-10-30 (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release; fixes 999.28); next: /bm:new-milestone for Lean orchestration"
-last_updated: "2026-10-31T03:30:00Z"
+last_updated: "2026-11-14T03:13:22Z"
 last_activity: 2026-10-30 -- 2.14.1 released (PR #8 merged, tag v2.14.1, GitHub release v2.14.1); 999.28 fixed on all routes except --all
 progress:
   total_phases: 3
@@ -33,7 +33,7 @@ Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, f
 ## Operator Next Steps
 
 - Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
-- /bm:new-milestone for Lean orchestration (999.12 feasibility, Finalize-first extraction)
+- /bm:new-milestone for Lean orchestration (999.12 feasibility, continuous test run, Finalize-first extraction with the general cross-call variable check)
 
 ## Deferred Items
 
@@ -52,6 +52,8 @@ Carried from earlier:
 |------|------|--------|
 | Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
+| Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
+| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
@@ -77,6 +79,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-13: Planning only, no code or release. Codebase map (`.planning/codebase/`) and intel (`.planning/intel/`) rebuilt at eb790e4; drift scan scored 100 with no findings (Python coverage of that scan unconfirmed). Owner approved three roadmap changes: Lean orchestration gains a continuous test run (new item 2) and a general cross-call variable check inside the Finalize extraction; backlog 999.31 groups the remaining decision-continuity limits as one design question for after Lean orchestration; 999.32 carries C4 out of the shipped 999.28. Three smaller remap observations were recorded in backlog/MAINTENANCE.md (architecture.md "Removed" entry, score.py/score43.py cross-check, unlabelled pinned tests). No milestone activated; next is still /bm:new-milestone.
 
 2026-10-30: 2.14.1 shipped (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release). Fixes 999.28 via /bm:debug (session .planning/debug/999-28-uncommitted-reask.md): per-pass snapshot (scripts/worktree_snap.py) feeds score.py `nearby_line_ranges`; snapshot taken in Phase 0 before the reviewers' diff and confirmed at Phase 3; PR/range routes fixed too (owner chose B). Deep review (1 Warning, snapshot timing) + 3 Codex/Opus re-review rounds, final Codex approve. Gates on the release commit: suite 3886, replay 170/0, guardrail 25/26 (amendment 008), validate, stdlib-only. Live check default route only (owner approved; PR live skipped by owner): unchanged tree kept the deferral, edit 3 lines above re-asked with the true reason; C4 reproduced again. New backlog 999.29 (reworded re-report shows as new), 999.30 (pruning). Plugin cache restored to 2.14.0 after the check; installed plugin not yet updated to 2.14.1.
 
