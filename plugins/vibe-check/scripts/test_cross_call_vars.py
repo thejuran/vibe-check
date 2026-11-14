@@ -11,7 +11,254 @@ earlier fence of the same file set without printing it.
 """
 import ast
 import os
+import re
 import unittest
+
+# --------------------------------------------------------------------------- #
+# The fence rule, transcribed from docs/design/lean-v2.15/tools/step_count.py:
+# an optional indent, three or four backticks and `bash` open a Bash fence; the
+# close is the same number of backticks; fences in other languages are skipped
+# whole.
+# --------------------------------------------------------------------------- #
+FENCE_OPEN = re.compile(r"^[ \t]*`{3,4}bash$")
+_ANY_FENCE_OPEN = re.compile(r"^[ \t]*(`{3,})[^`]*$")
+
+
+def _ticks(line):
+    stripped = line.lstrip(" \t")
+    return len(stripped) - len(stripped.lstrip("`"))
+
+
+def bash_fences(text):
+    """[(line number of the opening fence line, 1-based, body text)] for
+    every Bash fence in `text`, in order."""
+    fences = []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        is_bash = bool(FENCE_OPEN.match(line))
+        if is_bash or _ANY_FENCE_OPEN.match(line):
+            opened_at = i + 1
+            close = re.compile(r"^[ \t]*`{%d}$" % _ticks(line))
+            body = []
+            i += 1
+            while i < len(lines) and not close.match(lines[i]):
+                body.append(lines[i])
+                i += 1
+            i += 1  # past the closing line (or the end of the text)
+            if is_bash:
+                fences.append((opened_at, "\n".join(body)))
+            continue
+        i += 1
+    return fences
+
+
+# --------------------------------------------------------------------------- #
+# Reading shell text one line at a time.
+# --------------------------------------------------------------------------- #
+_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_HEREDOC = re.compile(
+    r"<<-?[ \t]*(?:'([^']*)'|\"([^\"]*)\"|\\?(%s))" % _NAME)
+_WORD_START = " \t;&|()"
+
+
+def _code_lines(body):
+    """[(line index, kind, read_view, assign_view)] for the lines of a fence.
+
+    `kind` is "code" or "heredoc" (the body of a heredoc whose delimiter is
+    unquoted; the body of a quoted-delimiter heredoc is dropped). On a code
+    line, `read_view` blanks single-quoted text, escaped characters and the
+    heredoc operator, and ends where a comment starts; `assign_view` also
+    blanks double-quoted text. Blanked characters become spaces, so a column
+    means the same place in the line and in both views. Quote state carries
+    across lines, as in the shell."""
+    out = []
+    lines = body.split("\n")
+    in_single = in_double = False
+    heredocs = []  # [(delimiter, quoted)] opened on the current line
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        read_view, assign_view = [], []
+
+        def keep(text, in_assign=True):
+            read_view.append(text)
+            assign_view.append(text if in_assign else " " * len(text))
+
+        def blank(n):
+            read_view.append(" " * n)
+            assign_view.append(" " * n)
+
+        j = 0
+        while j < len(line):
+            c = line[j]
+            if in_single:
+                if c == "'":
+                    in_single = False
+                    keep(c)
+                else:
+                    blank(1)
+                j += 1
+                continue
+            if c == "\\":
+                # an escaped character is never a quote, `$` or `#`
+                blank(len(line[j:j + 2]))
+                j += 2
+                continue
+            if in_double:
+                if c == '"':
+                    in_double = False
+                    keep(c)
+                else:
+                    keep(c, in_assign=False)
+                j += 1
+                continue
+            if c == "'":
+                in_single = True
+            elif c == '"':
+                in_double = True
+            elif c == "#" and (j == 0 or line[j - 1] in _WORD_START):
+                break  # the rest of the line is a comment
+            elif line.startswith("<<", j) and not line.startswith("<<<", j):
+                m = _HEREDOC.match(line, j)
+                if m:
+                    quoted = m.group(3) is None
+                    delim = m.group(1) if m.group(1) is not None else (
+                        m.group(2) if m.group(2) is not None else m.group(3))
+                    heredocs.append((delim, quoted))
+                    blank(m.end() - j)
+                    j = m.end()
+                    continue
+            keep(c)
+            j += 1
+        out.append((i, "code", "".join(read_view), "".join(assign_view)))
+        i += 1
+        for delim, quoted in heredocs:
+            while i < len(lines) and lines[i].strip() != delim:
+                if not quoted:
+                    view = lines[i].replace("\\$", "  ")
+                    out.append((i, "heredoc", view, " " * len(view)))
+                i += 1
+            i += 1  # past the delimiter line
+        heredocs = []
+    return out
+
+
+_ASSIGN = re.compile(
+    r"(?:^|(?<=[ \t;&|(!]))"
+    r"(?:(?:export|local|readonly|declare|typeset)(?:[ \t]+-[A-Za-z]+)*[ \t]+)?"
+    r"(%s)\+?=(?!=)" % _NAME)
+_FOR = re.compile(r"(?:^|(?<=[ \t;&|(]))for[ \t]+(%s)[ \t]+in\b" % _NAME)
+_READ = re.compile(r"(?:^|(?<=[ \t;&|(]))read((?:[ \t]+[^ \t;&|<>()]+)+)")
+_READ_ARG_OPTS = {"-d", "-p", "-t", "-n", "-N", "-u", "-i"}
+_READ_NAME = re.compile(r"^%s$" % _NAME)
+_READ_REF = re.compile(r"\$\{?#?(%s)" % _NAME)
+# What ends one command and starts the next on the same line.
+_SEPARATOR = re.compile(r";|&&|\|\||(?<![A-Za-z0-9_])(?:then|do)(?![A-Za-z0-9_])")
+
+
+def _assignment_sites(lines):
+    """[(line index, column, NAME)] over `_code_lines` output."""
+    found = []
+    for idx, kind, _, view in lines:
+        if kind != "code":
+            continue
+        names = [(m.start(1), m.group(1)) for m in _ASSIGN.finditer(view)]
+        names += [(m.start(1), m.group(1)) for m in _FOR.finditer(view)]
+        for m in _READ.finditer(view):
+            tokens = m.group(1).split()
+            k = 0
+            while k < len(tokens):
+                tok = tokens[k]
+                if tok.startswith("-"):
+                    k += 2 if tok in _READ_ARG_OPTS else 1
+                    continue
+                if _READ_NAME.match(tok):
+                    names.append((m.start(1), tok))
+                k += 1
+        found += [(idx, col, name) for col, name in sorted(names)]
+    return found
+
+
+def _read_sites(lines):
+    """[(line index, column, NAME)] over `_code_lines` output."""
+    found = []
+    for idx, _, view, _ in lines:
+        found += [(idx, m.start(), m.group(1)) for m in _READ_REF.finditer(view)]
+    return found
+
+
+def assignments(body):
+    """[(line index, NAME)] for every shell variable `body` assigns."""
+    return [(idx, name) for idx, _, name in _assignment_sites(_code_lines(body))]
+
+
+def reads(body):
+    """[(line index, NAME)] for every `$NAME` / `${NAME…}` `body` expands.
+    Special parameters (`$1`, `$?`, `$@`, `$$`, `$#` …) never match."""
+    return [(idx, name) for idx, _, name in _read_sites(_code_lines(body))]
+
+
+def _assigned_before_read(lines, sites, line, col, name):
+    """True when `name` is assigned before the read at (line, col): on an
+    earlier line, or earlier on the same line with a command separator
+    between (`X=1; echo "$X"`), not in the same command (`X=$(f "$X")`)."""
+    views = {idx: view for idx, kind, _, view in lines if kind == "code"}
+    for k, c, n in sites:
+        if n != name:
+            continue
+        if k < line:
+            return True
+        if k == line and c < col and _SEPARATOR.search(views[k][c:col]):
+            return True
+    return False
+
+
+_PRINTF_FORMAT = re.compile(
+    r"\bprintf[ \t]+(?:--[ \t]+)?(?:'([^']*)'|\"([^\"]*)\")")
+_FORMAT_NAME = re.compile(r"(?<![A-Za-z0-9_])(%s)=%%s" % _NAME)
+_ECHO_STRING = re.compile(r"\becho[ \t]+(?:-[a-zA-Z]+[ \t]+)*\"([^\"]*)\"")
+_ECHO_PAIR = re.compile(r"(?<![A-Za-z0-9_])(%s)=\$\{?(%s)\}?" % (_NAME, _NAME))
+
+
+def printed_names(body):
+    """Every NAME `body` prints as `NAME=<value>`: a `NAME=%s` in a printf
+    format string, or `echo "NAME=$NAME"`."""
+    names = set()
+    for m in _PRINTF_FORMAT.finditer(body):
+        fmt = m.group(1) if m.group(1) is not None else m.group(2)
+        fmt = re.sub(r"\\.", " ", fmt)  # `\n`, `\t` … separate names
+        names |= set(_FORMAT_NAME.findall(fmt))
+    for m in _ECHO_STRING.finditer(body):
+        names |= {a for a, b in _ECHO_PAIR.findall(m.group(1)) if a == b}
+    return names
+
+
+def cross_call_reads(text):
+    """Sorted [(NAME, setter fence index, reader fence index)]: a read in
+    fence j of a NAME that fence j has not assigned before it (an earlier
+    line, or an earlier command on the same line), whose nearest earlier
+    setter is fence i, with no fence from i to j-1 that both assigns and
+    prints NAME. Same file only."""
+    fences = [body for _, body in bash_fences(text)]
+    lines = [_code_lines(b) for b in fences]
+    sites = [_assignment_sites(ls) for ls in lines]
+    set_names = [{n for _, _, n in s} for s in sites]
+    printed = [printed_names(b) for b in fences]
+    found = set()
+    for j in range(len(fences)):
+        for line, col, name in _read_sites(lines[j]):
+            if _assigned_before_read(lines[j], sites[j], line, col, name):
+                continue
+            setters = [i for i in range(j) if name in set_names[i]]
+            if not setters:
+                continue
+            i = setters[-1]
+            if any(name in printed[k] for k in setters if i <= k < j):
+                continue
+            found.add((name, i, j))
+    return sorted(found)
 
 
 class LockCase(unittest.TestCase):
@@ -210,6 +457,24 @@ class TestCrossCallReads(LockCase):
     def test_read_before_reassignment_is_a_violation(self):
         self.assertEqual(cross_call_reads(doc("X=1", 'echo "$X"\nX=2')),
                          [("X", 0, 1)])
+
+    def test_reassigned_earlier_on_the_same_line_is_no_violation(self):
+        for case, reader in {
+            "after ;": 'X=$(cmd); mkdir -p "$X/a"',
+            "after &&": 'X=1 && echo "$X"',
+            "if X=$(…); then": 'if X=$(cmd); then echo "$X"; fi',
+        }.items():
+            with self.subTest(case):
+                self.assertEqual(cross_call_reads(doc("X=1", reader)), [])
+
+    def test_read_in_the_same_command_as_the_reassignment_is_a_violation(self):
+        for case, reader in {
+            "read inside the right-hand side": 'X=$(cmd "$X")',
+            "prefix assignment": 'X=1 cmd "$X"',
+        }.items():
+            with self.subTest(case):
+                self.assertEqual(cross_call_reads(doc("X=1", reader)),
+                                 [("X", 0, 1)])
 
     def test_nearest_earlier_setter_is_named(self):
         self.assertEqual(cross_call_reads(doc("X=1", "X=2", 'echo "$X"')),
