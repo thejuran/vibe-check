@@ -47,7 +47,11 @@ The 2.14.1 Finalize figures were recounted straight from the commits (92 steps, 
 - `test_finalize_inputs.py`: 38 passed, 19 subtests passed; 5 tests named `test_mutant_*`.
 - `git diff --quiet 2a468a8 HEAD -- carry_state.py finalize_gate.py phases`: exit 0.
 - After the change, `finalize_capture.py verify` still prints `finalize baseline matches (5 situations)`.
-- Full suite after the change: SUITE_AFTER
+- Full suite after the change: `5 failed, 4367 passed, 1 skipped, 5325 subtests passed` (before: 5 failed, 4329 passed; the 38 added tests account for the difference; the 5 failures are the same pre-existing `test_replay.py` ones).
+
+## Self-Check: PASSED
+
+Files present: finalize_inputs.py, test_finalize_inputs.py, 63-COUNTS.md, deferred-items.md, this SUMMARY. Commits present: f0dcbdf, 2de7214, 78fbdeb.
 
 ## D-06 gaps
 
