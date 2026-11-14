@@ -258,6 +258,15 @@ def normalise_obj(obj, workdir, vc_root=None):
     return obj
 
 
+def normalise_outputs(outputs, workdir, vc_root=None):
+    """A driver's outputs normalised; the file-name lists are sorted after
+    normalising, since mktemp suffixes decide their raw order."""
+    out = normalise_obj(outputs, workdir, vc_root)
+    for key in ("files_written", "files_archived"):
+        out[key] = sorted(out[key])
+    return out
+
+
 def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -303,9 +312,300 @@ def run_fence(script, env_paths, cwd=None):
 
 
 # --------------------------------------------------------------------------- #
+# State preparation (child processes only: nothing pinned is imported here).
+# The child code below loads the pinned helpers inside its own interpreter,
+# started with -I so neither the caller's environment nor its sys.path leaks in.
+# --------------------------------------------------------------------------- #
+_PREP_DISMISS_ALL = r"""
+import importlib, json, sys
+sys.path.insert(0, sys.argv[1])
+carry_state = importlib.import_module("carry_state")
+with open(sys.argv[2], encoding="utf-8") as fh:
+    state = json.load(fh)
+counts = carry_state.finalize_counts(state)
+hashes = (counts["outstanding_cw_hashes"] + counts["unacknowledged_medium_hashes"]
+          + counts["undecided_nv_hashes"])
+if not hashes:
+    sys.exit(3)
+state = carry_state.record_decisions(state, {
+    "at_pass": state["passes"][-1]["pass_number"],
+    "decisions": [{"stable_hash": h, "decision": "dismiss", "reason": "walk"}
+                  for h in hashes]})
+if state is None:
+    sys.exit(4)
+with open(sys.argv[3], "w", encoding="utf-8") as fh:
+    json.dump(state, fh)
+"""
+
+_PREP_REVIEW_LINES = r"""
+import importlib, sys
+sys.path.insert(0, sys.argv[1])
+finalize_gate = importlib.import_module("finalize_gate")
+print(finalize_gate.APPROVED_LINE)
+print(finalize_gate.REVIEW_FORMAT_STAMP)
+"""
+
+
+def _child_python(code, args, tmpdir):
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TMPDIR": tmpdir}
+    proc = subprocess.run(["python3", "-I", "-c", code] + list(args), env=env,
+                          cwd=tmpdir, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
+                          timeout=FENCE_TIMEOUT)
+    if proc.returncode != 0:
+        raise CaptureError("pinned helper child exited %d: %s" % (
+            proc.returncode, proc.stderr.strip()))
+    return proc.stdout
+
+
+def prepare_state(vc_root, situation_id, dest):
+    """Write the situation's starting state to `dest` from the pinned
+    fixture. Raises UsageError for an unknown situation."""
+    if situation_id not in SITUATIONS:
+        raise UsageError("unknown situation: %s" % situation_id)
+    fixture = os.path.join(vc_root, *SITUATIONS[situation_id]["inputs"]
+                           ["fixture"].split("/"))
+    if situation_id in ("card-first", "fresh-shell-restart"):
+        shutil.copyfile(fixture, dest)
+        return dest
+    _child_python(_PREP_DISMISS_ALL,
+                  [os.path.join(vc_root, "scripts"), fixture, dest],
+                  os.path.dirname(dest))
+    return dest
+
+
+# --------------------------------------------------------------------------- #
+# The 2.14.1 driver: walk the Finalize fences
+# --------------------------------------------------------------------------- #
+_PRINTED_RE = re.compile(r"^([A-Z_]+FILE)=(.+)$", re.M)
+_ARCHIVED_RE = re.compile(r"\.archived-|(^|/)REVIEW-[^/]*\.md$|\.migrated-")
+
+COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
+GATE_CALL = 'finalize_gate.py" < "$GATEFILE"'
+ROWS_CALL = 'batch_card.py" rows --mode finalize --head-blobs "$BLOBFILE"'
+PARSE_CALL = 'batch_card.py" parse --rows "$ROWSFILE" --answer "$ANSWERFILE"'
+RECORD_CALL = 'record-decisions --decisions-file "$DECFILE"'
+REPORT_CALL = 'batch_card.py" decisions-report < "$STATE_FILE"'
+PRIOR_REVIEW_CALL = 'review_archive.py" unstamped --dir .turingmind'
+ARCHIVE_STATE_CALL = 'review_archive.py" state --state-file "$STATE_FILE"'
+STATE_PRESENT = '[ -f "$STATE_FILE" ]'
+STATE_REL = ".turingmind/state/format-53/capture.json"
+REVIEW_REL = ".turingmind/REVIEW.md"
+
+
+def print_line(name):
+    """The fence line that prints a minted temp path, e.g. BLOBFILE=."""
+    return "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+
+
+def _files(root):
+    """{rel: sha256} for every regular file under `root`."""
+    found = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            if os.path.isfile(full) and not os.path.islink(full):
+                with open(full, "rb") as fh:
+                    found[os.path.relpath(full, root).replace(os.sep, "/")] = \
+                        sha256_bytes(fh.read())
+    return found
+
+
+class _Walk:
+    """One situation walked fence by fence, the way separate Bash calls run:
+    each fence in a fresh shell, a temp path carried only as the printed
+    literal pasted over `"$NAME"`, the Write tool simulated by writing the
+    file at the printed path."""
+
+    def __init__(self, vc_root, workdir):
+        self.vc_root = vc_root
+        self.workdir = workdir
+        with open(os.path.join(vc_root, *FINALIZE_REL.split("/")),
+                  encoding="utf-8") as fh:
+            self.fences = extract_fences(fh.read())
+        self.tmpdir = os.path.join(workdir, "tmp")
+        os.makedirs(self.tmpdir, exist_ok=True)
+        self.state_file = os.path.join(workdir, *STATE_REL.split("/"))
+        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+        self.env = {"VC_ROOT": vc_root, "TMPDIR": self.tmpdir,
+                    "STATE_FILE": self.state_file}
+        self.steps, self.gate = [], []
+        self.report = None
+        self.stop_sentence = None
+        self.tally = dict.fromkeys(TALLY_KEYS, 0)
+        self.before = {}
+
+    # -- primitives ---------------------------------------------------------
+    def fence(self, needle):
+        body = fence_holding(self.fences, needle)
+        if body is None:
+            raise CaptureError("no Finalize fence holds %r" % needle)
+        return body
+
+    def step(self, step_id, script, subs=None):
+        for name, path in (subs or {}).items():
+            ref = '"$%s"' % name
+            if ref not in script:
+                raise CaptureError("step %s does not read %s" % (step_id, ref))
+            script = script.replace(ref, '"%s"' % path)
+            script = script.replace('"$%s.' % name, '"%s.' % path)
+            self.tally["values_carried"] += 1
+        self.tally["commands_run"] += 1
+        rc, out, err = run_fence(script, self.env, cwd=self.workdir)
+        self.steps.append({"id": step_id, "exit": rc, "stdout": out,
+                           "stderr_present": bool(err)})
+        return rc, out, err
+
+    def ok(self, step_id, script, subs=None):
+        rc, out, err = self.step(step_id, script, subs)
+        if rc != 0:
+            raise CaptureError("step %s exited %d: %s" % (step_id, rc,
+                                                          err.strip()))
+        return out
+
+    def mint(self, name, step_id, subs=None):
+        out = self.ok(step_id, self.fence(print_line(name)), subs)
+        printed = dict(_PRINTED_RE.findall(out))
+        if name not in printed:
+            raise CaptureError("step %s printed no %s=" % (step_id, name))
+        return printed
+
+    def write(self, path, content):
+        """The Write tool, in the model's place."""
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        self.tally["writes"] += 1
+
+    def write_json(self, path, obj):
+        self.write(path, json.dumps(obj))
+
+    # -- Finalize steps ------------------------------------------------------
+    def counts_and_gate(self, inputs):
+        """Step 1 (HEAD fingerprints), step 2 (counts), the gate input and
+        the gate; returns (blobfile, decision)."""
+        blob = self.mint("BLOBFILE", "blobfile")["BLOBFILE"]
+        self.write_json(blob, inputs["head_blobs"])
+        out = self.ok("counts", self.fence(COUNTS_CALL), {"BLOBFILE": blob})
+        counts = json.loads(out.strip().splitlines()[0])
+        rc, _, _ = self.step("state-present", STATE_PRESENT)
+        flags = {"state_file_present": rc == 0,
+                 "outstanding_cw": counts["outstanding_cw"],
+                 "unacknowledged_medium": counts["unacknowledged_medium"],
+                 "undecided_nv": counts["undecided_nv"]}
+        flags.update(inputs["flags"])
+        gatefile = self.mint("GATEFILE", "gatefile")["GATEFILE"]
+        self.write_json(gatefile, {"flags": flags})
+        out = self.ok("gate", self.fence(GATE_CALL), {"GATEFILE": gatefile})
+        decision = json.loads(out.strip().splitlines()[-1])
+        self.gate.append(decision)
+        return blob, decision
+
+    def card(self, blob, answer):
+        """Rows, the card the owner reads, the owner's answer, parse, the
+        decisions copy and record-decisions."""
+        printed = self.mint("ROWSFILE", "rows", {"BLOBFILE": blob})
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        if not rows.get("rows"):
+            raise CaptureError("the card has no rows while the gate blocked")
+        # What the owner reads: the card text, copied verbatim into Q1.
+        self.steps.append({"id": "card", "exit": None,
+                           "stdout": rows["card_text"],
+                           "stderr_present": False})
+        self.write_json(printed["ANSWERFILE"], answer)
+        parsed = self.mint("PARSEFILE", "parse",
+                           {"ROWSFILE": printed["ROWSFILE"],
+                            "ANSWERFILE": printed["ANSWERFILE"]})
+        with open(parsed["PARSEFILE"], encoding="utf-8") as fh:
+            text = fh.read()
+        if not text.strip():
+            raise CaptureError("parse refused the owner's answer")
+        result = json.loads(text)
+        if result.get("payload") is None or result.get("fix"):
+            raise CaptureError("the answer does not lead to recording only")
+        dec = self.mint("DECFILE", "decfile",
+                        {"PARSEFILE": parsed["PARSEFILE"]})["DECFILE"]
+        self.ok("record-decisions", self.fence(RECORD_CALL),
+                {"DECFILE": dec})
+
+    def close(self):
+        """After the gate's `write`: the decisions report, the prior-report
+        archive, REVIEW.md, the state archive."""
+        out = self.ok("decisions-report", self.fence(REPORT_CALL))
+        self.report = json.loads(out.strip().splitlines()[0])
+        self.ok("prior-review-archive", self.fence(PRIOR_REVIEW_CALL))
+        approved, stamp = _child_python(
+            _PREP_REVIEW_LINES, [os.path.join(self.vc_root, "scripts")],
+            self.tmpdir).splitlines()[:2]
+        # The REVIEW.md prose is the model's; only its verdict and stamp
+        # lines are fixed, so the stand-in holds just those.
+        self.write(os.path.join(self.workdir, *REVIEW_REL.split("/")),
+                   "%s\n%s\n" % (approved, stamp))
+        self.ok("archive-state", self.fence(ARCHIVE_STATE_CALL))
+
+    # -- result ------------------------------------------------------------
+    def outputs(self):
+        after = _files(self.workdir)
+        changed = sorted(rel for rel, sha in after.items()
+                         if self.before.get(rel) != sha)
+        archived = sorted(r for r in changed if _ARCHIVED_RE.search(r))
+        written = sorted(r for r in changed if not _ARCHIVED_RE.search(r))
+        state_closed = (not os.path.exists(self.state_file)
+                        and any(r.startswith(STATE_REL + ".archived-")
+                                for r in archived))
+        return {"steps": self.steps, "gate": self.gate,
+                "stop_sentence": self.stop_sentence, "report": self.report,
+                "files_written": written, "files_archived": archived,
+                "state_closed": state_closed, "tally": dict(self.tally)}
+
+
+class FenceWalk2141:
+    """The 2.14.1 driver: walks `phases/shared/90-finalize.md` fence by
+    fence. Phase 63's helper driver must return the same outputs for the same
+    situation inputs."""
+
+    WALKS = ("clean-close", "card-first")
+
+    def run(self, situation_id, vc_root, workdir):
+        if situation_id not in SITUATIONS:
+            raise UsageError("unknown situation: %s" % situation_id)
+        if situation_id not in self.WALKS:
+            raise UsageError("FenceWalk2141 does not walk %s yet"
+                             % situation_id)
+        inputs = SITUATIONS[situation_id]["inputs"]
+        walk = _Walk(vc_root, workdir)
+        prepare_state(vc_root, situation_id, walk.state_file)
+        walk.before = _files(workdir)
+        getattr(self, "_" + situation_id.replace("-", "_"))(walk, inputs)
+        return walk.outputs()
+
+    @staticmethod
+    def _clean_close(walk, inputs):
+        _, decision = walk.counts_and_gate(inputs)
+        if decision.get("action") != "write":
+            raise CaptureError("clean-close gate returned %r" % decision)
+        walk.close()
+
+    @staticmethod
+    def _card_first(walk, inputs):
+        blob, decision = walk.counts_and_gate(inputs)
+        if decision.get("action") not in ("outstanding-to-phase-5",
+                                          "medium-ack-loop"):
+            raise CaptureError("card-first gate returned %r" % decision)
+        walk.card(blob, inputs["owner_answers"][0])
+        # After the answer, step 3: a NEW BLOBFILE, re-count, a NEW GATEFILE,
+        # the gate once on that literal.
+        _, decision = walk.counts_and_gate(inputs)
+        if decision.get("action") != "write":
+            raise CaptureError("card-first final gate returned %r" % decision)
+        walk.close()
+
+
+# --------------------------------------------------------------------------- #
 # Capture
 # --------------------------------------------------------------------------- #
-DRIVERS = {}
+DRIVERS = {BASELINE_COMMIT: FenceWalk2141}
 
 
 def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
@@ -327,7 +627,7 @@ def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
                 raise UsageError("no driver walks commit %s" % commit)
             driver = driver_cls()
         outputs = driver.run(situation_id, vc_root, work)
-        return normalise_obj(outputs, work, vc_root)
+        return normalise_outputs(outputs, work, vc_root)
     finally:
         shutil.rmtree(scratch, True)
 
