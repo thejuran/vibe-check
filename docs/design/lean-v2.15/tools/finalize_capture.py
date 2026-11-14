@@ -32,8 +32,12 @@ standard output; the gate decisions in order; the one stop sentence shown to
 the owner, or none; the `batch_card.py decisions-report` JSON (the
 deterministic report text; the REVIEW.md prose itself is written by the
 model); the names of the files written and archived, relative to the
-situation's work directory; whether the state file ended up closed; and a
-step tally. Standard error is recorded only as present or absent: its text
+situation's work directory (the mktemp scratch files the fences make are not
+Finalize's writes and are not listed); whether the state file ended up
+closed; and a step tally. A situation with more than one walk (the rebuild
+that fails a second time, the earlier report that cannot be archived) keeps
+each further walk under `legs`, in the same shape. Standard error is
+recorded only as present or absent: its text
 comes partly from system tools that word errors differently on macOS and
 Linux and is not plugin behaviour.
 
@@ -54,7 +58,8 @@ CLI:
 `capture` walks the situations at the pinned commit (or `--commit`) and writes
 the record; `verify` re-captures and compares against a committed record.
 Exit codes: 0 ok; 1 the re-capture differs from the record; 2 unusable input
-(unknown commit, unknown or not-yet-walkable situation, unreadable record).
+(unknown commit, unknown situation or leg, unreadable record, a walk that
+cannot run as documented, e.g. as root).
 """
 
 import argparse
@@ -101,49 +106,82 @@ TALLY_KEYS = ("commands_run", "values_carried", "writes")
 SIX_ROW = "scripts/fixtures/iplayarr45-six-row-state.json"
 LOOP_STATE = "scripts/fixtures/phase45-loop-state.json"
 
-# The owner's answers are fixed strings: the answers the existing 2.14.1
-# card-route walk gives (every shown row dismissed with the reason "walk").
+# fresh-shell-restart: a last-pass fix-obsolete verdict on the six-row
+# fixture's one critical finding, bound to a HEAD blob that does not change
+# while the owner answers (the 2.14.1 walk's own values).
+ARCH_HASH = ("22d360d9c3d841748413b88d41e0840f"
+             "d0898a854ee6fa5188f134846a8c7449")
+ARCH_FILE = "src/utils/integrationDeadline.ts"
+ARCH_BLOB = "blob-pre-card"
+
+# A stamped earlier report, as the 2.14.1 archive walk writes it.
+PRIOR_STAMPED_REVIEW = ("# Review\nPhase 54-x\n**Final verdict:** ✅ "
+                        "APPROVED\n**State format:** 53\n")
+
+_FLAGS = {"noninteractive": False, "pr_mode": False, "range_mode": False}
+
+# Situation inputs. `prepare` names how the starting state is made from the
+# fixture; `attempt_faults` lists, per attempt, what goes wrong with the
+# files the model writes (`blobfile: missing` = the printed BLOBFILE is gone
+# before the counts step reads it; `gate_input: <text>` = the gate input file
+# holds that text instead of the flags object). A situation's `legs` are
+# further walks of the same situation, each its own inputs with the listed
+# keys overridden. The owner's answers are fixed strings: every shown row
+# dismissed with the reason "walk", as the existing 2.14.1 card walk does.
 SITUATIONS = {
     "clean-close": {
         "title": "clean close that writes the report",
         "inputs": {
             "fixture": LOOP_STATE,
+            "prepare": "dismiss-all",
             "state": ("the fixture with every open finding dismissed through "
                       "the pinned carry_state record_decisions (reason "
                       "'walk'), so no decision is outstanding"),
             "head_blobs": {},
-            "flags": {"noninteractive": False, "pr_mode": False,
-                      "range_mode": False},
+            "flags": _FLAGS,
             "prior_review_md": None,
             "owner_answers": [],
         },
+        "legs": {},
     },
     "card-first": {
         "title": "close with open decisions that shows the card first",
         "inputs": {
             "fixture": SIX_ROW,
+            "prepare": "copy",
             "state": "the fixture as committed (five critical/warning and "
                      "one medium undecided)",
             "head_blobs": {},
-            "flags": {"noninteractive": False, "pr_mode": False,
-                      "range_mode": False},
+            "flags": _FLAGS,
             "prior_review_md": None,
             "owner_answers": [{"q1": "dismiss 1,2,3,4,5,6 -- walk",
                                "q2": None}],
         },
+        "legs": {},
     },
     "one-rebuild": {
         "title": "the one automatic rebuild after a missing input",
         "inputs": {
             "fixture": LOOP_STATE,
-            "state": ("the clean-close state; the first attempt's gate input "
-                      "file is left empty (the Write failed), so the one "
-                      "rebuild mints a new BLOBFILE and GATEFILE"),
+            "prepare": "dismiss-all",
+            "state": ("the clean-close state; the first attempt's printed "
+                      "BLOBFILE is gone before the counts step reads it, so "
+                      "the counts fence fails and the one rebuild mints a "
+                      "new BLOBFILE, re-counts and gates on a new GATEFILE"),
             "head_blobs": {},
-            "flags": {"noninteractive": False, "pr_mode": False,
-                      "range_mode": False},
+            "flags": _FLAGS,
             "prior_review_md": None,
             "owner_answers": [],
+            "attempt_faults": [{"blobfile": "missing"}],
+        },
+        "legs": {
+            "second-failure": {
+                "state": ("the clean-close state; the BLOBFILE is gone on "
+                          "both attempts, so the rebuild fails too and "
+                          "Finalize stops"),
+                "attempt_faults": [{"blobfile": "missing"},
+                                   {"blobfile": "missing"}],
+            },
         },
     },
     "refused-close": {
@@ -151,33 +189,67 @@ SITUATIONS = {
                  "nothing",
         "inputs": {
             "fixture": LOOP_STATE,
+            "prepare": "dismiss-all",
             "state": ("the clean-close state; the gate input is malformed on "
                       "both attempts, so Finalize stops with the one stop "
                       "sentence"),
             "head_blobs": {},
-            "flags": {"noninteractive": False, "pr_mode": False,
-                      "range_mode": False},
+            "flags": _FLAGS,
             "prior_review_md": None,
             "owner_answers": [],
+            "attempt_faults": [{"gate_input": "not json"},
+                               {"gate_input": "not json"}],
+        },
+        "legs": {
+            "unarchivable-report": {
+                "state": ("the clean-close state with a stamped earlier "
+                          "REVIEW.md in a .turingmind directory that cannot "
+                          "be written, so the earlier report cannot be "
+                          "archived and Finalize stops before the Write"),
+                "attempt_faults": [],
+                "prior_review_md": PRIOR_STAMPED_REVIEW,
+                "turingmind_read_only": True,
+            },
         },
     },
     "fresh-shell-restart": {
         "title": "restart in a fresh shell",
         "inputs": {
             "fixture": SIX_ROW,
-            "state": ("the fixture as committed; after the card answer is "
-                      "recorded, the gate is re-run from a fresh shell on a "
-                      "new GATEFILE built from re-counted, re-fingerprinted "
-                      "inputs"),
-            "head_blobs": {},
-            "flags": {"noninteractive": False, "pr_mode": False,
-                      "range_mode": False},
+            "prepare": "copy",
+            "state": ("the fixture with a last-pass fix-obsolete verdict on "
+                      "its one critical finding; after the card answer is "
+                      "recorded, every later step runs in a fresh shell on "
+                      "newly made files: a new BLOBFILE re-fingerprinted "
+                      "from HEAD, a recount, a new GATEFILE and the gate"),
+            "head_blobs": {ARCH_FILE: ARCH_BLOB},
+            "fix_verdicts": {ARCH_HASH: {"verdict": "obsolete",
+                                         "agent": "fix",
+                                         "reason": "line rewritten",
+                                         "verified_blob": ARCH_BLOB}},
+            "flags": _FLAGS,
             "prior_review_md": None,
-            "owner_answers": [{"q1": "dismiss 1,2,3,4,5,6 -- walk",
+            "owner_answers": [{"q1": "dismiss 1,2,3,4,5 -- walk",
                                "q2": None}],
         },
+        "legs": {},
     },
 }
+
+
+def situation_inputs(situation_id, leg=None):
+    """The inputs of `situation_id`, or of its named `leg`. Raises
+    UsageError for an unknown situation or leg."""
+    if situation_id not in SITUATIONS:
+        raise UsageError("unknown situation: %s" % situation_id)
+    spec = SITUATIONS[situation_id]
+    inputs = dict(spec["inputs"])
+    if leg is not None:
+        if leg not in spec["legs"]:
+            raise UsageError("situation %s has no leg %s" % (situation_id,
+                                                             leg))
+        inputs.update(spec["legs"][leg])
+    return inputs
 
 # The house fence definition (indented fences included; a four-backtick
 # opener contains the three-backtick one, so it is found too).
@@ -358,19 +430,35 @@ def _child_python(code, args, tmpdir):
     return proc.stdout
 
 
-def prepare_state(vc_root, situation_id, dest):
+def prepare_state(vc_root, situation_id, dest, inputs=None):
     """Write the situation's starting state to `dest` from the pinned
     fixture. Raises UsageError for an unknown situation."""
-    if situation_id not in SITUATIONS:
+    if inputs is None:
+        inputs = situation_inputs(situation_id)
+    elif situation_id not in SITUATIONS:
         raise UsageError("unknown situation: %s" % situation_id)
-    fixture = os.path.join(vc_root, *SITUATIONS[situation_id]["inputs"]
-                           ["fixture"].split("/"))
-    if situation_id in ("card-first", "fresh-shell-restart"):
+    fixture = os.path.join(vc_root, *inputs["fixture"].split("/"))
+    if inputs["prepare"] == "copy":
         shutil.copyfile(fixture, dest)
-        return dest
-    _child_python(_PREP_DISMISS_ALL,
-                  [os.path.join(vc_root, "scripts"), fixture, dest],
-                  os.path.dirname(dest))
+    elif inputs["prepare"] == "dismiss-all":
+        _child_python(_PREP_DISMISS_ALL,
+                      [os.path.join(vc_root, "scripts"), fixture, dest],
+                      os.path.dirname(dest))
+    else:
+        raise UsageError("unknown state preparation %r" % inputs["prepare"])
+    if inputs.get("fix_verdicts"):
+        # Plain JSON editing: the verdicts are bound to the last pass, as
+        # the fix agent records them.
+        with open(dest, encoding="utf-8") as fh:
+            state = json.load(fh)
+        last = state["passes"][-1]
+        verdicts = {}
+        for stable_hash, verdict in inputs["fix_verdicts"].items():
+            verdicts[stable_hash] = dict(verdict, head_sha=last["head_sha"],
+                                         at_pass=last["pass_number"])
+        state["fix_verdicts"] = verdicts
+        with open(dest, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
     return dest
 
 
@@ -391,6 +479,21 @@ ARCHIVE_STATE_CALL = 'review_archive.py" state --state-file "$STATE_FILE"'
 STATE_PRESENT = '[ -f "$STATE_FILE" ]'
 STATE_REL = ".turingmind/state/format-53/capture.json"
 REVIEW_REL = ".turingmind/REVIEW.md"
+# The walk's TMPDIR, inside the work directory. The mktemp files the fences
+# make there are scratch, not Finalize's writes, so they are not listed in
+# `files_written`; they still show in the steps' printed paths.
+SCRATCH_DIR = "scratch"
+_STOP_RULE_RE = re.compile(r'The stop is exactly one sentence: "([^"\n]+)"')
+
+
+def stop_sentence(finalize_text):
+    """The one stop sentence the rebuild-once rule of `finalize_text`
+    prescribes. Raises CaptureError when the rule is absent."""
+    found = _STOP_RULE_RE.findall(finalize_text)
+    if len(found) != 1 or not found[0].strip():
+        raise CaptureError("the Finalize text names %d stop sentences, not 1"
+                           % len(found))
+    return found[0]
 
 
 def print_line(name):
@@ -423,8 +526,9 @@ class _Walk:
         self.workdir = workdir
         with open(os.path.join(vc_root, *FINALIZE_REL.split("/")),
                   encoding="utf-8") as fh:
-            self.fences = extract_fences(fh.read())
-        self.tmpdir = os.path.join(workdir, "tmp")
+            self.finalize_text = fh.read()
+        self.fences = extract_fences(self.finalize_text)
+        self.tmpdir = os.path.join(workdir, SCRATCH_DIR)
         os.makedirs(self.tmpdir, exist_ok=True)
         self.state_file = os.path.join(workdir, *STATE_REL.split("/"))
         os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
@@ -481,12 +585,23 @@ class _Walk:
         self.write(path, json.dumps(obj))
 
     # -- Finalize steps ------------------------------------------------------
-    def counts_and_gate(self, inputs):
-        """Step 1 (HEAD fingerprints), step 2 (counts), the gate input and
-        the gate; returns (blobfile, decision)."""
+    def counts_and_gate(self, inputs, fault=None):
+        """One attempt of step 1 (HEAD fingerprints), step 2 (counts), the
+        gate input and the gate. Returns (blobfile, decision); decision is
+        None when the counts fence or the gate fence exited non-zero (the
+        halt the rebuild-once rule acts on). `fault` is this attempt's entry
+        of the situation's `attempt_faults`."""
+        fault = fault or {}
         blob = self.mint("BLOBFILE", "blobfile")["BLOBFILE"]
-        self.write_json(blob, inputs["head_blobs"])
-        out = self.ok("counts", self.fence(COUNTS_CALL), {"BLOBFILE": blob})
+        if fault.get("blobfile") == "missing":
+            # The printed file is gone before the counts step reads it.
+            os.remove(blob)
+        else:
+            self.write_json(blob, inputs["head_blobs"])
+        rc, out, _ = self.step("counts", self.fence(COUNTS_CALL),
+                               {"BLOBFILE": blob})
+        if rc != 0:
+            return blob, None
         counts = json.loads(out.strip().splitlines()[0])
         rc, _, _ = self.step("state-present", STATE_PRESENT)
         flags = {"state_file_present": rc == 0,
@@ -495,11 +610,27 @@ class _Walk:
                  "undecided_nv": counts["undecided_nv"]}
         flags.update(inputs["flags"])
         gatefile = self.mint("GATEFILE", "gatefile")["GATEFILE"]
-        self.write_json(gatefile, {"flags": flags})
-        out = self.ok("gate", self.fence(GATE_CALL), {"GATEFILE": gatefile})
-        decision = json.loads(out.strip().splitlines()[-1])
+        if "gate_input" in fault:
+            if fault["gate_input"]:
+                self.write(gatefile, fault["gate_input"])
+        else:
+            self.write_json(gatefile, {"flags": flags})
+        rc, out, _ = self.step("gate", self.fence(GATE_CALL),
+                               {"GATEFILE": gatefile})
+        if rc != 0:
+            return blob, None
+        try:
+            decision = json.loads(out.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            raise CaptureError("the gate printed no decision: %r" % out)
         self.gate.append(decision)
         return blob, decision
+
+    def stop(self, sentence):
+        """Finalize stops: the owner reads `sentence` and nothing is
+        reported."""
+        self.stop_sentence = sentence
+        self.report = None
 
     def card(self, blob, answer):
         """Rows, the card the owner reads, the owner's answer, parse, the
@@ -531,10 +662,21 @@ class _Walk:
 
     def close(self):
         """After the gate's `write`: the decisions report, the prior-report
-        archive, REVIEW.md, the state archive."""
+        archive, REVIEW.md, the state archive. When the prior-report archive
+        fence fails, Finalize stops with that fence's own message before the
+        Write: nothing is written and the state is not archived."""
         out = self.ok("decisions-report", self.fence(REPORT_CALL))
         self.report = json.loads(out.strip().splitlines()[0])
-        self.ok("prior-review-archive", self.fence(PRIOR_REVIEW_CALL))
+        rc, _, err = self.step("prior-review-archive",
+                               self.fence(PRIOR_REVIEW_CALL))
+        if rc != 0:
+            lines = [line for line in err.splitlines()
+                     if line.startswith("Finalize stopped")]
+            if len(lines) != 1 or lines[0] not in self.finalize_text:
+                raise CaptureError("the prior-report archive fence failed "
+                                   "without its stop message: %r" % err)
+            self.stop(lines[0])
+            return
         approved, stamp = _child_python(
             _PREP_REVIEW_LINES, [os.path.join(self.vc_root, "scripts")],
             self.tmpdir).splitlines()[:2]
@@ -548,7 +690,8 @@ class _Walk:
     def outputs(self):
         after = _files(self.workdir)
         changed = sorted(rel for rel, sha in after.items()
-                         if self.before.get(rel) != sha)
+                         if self.before.get(rel) != sha
+                         and not rel.startswith(SCRATCH_DIR + "/"))
         archived = sorted(r for r in changed if _ARCHIVED_RE.search(r))
         written = sorted(r for r in changed if not _ARCHIVED_RE.search(r))
         state_closed = (not os.path.exists(self.state_file)
@@ -565,41 +708,78 @@ class FenceWalk2141:
     fence. Phase 63's helper driver must return the same outputs for the same
     situation inputs."""
 
-    WALKS = ("clean-close", "card-first")
+    NAME = "fence-walk-2.14.1"
+    # "One automatic rebuild, then stop": after a failed attempt, step 1 is
+    # run again this many times before the stop sentence.
+    REBUILDS = 1
 
-    def run(self, situation_id, vc_root, workdir):
-        if situation_id not in SITUATIONS:
-            raise UsageError("unknown situation: %s" % situation_id)
-        if situation_id not in self.WALKS:
-            raise UsageError("FenceWalk2141 does not walk %s yet"
-                             % situation_id)
-        inputs = SITUATIONS[situation_id]["inputs"]
+    def run(self, situation_id, vc_root, workdir, leg=None):
+        inputs = situation_inputs(situation_id, leg)
+        read_only = bool(inputs.get("turingmind_read_only"))
+        if read_only and os.geteuid() == 0:
+            raise UsageError("%s %s needs a directory that cannot be "
+                             "written, and root ignores directory "
+                             "permissions; run the capture as a normal user"
+                             % (situation_id, leg))
         walk = _Walk(vc_root, workdir)
-        prepare_state(vc_root, situation_id, walk.state_file)
+        prepare_state(vc_root, situation_id, walk.state_file, inputs)
+        turingmind = os.path.join(workdir, ".turingmind")
+        if inputs.get("prior_review_md") is not None:
+            with open(os.path.join(workdir, *REVIEW_REL.split("/")), "w",
+                      encoding="utf-8") as fh:
+                fh.write(inputs["prior_review_md"])
         walk.before = _files(workdir)
-        getattr(self, "_" + situation_id.replace("-", "_"))(walk, inputs)
+        if read_only:
+            os.chmod(turingmind, 0o555)
+        try:
+            getattr(self, "_" + situation_id.replace("-", "_"))(walk, inputs)
+        finally:
+            if read_only:
+                os.chmod(turingmind, 0o755)
         return walk.outputs()
 
-    @staticmethod
-    def _clean_close(walk, inputs):
-        _, decision = walk.counts_and_gate(inputs)
+    def gated(self, walk, inputs):
+        """Counts and gate under the rebuild-once rule: a failed attempt is
+        followed by REBUILDS fresh attempts (new BLOBFILE, recount, new
+        GATEFILE), and a further failure stops with the one stop sentence.
+        Returns (blobfile, decision), or (None, None) after the stop."""
+        faults = inputs.get("attempt_faults", [])
+        for attempt in range(self.REBUILDS + 1):
+            fault = faults[attempt] if attempt < len(faults) else None
+            blob, decision = walk.counts_and_gate(inputs, fault)
+            if decision is not None:
+                return blob, decision
+        walk.stop(stop_sentence(walk.finalize_text))
+        return None, None
+
+    def _write_route(self, walk, inputs):
+        _, decision = self.gated(walk, inputs)
+        if decision is None:
+            return
         if decision.get("action") != "write":
-            raise CaptureError("clean-close gate returned %r" % decision)
+            raise CaptureError("the gate returned %r, not write" % decision)
         walk.close()
 
-    @staticmethod
-    def _card_first(walk, inputs):
-        blob, decision = walk.counts_and_gate(inputs)
-        if decision.get("action") not in ("outstanding-to-phase-5",
-                                          "medium-ack-loop"):
-            raise CaptureError("card-first gate returned %r" % decision)
+    def _card_route(self, walk, inputs):
+        blob, decision = self.gated(walk, inputs)
+        if decision is None or decision.get("action") not in (
+                "outstanding-to-phase-5", "medium-ack-loop"):
+            raise CaptureError("the first gate returned %r, not a card"
+                               % (decision,))
         walk.card(blob, inputs["owner_answers"][0])
-        # After the answer, step 3: a NEW BLOBFILE, re-count, a NEW GATEFILE,
-        # the gate once on that literal.
-        _, decision = walk.counts_and_gate(inputs)
-        if decision.get("action") != "write":
-            raise CaptureError("card-first final gate returned %r" % decision)
+        # After the answer, step 3: a NEW BLOBFILE re-fingerprinted from
+        # HEAD, re-count, a NEW GATEFILE, the gate once on that literal.
+        _, decision = self.gated(walk, inputs)
+        if decision is None or decision.get("action") != "write":
+            raise CaptureError("the final gate returned %r, not write"
+                               % (decision,))
         walk.close()
+
+    _clean_close = _write_route
+    _one_rebuild = _write_route
+    _refused_close = _write_route
+    _card_first = _card_route
+    _fresh_shell_restart = _card_route
 
 
 # --------------------------------------------------------------------------- #
@@ -609,11 +789,11 @@ DRIVERS = {BASELINE_COMMIT: FenceWalk2141}
 
 
 def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
-                tmp_root=None):
-    """The normalised outputs of one situation walked at `commit`. Every temp
-    directory it makes is removed before it returns or raises."""
-    if situation_id not in SITUATIONS:
-        raise UsageError("unknown situation: %s" % situation_id)
+                tmp_root=None, leg=None):
+    """The normalised outputs of one situation (or one of its legs) walked
+    at `commit`. Every temp directory it makes is removed before it returns
+    or raises."""
+    situation_inputs(situation_id, leg)
     scratch = tempfile.mkdtemp(prefix="fc-", dir=tmp_root)
     try:
         pinned = os.path.join(scratch, "pinned")
@@ -626,10 +806,23 @@ def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
             if driver_cls is None:
                 raise UsageError("no driver walks commit %s" % commit)
             driver = driver_cls()
-        outputs = driver.run(situation_id, vc_root, work)
+        outputs = driver.run(situation_id, vc_root, work, leg=leg)
         return normalise_outputs(outputs, work, vc_root)
     finally:
         shutil.rmtree(scratch, True)
+
+
+def capture_situation(repo, situation_id, commit=BASELINE_COMMIT,
+                      driver=None, tmp_root=None):
+    """One situation's record: its main walk's normalised outputs plus
+    `legs`, each named leg walked separately in its own directories."""
+    situation_inputs(situation_id)
+    legs = sorted(SITUATIONS[situation_id]["legs"])
+    record = capture_one(repo, situation_id, commit, driver, tmp_root)
+    record["legs"] = {leg: capture_one(repo, situation_id, commit, driver,
+                                       tmp_root, leg=leg)
+                      for leg in legs}
+    return record
 
 
 def capture_record(repo, situation_ids, commit=BASELINE_COMMIT):
