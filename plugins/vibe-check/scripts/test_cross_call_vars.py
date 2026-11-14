@@ -717,6 +717,133 @@ class TestMutants(LockCase):
 
 
 # --------------------------------------------------------------------------- #
+# Fresh-shell reproductions of the flagged places.
+#
+# The standard, the same for every flagged (file, NAME) pair:
+#   1. Fresh run: the real setter block and each real reader block, found in
+#      the live file by a needle, each run as its own `bash -s` process with
+#      only PATH, VC_ROOT, TMPDIR and the bootstrap names GUARD_PY / CONFIG_PY
+#      (plus the null git config every fixture repo uses), in a temp git repo,
+#      with the literals the instruction says to substitute substituted and
+#      NAME not supplied.
+#   2. Control run: the same blocks, same environment, in ONE `bash -s`.
+#   3. Outcome class: "stop" (a fresh block exits non-zero where the control
+#      does not), "wrong-file" (the files on disk differ from the control's),
+#      "ignored-setting" (both exit 0, the files agree, the printed result
+#      differs: the setting had no effect), "harmless" (same exit codes,
+#      output and files).
+#   4. Reproduced means any class other than "harmless".
+# --------------------------------------------------------------------------- #
+OUTCOMES = ("stop", "wrong-file", "ignored-setting", "harmless")
+
+
+def fence_holding(relpath, needle):
+    """The body of the one Bash fence of `relpath` that holds `needle`."""
+    bodies = [b for _, b in bash_fences(read_rel(relpath)) if needle in b]
+    if len(bodies) != 1:
+        raise AssertionError("%s: %d Bash fences hold %r (want 1)"
+                             % (relpath, len(bodies), needle))
+    return bodies[0]
+
+
+def substitute(body, literals):
+    """`body` with each token the instruction says to substitute replaced by
+    its literal; every token must be present."""
+    for token, literal in literals:
+        if token not in body:
+            raise AssertionError("token %r absent from the fence" % token)
+        body = body.replace(token, literal)
+    return body
+
+
+def tree_files(root):
+    """{path relative to root: bytes} for every file outside .git."""
+    found = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            with open(path, "rb") as fh:
+                found[os.path.relpath(path, root)] = fh.read()
+    return found
+
+
+class ShellRun:
+    """One fixture repo, copied twice: run once fresh, once as the control."""
+
+    def __init__(self, work, build):
+        """`build(repo)` prepares the repo the instruction expects."""
+        self.work = work
+        base = gitfixture.make_repo(os.path.join(work, "base"))
+        build(base)
+        # Both copies are named `repo`, like the base, so a key built from
+        # the repo's directory name is the same in both runs.
+        self.fresh_repo = os.path.join(work, "fresh", "repo")
+        self.control_repo = os.path.join(work, "control", "repo")
+        shutil.copytree(base, self.fresh_repo, symlinks=True)
+        shutil.copytree(base, self.control_repo, symlinks=True)
+
+    def _bash(self, script, repo):
+        tmpdir = tempfile.mkdtemp(dir=self.work)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "VC_ROOT": PLUGIN_ROOT, "TMPDIR": tmpdir,
+               "GUARD_PY": os.path.join(PLUGIN_ROOT, "scripts", "guard.py"),
+               "CONFIG_PY": os.path.join(PLUGIN_ROOT, "scripts", "config.py"),
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        proc = subprocess.run(["bash", "-s"], input=script, cwd=repo, env=env,
+                              capture_output=True, text=True, timeout=60)
+        return (proc.returncode, proc.stdout.replace(repo, "<repo>"),
+                proc.stderr.replace(repo, "<repo>"))
+
+    def fresh(self, fences):
+        """[(rc, stdout, stderr)], one fresh process per fence, in order."""
+        return [self._bash(body + "\n", self.fresh_repo) for body in fences]
+
+    def control(self, fences):
+        """(rc, stdout, stderr) of the same fences in one process."""
+        return self._bash("\n".join(fences) + "\n", self.control_repo)
+
+
+def classify(fresh, control, fresh_files, control_files):
+    """The outcome class of a fresh run against its control."""
+    if control[0] != 0:
+        raise AssertionError("the control did not complete: %r" % (control,))
+    if any(rc != 0 for rc, _, _ in fresh):
+        return "stop"
+    if fresh_files != control_files:
+        return "wrong-file"
+    if "".join(out for _, out, _ in fresh) != control[1]:
+        return "ignored-setting"
+    return "harmless"
+
+
+class TestClassify(unittest.TestCase):
+    """The outcome rule itself, on hand-made results."""
+    OK = (0, "x\n", "")
+
+    def test_each_class(self):
+        files = {"a": b"1"}
+        self.assertEqual(classify([(0, "", ""), (1, "", "e")], self.OK,
+                                  files, files), "stop")
+        self.assertEqual(classify([(0, "x\n", "")], self.OK,
+                                  files, {"a": b"2"}), "wrong-file")
+        self.assertEqual(classify([(0, "y\n", "")], self.OK,
+                                  files, files), "ignored-setting")
+        self.assertEqual(classify([(0, "", ""), (0, "x\n", "")], self.OK,
+                                  files, files), "harmless")
+
+    def test_a_failed_control_is_a_broken_fixture(self):
+        with self.assertRaises(AssertionError):
+            classify([(0, "", "")], (1, "", "e"), {}, {})
+
+    def test_a_missing_needle_fails(self):
+        with self.assertRaises(AssertionError):
+            fence_holding(STATE_REL, "XVAR_NO_SUCH_NEEDLE")
+        with self.assertRaises(AssertionError):
+            substitute("echo hi", [("<arg>", "02")])
+
+
+# --------------------------------------------------------------------------- #
 # The record: one row per flagged pair, what the fresh run showed, what the
 # owner would see and the proposed disposition (the owner confirms it before
 # anything is changed). `fixture` names the TestRepro63 test that reproduces it.
@@ -882,6 +1009,20 @@ class TestRepro63(unittest.TestCase):
                 self.assertIn("carry_state.py decided failed", fresh[3][2])
                 self.assertIn("carry_state.py deferred failed", fresh[4][2])
                 self.assertEqual(outcome, "stop")
+        with self.subTest(mode="gsd, --finalize"):
+            # On a Close-out run the head_sha block binds nothing, but the
+            # decided and deferred blocks still halt.
+            mode, needle, literals, key = self.STATE_SETTERS[0]
+            fences = [self.state_setter(needle, literals), readers[0],
+                      substitute(fence_holding(STATE_REL, "last-head-sha"),
+                                 [('"$FINALIZE_MODE"', '"1"')]),
+                      readers[2], readers[3]]
+            fresh, control, outcome, _, _ = self.run_pair(
+                "x3-finalize", self.build_state(key), fences)
+            self.assertNotIn("LAST_REVIEWED_SHA=", control[1])
+            self.assertIn("[]\n[]\n", control[1])
+            self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 1, 1])
+            self.assertEqual(outcome, "stop")
 
 
 # --------------------------------------------------------------------------- #
