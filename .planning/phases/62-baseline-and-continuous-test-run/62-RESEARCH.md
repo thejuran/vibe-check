@@ -485,7 +485,13 @@ BASH
 | A5 | The `usage.iterations` and `cache_creation` sub-object semantics are not documented here | Cost note | Label those fields "present, meaning unverified". Do not use them. |
 | A6 | `git push` of a workflow file succeeds with the keychain credential | Pitfall 5 | Run `gh auth setup-git`, then retry |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three questions below were settled on 2026-11-13, after this research was written. The original text is kept as the record of what was asked.
+
+- **Q1: RESOLVED by owner ruling D-18** (`62-CONTEXT.md`): option A. CI leaves out exactly the five tests by name, a guard fails the run if the list changes, and they keep running on the owner's Mac at every release gate. There is no decision checkpoint in the plans. A related point this research raised under "Linux reproduction" (tests that skip themselves on the runner) is **settled by owner ruling D-20**: such skips are allowed only for the recorded set, pinned by test id and reason from the real runner's first complete run; the CI check fails on any difference; anything else goes back to the owner. Note for readers of that section: `pytest -rs` prints skips as `file:line: reason`, not test ids, so the plans read ids from pytest's `--junitxml` result file.
+- **Q2: RESOLVED by owner ruling D-19**: the recorded smoke-test sessions count as this project's records (four plain review, one Finalize). Deep review has no recorded 2.14.x session and is labelled "declared, not observed"; the older-version archive transcripts suggested below are not used as a stand-in (D-09), and this repo's own session folder is not sampled.
+- **Q3: RESOLVED by the planner's ruling in `62-01-PLAN.md`**: `gitfixture.py` is scanned. The stdlib-only check covers 33 files.
 
 1. **The 5 tests that cannot pass on GitHub Linux (blocks CI-02).**
    - What we know: 3 need the owner's private Phase-43 transcripts and 2 assert the Mac's `wc` behaviour. Workflow setup cannot fix either group. Editing the tests changes files inside `plugins/vibe-check/`, which breaks D-16, and D-17 forbids skipping.
