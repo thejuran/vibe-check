@@ -188,7 +188,7 @@ class TestFields(Case):
         s = usage_fields.summarise_session(self.session(b))
         self.assertEqual(s["usage_key_names"],
                          sorted(list(TOKEN_FIELDS) + ["service_tier"]))
-        self.assertEqual(s["price_like_keys_withheld"], 2)
+        self.assertEqual(s["charge_like_keys_withheld"], 2)
         for n in s["usage_key_names"]:
             self.assertNotRegex(n.lower(), "cost|price|usd")
 
