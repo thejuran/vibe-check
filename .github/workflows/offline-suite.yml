@@ -1,0 +1,63 @@
+# The one CI workflow: the offline test suite on GitHub's Linux image.
+# It only adds a check. It reads no secret, holds a read-only token and makes no
+# live model call. Every property below is locked by .github/scripts/test_workflow_shape.py.
+name: offline-suite
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Test-only tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q zsh
+          python -m pip install pytest==9.0.3
+
+      - name: Stdlib-only check
+        run: python3 -I .github/scripts/stdlib_only.py plugins/vibe-check
+
+      - name: Left-out list guard
+        run: python3 -I .github/scripts/left_out_guard.py check-list .github/ci-left-out-tests.txt
+
+      # Five tests are left out of this run: the owner-approved D-18 exception, read only
+      # from the guarded list. They still run on the owner's Mac at every release gate.
+      # The suite runs from a detached linked worktree, its own documented mode for a
+      # checkout without the private recordings.
+      - name: Offline suite
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/wt" HEAD
+          cd "$RUNNER_TEMP/wt"
+          left_out="$(python3 -I .github/scripts/left_out_guard.py args .github/ci-left-out-tests.txt)"
+          mapfile -t LEFT_OUT <<< "$left_out"
+          pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools "${LEFT_OUT[@]}" -rs --junitxml="$RUNNER_TEMP/suite.xml" 2>&1 | tee "$RUNNER_TEMP/suite.log"
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Left-out count guard
+        run: python3 -I .github/scripts/left_out_guard.py check-log "$RUNNER_TEMP/suite.log"
+
+      # Tests that skip themselves on this machine are allowed only if they are on the
+      # recorded list (owner ruling D-20), matched by test id and reason. This step fails
+      # on any difference, and fails until the list has been recorded from the first real run.
+      - name: Skip guard
+        run: python3 -I .github/scripts/left_out_guard.py check-skips "$RUNNER_TEMP/suite.xml" "$RUNNER_TEMP/suite.log"
