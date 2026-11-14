@@ -3634,8 +3634,8 @@ class TestPhase45EndToEnd(unittest.TestCase):
                          "files_touched": [ARCH_FILE]}
                 self.assertEqual(bind_blobs(s, [obsolete, other], pre, post), {})
                 self.assertEqual(bind_blobs(s, [obsolete], pre, post), pre)
-        rule = next(l for l in read_prose("phases/review/50-fix-loop.md")
-                    .split("\n") if "(iii)" in l)
+        rule = next(ln for ln in read_prose("phases/review/50-fix-loop.md")
+                    .split("\n") if "(iii)" in ln)
         for status in TOUCHING_STATUSES:
             with self.subTest(prose=status):
                 self.assertIn("`%s`" % status, rule)
@@ -3687,10 +3687,15 @@ class TestPhase45EndToEnd(unittest.TestCase):
         for needle in ("PRE_CLEAN", "POST_CLEAN", "git diff --quiet HEAD --",
                        "git diff --cached --quiet --"):
             self.assertIn(needle, fix_loop)
-        for path in ("phases/review/05-state.md", "phases/shared/90-finalize.md"):
-            prose = read_prose(path)
-            self.assertIn("git diff --quiet HEAD --", prose, path)
-            self.assertIn("git diff --cached --quiet --", prose, path)
+        prose = read_prose("phases/review/05-state.md")
+        self.assertIn("git diff --quiet HEAD --", prose)
+        self.assertIn("git diff --cached --quiet --", prose)
+        # Finalize's HEAD fingerprints (finalize_inputs.head_blobs) leave a
+        # file with a dirty working tree, or a dirty index, unbound.
+        with self.subTest("finalize fingerprints omit a dirty file"):
+            self.assertEqual(finalize_dirty_fingerprints(),
+                             {"clean": True, "working tree": False,
+                              "index": False})
 
     def test_absorbed_member_keeps_blocking_after_lead_resolved(self):
         variants = {
@@ -3876,6 +3881,40 @@ class TestPhase45EndToEnd(unittest.TestCase):
 def read_prose(relpath):
     with open(os.path.join(PLUGIN_DIR, relpath), "r", encoding="utf-8") as fh:
         return fh.read()
+
+
+def finalize_dirty_fingerprints(module=None):
+    """{case: fingerprinted?} from Finalize's HEAD-fingerprint helper on a
+    real temp repo: a clean file, a file with an uncommitted edit, and a file
+    with a staged edit whose working copy matches HEAD again. Each case has a
+    last-pass fix verdict naming its file."""
+    import finalize_inputs
+    import gitfixture
+    mod = module or finalize_inputs
+    out = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = os.path.realpath(tmp)
+        env = gitfixture.helper_env()
+        env["GIT_CEILING_DIRECTORIES"] = tmp
+        with mock.patch.dict(os.environ, env, clear=True):
+            for case in ("clean", "working tree", "index"):
+                repo = gitfixture.make_repo(os.path.join(tmp, case))
+                gitfixture.write(repo, ARCH_FILE, "one\n")
+                gitfixture.git(repo, "add", "-A")
+                gitfixture.git(repo, "commit", "-q", "-m", "init")
+                if case != "clean":
+                    gitfixture.write(repo, ARCH_FILE, "two\n")
+                if case == "index":
+                    gitfixture.git(repo, "add", ARCH_FILE)
+                    gitfixture.write(repo, ARCH_FILE, "one\n")
+                s = load_fixture()
+                s["fix_verdicts"] = {ARCH_HASH: {
+                    "verdict": "obsolete", "agent": "fix",
+                    "head_sha": "50f9932e",
+                    "at_pass": s["passes"][-1]["pass_number"],
+                    "reason": "gone", "verified_blob": "b1"}}
+                out[case] = ARCH_FILE in mod.head_blobs(s, cwd=repo)
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -1528,6 +1528,210 @@ class TestCliMutants(CliCase):
         self.assertEqual((code, err), (4, ""))
 
 
+def snapshot(root):
+    """{relative path: sha256} for every file under `root`, .git excluded."""
+    return {rel: sha256_of(os.path.join(root, rel))
+            for rel in tree_listing(root)}
+
+
+class TestCliWritesOnlyTheFingerprintFile(CliCase):
+    """The helper's only write is the fingerprint file it was handed: no
+    side file (no `.err`), no state change, nothing in the repo; and a
+    missing fingerprint file is refused, never created."""
+
+    def routes(self):
+        fix = fix_obsolete_state(self.blob(ARCH_FILE))
+        return {
+            "write": (fix, True),
+            "card": (load_six_row(), True),
+            "state refused": ("not json", False),
+            "no state file": (None, False),
+        }
+
+    def run_route(self, state, module=None):
+        """Run one route in-process over a fresh side folder; return
+        (before, after, blob_out relative path, exit code)."""
+        sp = (os.path.join(self.files, "absent.json") if state is None
+              else self.new_path(state))
+        bp = self.empty()
+        before = snapshot(self.tmp)
+        code, _, _ = self.inproc(argv_for(sp, bp), module=module)
+        return before, snapshot(self.tmp), os.path.relpath(bp, self.tmp), code
+
+    def changed(self, before, after):
+        keys = set(before) | set(after)
+        return {k for k in keys if before.get(k) != after.get(k)}
+
+    def test_only_the_fingerprint_file_changes_on_every_route(self):
+        for label, (state, writes_blob) in self.routes().items():
+            with self.subTest(route=label):
+                before, after, bp, _ = self.run_route(state)
+                self.assertEqual(self.changed(before, after),
+                                 {bp} if writes_blob else set())
+
+    def test_missing_fingerprint_file_is_refused_and_not_created(self):
+        sp = self.new_path(load_six_row())
+        bp = os.path.join(self.files, "never-made")
+        code, out, err = self.cli(argv_for(sp, bp))
+        self.assertEqual((code, out), (2, b""))
+        self.assertEqual(err, carry_state.REASON_HEAD_BLOBS.encode())
+        self.assertFalse(os.path.exists(bp))
+
+    def test_mutant_side_file_or_state_write_trips(self):
+        good = self.run_route(fix_obsolete_state(self.blob(ARCH_FILE)))
+        self.assertEqual(self.changed(good[0], good[1]), {good[2]})
+        side = TestCliMutants.multi_mutant(self, (
+            "            fh.write(json.dumps(blobs, sort_keys=True))\n",
+            "            fh.write(json.dumps(blobs, sort_keys=True))\n"
+            "        open(blob_out + \".err\", \"w\").close()\n"))
+        before, after, bp, code = self.run_route(
+            fix_obsolete_state(self.blob(ARCH_FILE)), module=side)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.changed(before, after), {bp, bp + ".err"})
+        state_write = TestCliMutants.multi_mutant(self, (
+            "    blobs = head_blobs(state, cwd)\n",
+            "    blobs = head_blobs(state, cwd)\n"
+            "    with open(state_file, \"w\", encoding=\"utf-8\") as sf:\n"
+            "        sf.write(json.dumps(state, indent=1))\n"))
+        before, after, bp, code = self.run_route(
+            fix_obsolete_state(self.blob(ARCH_FILE)), module=state_write)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.changed(before, after)), 2)
+
+    def test_mutant_creating_a_missing_fingerprint_file_trips(self):
+        sp = self.new_path(load_six_row())
+        bp = os.path.join(self.files, "never-made")
+        self.assertEqual(self.inproc(argv_for(sp, bp))[0], 2)
+        mod = TestCliMutants.multi_mutant(self, (
+            "        return os.path.isfile(path) and os.path.getsize(path) == 0",
+            "        return not os.path.exists(path) or "
+            "(os.path.isfile(path) and os.path.getsize(path) == 0)"))
+        code, out, err = self.inproc(argv_for(sp, bp), module=mod)
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(os.path.isfile(bp))
+
+
+class TestLedgerReplacements(CliCase):
+    """Helper-level locks for rules the Finalize instruction text carried:
+    an unsubstituted fingerprint path, a literal `HEAD` head_sha, the card
+    route's re-run after recorded answers, and an unknown gate action."""
+
+    multi_mutant = TestCliMutants.multi_mutant
+
+    # -- the fingerprint path left unsubstituted in a fresh shell ------------ #
+    def test_unsubstituted_blob_out_is_refused(self):
+        # A fresh shell expands an unset "$BLOBFILE" to "".
+        code, out, err = self.cli(argv_for(self.new_path(load_six_row()), ""))
+        self.assertEqual((code, out), (2, b""))
+        self.assertEqual(err, carry_state.REASON_HEAD_BLOBS.encode())
+
+    def test_mutant_unsubstituted_blob_out_reaches_catch_all_trips(self):
+        argv = argv_for(self.new_path(load_six_row()), "")
+        self.assertEqual(self.inproc(argv), (2, "", carry_state.REASON_HEAD_BLOBS))
+        mod = self.multi_mutant(
+            ("os.path.isfile(path) and os.path.getsize(path) == 0", "True"),
+            ("    except OSError:\n"
+             "        return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)",
+             "    except ValueError:\n"
+             "        return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)"))
+        self.assertEqual(self.inproc(argv, module=mod), (4, "", ""))
+
+    # -- FINALIZE-HEAD-SHA-WEDGE ---------------------------------------------- #
+    def head_sha_head_state(self):
+        state = load_six_row()
+        state["passes"][-1]["head_sha"] = "HEAD"
+        return state
+
+    def test_head_sha_literal_head_is_not_read(self):
+        code, out, err = self.cli(argv_for(self.new_path(
+            self.head_sha_head_state()), self.empty()))
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        self.assertEqual((got["counts"]["outstanding_cw"],
+                          got["counts"]["unacknowledged_medium"],
+                          got["counts"]["undecided_nv"]), (5, 1, 0))
+        self.assertEqual(got["next"], "finalize-card")
+
+    def test_mutant_head_sha_check_wedges_finalize_trips(self):
+        argv = argv_for(self.new_path(self.head_sha_head_state()), self.empty())
+        self.assertEqual(self.inproc(argv)[0], 0)
+        mod = self.multi_mutant((
+            "    if not _blob_out_ok(blob_out):\n",
+            "    if state[\"passes\"][-1].get(\"head_sha\") == \"HEAD\":\n"
+            "        return _refuse(EXIT_STATE, carry_state.REASON_STATE)\n"
+            "    if not _blob_out_ok(blob_out):\n"))
+        code, out, err = self.inproc(argv, module=mod)
+        self.assertEqual((code, out), (3, ""))
+
+    # -- the card route: answers recorded, then the block runs again --------- #
+    def card_route(self, module=None):
+        """Run the helper, record a dismissal of every open obligation through
+        the 2.14.1 record-decisions command, run the helper again on a NEW
+        fingerprint file. Returns (first result, second exit, second result,
+        the recorded state)."""
+        sp = self.new_path(load_six_row())
+        code, out, err = self.inproc(argv_for(sp, self.empty()), module=module)
+        self.assertEqual((code, err), (0, ""))
+        first = json.loads(out)
+        self.assertEqual(first["next"], "finalize-card")
+        counts = first["counts"]
+        hashes = (counts["outstanding_cw_hashes"]
+                  + counts["unacknowledged_medium_hashes"]
+                  + counts["undecided_nv_hashes"])
+        self.assertTrue(hashes)
+        with open(sp, "r", encoding="utf-8") as fh:
+            at_pass = json.load(fh)["passes"][-1]["pass_number"]
+        dp = self.new_path({"at_pass": at_pass, "decisions": [
+            {"stable_hash": h, "decision": "dismiss", "reason": "walk"}
+            for h in hashes]})
+        r_code, r_out, r_err = self.old(CARRY_STATE_PY, [
+            "record-decisions", "--decisions-file", dp], stdin_path=sp)
+        self.assertEqual((r_code, r_err), (0, b""))
+        with open(sp, "wb") as fh:
+            fh.write(r_out)
+        recorded = json.loads(r_out)
+        code, out, err = self.inproc(argv_for(sp, self.empty()), module=module)
+        return first, code, (json.loads(out) if out else None), recorded
+
+    def test_card_route_record_then_rerun_writes(self):
+        _, code, second, recorded = self.card_route()
+        self.assertEqual(code, 0)
+        self.assertEqual(second["action"], "write")
+        self.assertEqual(second["next"], "write-review-md")
+        self.assertEqual((second["counts"]["outstanding_cw"],
+                          second["counts"]["unacknowledged_medium"],
+                          second["counts"]["undecided_nv"]), (0, 0, 0))
+        self.assertEqual(second["report"], batch_card.decisions_report(recorded))
+        self.assertTrue(second["report"]["entries"])
+
+    def test_mutant_card_route_counts_before_answers_trips(self):
+        # The gate deciding on counts that predate the owner's answers (the
+        # STALE-GATEFILE-RERUN failure) keeps Finalize blocked.
+        mod = self.mutant(
+            "        counts = carry_state.finalize_counts(state, blobs)\n",
+            "        counts = carry_state.finalize_counts("
+            "dict(state, decisions={}), blobs)\n")
+        _, code, second, _ = self.card_route(module=mod)
+        self.assertEqual(code, 0)
+        self.assertNotEqual(second["action"], "write")
+        self.assertEqual(second["next"], "finalize-card")
+
+    # -- any other gate action is the gate stop ------------------------------ #
+    def test_mutant_unknown_gate_action_passed_through_trips(self):
+        bad = {"action": "approve", "reason": "x"}
+        with mock.patch.object(finalize_inputs.finalize_gate, "run",
+                               return_value=bad):
+            self.assertEqual(finalize_inputs.build_result(
+                load_six_row(), {}, INTERACTIVE),
+                (finalize_inputs.EXIT_GATE, None))
+        mod = self.mutant("    if action not in finalize_gate.ACTIONS:\n"
+                          "        return EXIT_GATE, None\n", "")
+        with mock.patch.object(mod.finalize_gate, "run", return_value=bad):
+            code, result = mod.build_result(load_six_row(), {}, INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["action"], "approve")
+
+
 class TestImportSet(unittest.TestCase):
     """Import set and subprocess discipline stated in the docstring."""
 
