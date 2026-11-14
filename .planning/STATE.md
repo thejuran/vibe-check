@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-stopped_at: "Phase 62 executing: waves 1-4 of 6 complete (9/11 plans); wave 5 (62-08, real-runner proof, pushes the phase branch) next; nothing pushed yet"
-last_updated: "2026-11-14T06:15:22Z"
-last_activity: 2026-11-14 -- Phase 62 wave 4 of 6 complete (62-11 merged; baseline verify green)
+stopped_at: "Phase 62 executing: waves 1-5 of 6 complete (10/11 plans); 62-08 proved CI on GitHub (recording run, 2 skips pinned, green run, red proof, ci-red-proof deleted); wave 6 (62-09, phase PR + main's first run + owner checkpoint) next; phase branch pushed to 4231836, 4 docs commits local only"
+last_updated: "2026-11-14T07:08:00Z"
+last_activity: 2026-11-14 -- Phase 62 wave 5 complete (62-08: CI green on the phase branch, red proof recorded)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 11
-  completed_plans: 9
-  percent: 82
+  completed_plans: 10
+  percent: 91
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 62 (baseline-and-continuous-test-run) — EXECUTING
-Plan: 9 of 11 complete (waves 1-4 of 6 done; wave 5 = 62-08 next)
+Plan: 10 of 11 complete (waves 1-5 of 6 done; wave 6 = 62-09 next)
 Status: Executing Phase 62
-Last activity: 2026-11-14 -- Phase 62 wave 4 complete (62-11 merged; baseline verify green)
+Last activity: 2026-11-14 -- Phase 62 wave 5 complete (62-08: recording run 43566043041, green run 43567045328, red proof 43568391505)
 
 ## Operator Next Steps
 
@@ -80,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: 62-08 complete (385cbab, 4231836, 1295b8a, ada0935, 0e8fd0b). Phase branch pushed for the first time. Recording run https://github.com/thejuran/vibe-check/actions/runs/43566043041 on 385cbab: red at Skip guard only, by design, `4319 passed, 2 skipped, 5 deselected`. Pinned RECORDED_SKIPS = the 2 skips it printed (lane-archive sandbox-root test, replay linked-worktree test; skip_list_problems []). Green run https://github.com/thejuran/vibe-check/actions/runs/43567045328 on the pinned commit 4231836: every step success, `4324 passed, 2 skipped, 5 deselected`, `skipped set matches the recorded 2`. Red proof https://github.com/thejuran/vibe-check/actions/runs/43568391505 on ci-red-proof 29f9acd: failure in Offline suite on test_footprint.py::TestPinnedRev::test_deep_review_pinned_numbers only; branch deleted locally and on GitHub, no PR, main untouched (eb790e4). No runner findings beyond the five and the two skips; Linux re-derivation of the committed baseline records agreed. Plugin tree still 90e0697. CI-02 stays open for 62-09 (main's first run). Remote phase branch at 4231836; 1295b8a, ada0935, 0e8fd0b and the tracking commit are local only (62-09 pushes them with the PR).
 
 2026-11-14: Phase 62 planned via /bm:plan-phase: research, validation strategy, pattern map, 11 plans in 6 waves; plan check passed on the third pass (4 blockers and 5 warnings closed over two revisions). Owner rulings recorded after research: D-18 (CI leaves out exactly five named Linux-impossible tests, guarded), D-19 (smoke-test sessions count as existing records), D-20 (Linux self-skips allowed only as an exact pinned list from the first real run). Planning files only; no code changed; nothing pushed.
 
