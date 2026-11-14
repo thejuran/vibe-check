@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "ready_to_plan — Phase 62 complete and verified; Phase 63 not started"
-stopped_at: "Phase 62 complete (11/11), verification passed 5/5; PR #9 merged as d0adb5b, CI green on main; closing planning commits pushed to main (1f9f256, CI green); next is Phase 63 discussion on feat/v2.15-phase-63"
-last_updated: "2026-11-14T16:12:24Z"
-last_activity: 2026-11-14 -- PR #9 merged (d0adb5b); main's first offline-suite run green; Phase 62 closed
+status: "ready_to_plan — Phase 63 context gathered; planning not started"
+stopped_at: "Phase 63 context gathered on feat/v2.15-phase-63 (63-CONTEXT.md, D-01..D-15); no code changed, nothing pushed; next is /bm:plan-phase 63"
+last_updated: "2026-11-14T16:30:39Z"
+last_activity: 2026-11-14 -- Phase 63 context gathered (discussion, four areas); branch feat/v2.15-phase-63 cut from main ff8ab99
 progress:
   total_phases: 4
   completed_phases: 1
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 Phase: 63
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-11-14 -- Phase 62 verified (passed, 5/5) and closed; closing planning commits pushed to main (1f9f256), CI green
+Last activity: 2026-11-14 -- Phase 63 context gathered on feat/v2.15-phase-63; planning not started
 
 ## Operator Next Steps
 
-- Phase 63 discussion (`/bm:discuss-phase 63`) on a new branch `feat/v2.15-phase-63` cut from `main`
+- Phase 63 planning (`/bm:plan-phase 63`) on branch `feat/v2.15-phase-63`; context is in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/63-CONTEXT.md`
 
 ## Deferred Items
 
@@ -79,6 +79,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: Phase 63 context gathered on feat/v2.15-phase-63 (cut from main ff8ab99). Owner decisions: only the gate inputs and gate handoff move into helpers; the card and record-decisions stay as in 2.14.1 (D-01); the model still writes REVIEW.md from a helper-supplied data bundle (D-02); files ordinary reviews load are not changed by the extraction (D-03); card-plumbing extraction goes to backlog at phase close, not scheduled (D-04); stop sentences byte-identical to 2.14.1 (D-05); the helper matches 2.14.1 on inputs it could have caught, each gap recorded and carried (D-06); flagged places get a reproduction first, real four-class failures are fixed, the rest go on a shrink-only named list (D-08), and a fix's added bytes in shared files are reported as named growth (D-09); removal ledger with replacements landing first (D-11); the open/closed explanation moves to a design document (D-12); 999.34 WR-02/WR-03 stay carried, counts taken straight from the commits (D-13); one plain result page either way and the merge waits for the owner (D-14). Planning files only; no code changed; nothing pushed. Next: /bm:plan-phase 63.
 
 2026-11-14: 62-09 complete; Phase 62 closed. Owner recorded NO-GO on cost visibility (follows the note; 1659a99) and told the main session to merge. PR #9 squash-merged as d0adb5b (head 1659a99; runs on 1659a99: push 43611416017 and pull_request 43611421379, both success). main's first push run https://github.com/thejuran/vibe-check/actions/runs/43611870373 success: `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed`, `skipped set matches the recorded 2`; plugin tree at d0adb5b still 90e0697 (2.14.1). CI-01 and CI-02 met. ROADMAP Phase 62 ticked; 999.12 outcome recorded; 999.34 filed for the review carry (no 999.33: NO-GO). Closing commits on local main, not pushed; local phase branch deleted after a content check; the remote branch was already gone (`git ls-remote --heads origin feat/v2.15-phase-62` prints nothing). Verification (62-VERIFICATION.md) not yet run.
 

@@ -42,7 +42,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:discuss-phase 63` on a new branch `feat/v2.15-phase-63` cut from `main` (Phase 62 closed 2026-11-14: PR #9 squash-merged as `d0adb5b`, CI green on `main`). This roadmap does not authorize paid runs.
+**Next action:** `/bm:plan-phase 63` on branch `feat/v2.15-phase-63` (Phase 63 context gathered 2026-11-14; Phase 62 closed 2026-11-14: PR #9 squash-merged as `d0adb5b`, CI green on `main`). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
