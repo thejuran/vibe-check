@@ -358,29 +358,57 @@ class TestParityGaps(InputsCase):
         out, _ = self.run_helper(s)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
 
-    def test_gap_subdirectory_cwd(self):
-        sub = os.path.join(self.repo, "sub")
-        rel = "sub/c.ts"
 
-        def plain_exit_codes():
-            return [git(sub, "rev-parse", "HEAD:" + rel, check=False).returncode,
-                    git(sub, "diff", "--quiet", "HEAD", "--", rel,
-                        check=False).returncode,
-                    git(sub, "diff", "--cached", "--quiet", "--", rel,
-                        check=False).returncode]
+class TestSubdirectoryCwd(InputsCase):
+    """D-19: from a subfolder, every check reads the file from the repo root.
 
-        for label, content in (("clean", None), ("uncommitted edit", "c2\n")):
-            with self.subTest(case=label):
-                if content is not None:
-                    write(self.repo, rel, content)
-                codes = plain_exit_codes()
-                out, _ = self.run_helper(state_for([rel]), cwd=sub)
-                if codes == [0, 0, 0]:
-                    self.assertEqual(out, {rel: self.blob(rel)},
-                                     "%s: exit codes %r" % (label, codes))
-                else:
-                    self.assertEqual(out, {},
-                                     "%s: exit codes %r" % (label, codes))
+    At 2.14.1 the two `git diff` checks ran in the session's folder, where the
+    pathspec after `--` is read relative to that folder: from `<repo>/sub`,
+    `sub/c.ts` meant `sub/sub/c.ts`, matched nothing and exited 0, so a file
+    with an uncommitted edit was fingerprinted. The helper reads from the root.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sub = os.path.join(self.repo, "sub")
+        self.rel = "sub/c.ts"
+
+    def plain_subfolder_exit_codes(self):
+        rel = self.rel
+        return [git(self.sub, "rev-parse", "HEAD:" + rel,
+                    check=False).returncode,
+                git(self.sub, "diff", "--quiet", "HEAD", "--", rel,
+                    check=False).returncode,
+                git(self.sub, "diff", "--cached", "--quiet", "--", rel,
+                    check=False).returncode]
+
+    def test_clean_file_is_fingerprinted_from_a_subfolder(self):
+        out, _ = self.run_helper(state_for([self.rel]), cwd=self.sub)
+        self.assertEqual(out, {self.rel: self.blob(self.rel)})
+
+    def test_edited_file_is_not_fingerprinted_from_a_subfolder(self):
+        write(self.repo, self.rel, "c2\n")
+        # The 2.14.1 reproduction: the plain calls from the subfolder all pass.
+        self.assertEqual(self.plain_subfolder_exit_codes(), [0, 0, 0])
+        out, _ = self.run_helper(state_for([self.rel]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_staged_file_is_not_fingerprinted_from_a_subfolder(self):
+        write(self.repo, self.rel, "staged\n")
+        git(self.repo, "add", "--", self.rel)
+        write(self.repo, self.rel, "c1\n")
+        self.assertEqual(self.plain_subfolder_exit_codes(), [0, 0, 0])
+        out, _ = self.run_helper(state_for([self.rel]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_edited_file_is_not_fingerprinted_from_a_nested_subfolder(self):
+        write(self.repo, "src/deep/d.ts", "d1\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "deep")
+        write(self.repo, self.rel, "c2\n")
+        deep = os.path.join(self.repo, "src", "deep")
+        out, _ = self.run_helper(state_for([self.rel]), cwd=deep)
+        self.assertEqual(out, {})
 
 
 class TestMutants(InputsCase):
