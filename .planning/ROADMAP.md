@@ -46,7 +46,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 11/11 | Complete | 2026-11-14 |
+| 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
 | 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
@@ -67,7 +67,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
   4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
   5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
 
-**Plans:** 11/11 plans executed
+**Plans:** 11/11 plans complete
 
 Plans:
 **Wave 1**

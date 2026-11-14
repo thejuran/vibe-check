@@ -15,15 +15,15 @@
 
 ### Cost and quality baseline (BASE) — 999.12
 
-- [ ] **BASE-01**: A go/no-go note, built from existing local records only, names which usage fields are trustworthy per run and per lane (model, input/output/cache usage, retries, elapsed time), states what attribution is missing, and names the smallest useful report
-- [ ] **BASE-02**: Current mode-path bytes and actual loaded-file traces are recorded for plain review, deep review and Finalize, kept separate from any token or price estimate
-- [ ] **BASE-03**: A pinned behavioural baseline of the 2.14.1 code and its archived replay results are retained before any refactoring starts
-- [ ] **BASE-04**: The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are used instead
+- [x] **BASE-01**: A go/no-go note, built from existing local records only, names which usage fields are trustworthy per run and per lane (model, input/output/cache usage, retries, elapsed time), states what attribution is missing, and names the smallest useful report
+- [x] **BASE-02**: Current mode-path bytes and actual loaded-file traces are recorded for plain review, deep review and Finalize, kept separate from any token or price estimate
+- [x] **BASE-03**: A pinned behavioural baseline of the 2.14.1 code and its archived replay results are retained before any refactoring starts
+- [x] **BASE-04**: The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are used instead
 
 ### Continuous test run (CI)
 
-- [ ] **CI-01**: One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change
-- [ ] **CI-02**: `main` shows a green run on the release baseline, and a deliberately failing commit on a throwaway branch shows red
+- [x] **CI-01**: One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change
+- [x] **CI-02**: `main` shows a green run on the release baseline, and a deliberately failing commit on a throwaway branch shows red
 
 ### Finalize extraction (FINX)
 
@@ -77,12 +77,12 @@ Which phases cover which requirements. Filled in during roadmap creation (2026-1
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BASE-01 | Phase 62 | Pending |
-| BASE-02 | Phase 62 | Pending |
-| BASE-03 | Phase 62 | Pending |
-| BASE-04 | Phase 62 | Pending |
-| CI-01 | Phase 62 | Pending |
-| CI-02 | Phase 62 | Pending |
+| BASE-01 | Phase 62 | Complete |
+| BASE-02 | Phase 62 | Complete |
+| BASE-03 | Phase 62 | Complete |
+| BASE-04 | Phase 62 | Complete |
+| CI-01 | Phase 62 | Complete |
+| CI-02 | Phase 62 | Complete |
 | FINX-01 | Phase 63 | Pending |
 | FINX-02 | Phase 63 | Pending |
 | FINX-03 | Phase 63 | Pending |

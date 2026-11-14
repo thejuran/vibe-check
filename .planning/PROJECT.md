@@ -29,6 +29,8 @@ as their safety net.
 
 Activated 2026-11-13 via `/bm:new-milestone` (research skipped; scope is the owner-approved roadmap section). Phases continue from 62. Out of scope: reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Reviewer efficiency stays conditional; 999.31 (decision identity design) waits until this milestone ships.
 
+Phase 62 complete 2026-11-14 (PR #9, `d0adb5b`): the 2.14.1 baseline is pinned under `docs/design/lean-v2.15/` (suite 3,886 passed; replay 170 runs, 0 differing; five Finalize situations; Finalize 92 model-run steps over 136,114 bytes), the offline suite runs in GitHub Actions on every push and pull request, and cost visibility is NO-GO (owner), so the milestone is judged on labelled byte and step counts. Review warnings are carried as backlog 999.34.
+
 ## Last Milestone: v2.14 Decision reliability (SHIPPED 2026-10-30 as 2.14.0; patched as 2.14.1)
 
 **Goal (met, with owner-accepted known limits):** close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy. The milestone met 16/16 requirements (STALE-01..06, DEFR-01..02, EVID-01..03, FINL-01..02, GATE-01..03). The audit is tech_debt: integration 8/9, flows 5/5. The suite ran 3821 passed with 0 failed. Replay against 2.13 gave 170 runs with 0 differing. This was not B3-measured. Candidate 47978aa was signed off by the owner (Decision 1 = B: README states C1). The release follows `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. Full record: [archive](milestones/v2.14-ROADMAP.md), [MILESTONES.md](MILESTONES.md).

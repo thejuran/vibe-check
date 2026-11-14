@@ -1,6 +1,6 @@
 # Cost visibility note (BASE-01, backlog 999.12)
 
-Analysis only: nothing was run against a model, no log was copied into the repo, and nothing is priced. Status: RECOMMENDATION, waiting on the owner's go or no-go at the phase's closing step (plan 62-09).
+Analysis only: nothing was run against a model, no log was copied into the repo, and nothing is priced. Status: DECIDED. The owner recorded NO-GO on 2026-11-14, following this note's recommendation (see "Owner decision" at the end).
 
 ## Verdict
 
