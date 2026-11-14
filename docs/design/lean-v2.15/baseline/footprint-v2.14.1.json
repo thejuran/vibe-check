@@ -1,0 +1,582 @@
+{
+  "baseline_commit": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "paths": {
+    "deep-all": {
+      "file_count": 26,
+      "files": [
+        {
+          "bytes": 21687,
+          "path": "commands/deep-review.md",
+          "words": 3304
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 2408,
+          "path": "phases/review/07-first-run.md",
+          "words": 321
+        },
+        {
+          "bytes": 6855,
+          "path": "phases/review/10-triage.md",
+          "words": 983
+        },
+        {
+          "bytes": 1794,
+          "path": "phases/review/15-intent.md",
+          "words": 248
+        },
+        {
+          "bytes": 22141,
+          "path": "phases/review/20-dispatch.md",
+          "words": 3257
+        },
+        {
+          "bytes": 46829,
+          "path": "phases/review/30-collect-score.md",
+          "words": 6846
+        },
+        {
+          "bytes": 23486,
+          "path": "phases/review/40-render.md",
+          "words": 3525
+        },
+        {
+          "bytes": 8353,
+          "path": "phases/review/45-persist.md",
+          "words": 1178
+        },
+        {
+          "bytes": 18328,
+          "path": "phases/review/00-scope-all.md",
+          "words": 2636
+        },
+        {
+          "bytes": 13075,
+          "path": "phases/review/02-chunk-plan.md",
+          "words": 1973
+        },
+        {
+          "bytes": 21011,
+          "path": "phases/review/03-estimate-gate.md",
+          "words": 3231
+        },
+        {
+          "bytes": 5753,
+          "path": "phases/review/05-state-all.md",
+          "words": 768
+        },
+        {
+          "bytes": 13829,
+          "path": "phases/review/20-dispatch-all.md",
+          "words": 1934
+        },
+        {
+          "bytes": 17653,
+          "path": "phases/review/40-render-all.md",
+          "words": 2561
+        },
+        {
+          "bytes": 3220,
+          "path": "phases/review/45-persist-all.md",
+          "words": 482
+        },
+        {
+          "bytes": 861,
+          "path": "phases/deep-review/01c-related-files.md",
+          "words": 101
+        },
+        {
+          "bytes": 26021,
+          "path": "phases/deep-review/01d-coverage.md",
+          "words": 3789
+        },
+        {
+          "bytes": 11433,
+          "path": "phases/deep-review/20-selection.md",
+          "words": 1724
+        },
+        {
+          "bytes": 2555,
+          "path": "phases/deep-review/25-arch-prompt.md",
+          "words": 338
+        },
+        {
+          "bytes": 17667,
+          "path": "phases/deep-review/2c-codex-kickoff.md",
+          "words": 2459
+        },
+        {
+          "bytes": 13440,
+          "path": "phases/deep-review/30-codex-collect.md",
+          "words": 1913
+        }
+      ],
+      "total_bytes": 361866,
+      "total_words": 52614
+    },
+    "deep-plain": {
+      "file_count": 19,
+      "files": [
+        {
+          "bytes": 21687,
+          "path": "commands/deep-review.md",
+          "words": 3304
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 2408,
+          "path": "phases/review/07-first-run.md",
+          "words": 321
+        },
+        {
+          "bytes": 6855,
+          "path": "phases/review/10-triage.md",
+          "words": 983
+        },
+        {
+          "bytes": 1794,
+          "path": "phases/review/15-intent.md",
+          "words": 248
+        },
+        {
+          "bytes": 22141,
+          "path": "phases/review/20-dispatch.md",
+          "words": 3257
+        },
+        {
+          "bytes": 46829,
+          "path": "phases/review/30-collect-score.md",
+          "words": 6846
+        },
+        {
+          "bytes": 23486,
+          "path": "phases/review/40-render.md",
+          "words": 3525
+        },
+        {
+          "bytes": 8353,
+          "path": "phases/review/45-persist.md",
+          "words": 1178
+        },
+        {
+          "bytes": 861,
+          "path": "phases/deep-review/01c-related-files.md",
+          "words": 101
+        },
+        {
+          "bytes": 26021,
+          "path": "phases/deep-review/01d-coverage.md",
+          "words": 3789
+        },
+        {
+          "bytes": 11433,
+          "path": "phases/deep-review/20-selection.md",
+          "words": 1724
+        },
+        {
+          "bytes": 2555,
+          "path": "phases/deep-review/25-arch-prompt.md",
+          "words": 338
+        },
+        {
+          "bytes": 17667,
+          "path": "phases/deep-review/2c-codex-kickoff.md",
+          "words": 2459
+        },
+        {
+          "bytes": 13440,
+          "path": "phases/deep-review/30-codex-collect.md",
+          "words": 1913
+        }
+      ],
+      "label": "deep review",
+      "total_bytes": 268997,
+      "total_words": 39029
+    },
+    "finalize": {
+      "file_count": 7,
+      "files": [
+        {
+          "bytes": 16724,
+          "path": "commands/review.md",
+          "words": 2581
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 55923,
+          "path": "phases/shared/90-finalize.md",
+          "words": 8519
+        }
+      ],
+      "label": "Finalize",
+      "total_bytes": 136114,
+      "total_words": 20143
+    },
+    "fix-loop": {
+      "file_count": 14,
+      "files": [
+        {
+          "bytes": 16724,
+          "path": "commands/review.md",
+          "words": 2581
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 2408,
+          "path": "phases/review/07-first-run.md",
+          "words": 321
+        },
+        {
+          "bytes": 6855,
+          "path": "phases/review/10-triage.md",
+          "words": 983
+        },
+        {
+          "bytes": 1794,
+          "path": "phases/review/15-intent.md",
+          "words": 248
+        },
+        {
+          "bytes": 22141,
+          "path": "phases/review/20-dispatch.md",
+          "words": 3257
+        },
+        {
+          "bytes": 46829,
+          "path": "phases/review/30-collect-score.md",
+          "words": 6846
+        },
+        {
+          "bytes": 23486,
+          "path": "phases/review/40-render.md",
+          "words": 3525
+        },
+        {
+          "bytes": 8353,
+          "path": "phases/review/45-persist.md",
+          "words": 1178
+        },
+        {
+          "bytes": 63013,
+          "path": "phases/review/50-fix-loop.md",
+          "words": 9681
+        }
+      ],
+      "total_bytes": 255070,
+      "total_words": 37663
+    },
+    "review-all": {
+      "file_count": 20,
+      "files": [
+        {
+          "bytes": 16724,
+          "path": "commands/review.md",
+          "words": 2581
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 2408,
+          "path": "phases/review/07-first-run.md",
+          "words": 321
+        },
+        {
+          "bytes": 6855,
+          "path": "phases/review/10-triage.md",
+          "words": 983
+        },
+        {
+          "bytes": 1794,
+          "path": "phases/review/15-intent.md",
+          "words": 248
+        },
+        {
+          "bytes": 22141,
+          "path": "phases/review/20-dispatch.md",
+          "words": 3257
+        },
+        {
+          "bytes": 46829,
+          "path": "phases/review/30-collect-score.md",
+          "words": 6846
+        },
+        {
+          "bytes": 23486,
+          "path": "phases/review/40-render.md",
+          "words": 3525
+        },
+        {
+          "bytes": 8353,
+          "path": "phases/review/45-persist.md",
+          "words": 1178
+        },
+        {
+          "bytes": 18328,
+          "path": "phases/review/00-scope-all.md",
+          "words": 2636
+        },
+        {
+          "bytes": 13075,
+          "path": "phases/review/02-chunk-plan.md",
+          "words": 1973
+        },
+        {
+          "bytes": 21011,
+          "path": "phases/review/03-estimate-gate.md",
+          "words": 3231
+        },
+        {
+          "bytes": 5753,
+          "path": "phases/review/05-state-all.md",
+          "words": 768
+        },
+        {
+          "bytes": 13829,
+          "path": "phases/review/20-dispatch-all.md",
+          "words": 1934
+        },
+        {
+          "bytes": 17653,
+          "path": "phases/review/40-render-all.md",
+          "words": 2561
+        },
+        {
+          "bytes": 3220,
+          "path": "phases/review/45-persist-all.md",
+          "words": 482
+        }
+      ],
+      "total_bytes": 284926,
+      "total_words": 41567
+    },
+    "review-plain": {
+      "file_count": 13,
+      "files": [
+        {
+          "bytes": 16724,
+          "path": "commands/review.md",
+          "words": 2581
+        },
+        {
+          "bytes": 3811,
+          "path": "phases/shared/00-contract.md",
+          "words": 575
+        },
+        {
+          "bytes": 4621,
+          "path": "phases/shared/01-bootstrap.md",
+          "words": 689
+        },
+        {
+          "bytes": 20088,
+          "path": "phases/review/00-scope.md",
+          "words": 2863
+        },
+        {
+          "bytes": 19484,
+          "path": "phases/review/05-state.md",
+          "words": 2786
+        },
+        {
+          "bytes": 15463,
+          "path": "phases/review/06-config.md",
+          "words": 2130
+        },
+        {
+          "bytes": 2408,
+          "path": "phases/review/07-first-run.md",
+          "words": 321
+        },
+        {
+          "bytes": 6855,
+          "path": "phases/review/10-triage.md",
+          "words": 983
+        },
+        {
+          "bytes": 1794,
+          "path": "phases/review/15-intent.md",
+          "words": 248
+        },
+        {
+          "bytes": 22141,
+          "path": "phases/review/20-dispatch.md",
+          "words": 3257
+        },
+        {
+          "bytes": 46829,
+          "path": "phases/review/30-collect-score.md",
+          "words": 6846
+        },
+        {
+          "bytes": 23486,
+          "path": "phases/review/40-render.md",
+          "words": 3525
+        },
+        {
+          "bytes": 8353,
+          "path": "phases/review/45-persist.md",
+          "words": 1178
+        }
+      ],
+      "label": "plain review",
+      "total_bytes": 192057,
+      "total_words": 27982
+    }
+  },
+  "proxies": {
+    "label": "PROXY — derived from bytes, not measured, not a bill",
+    "modes": {
+      "deep-all": {
+        "tokens@2.7": 134024,
+        "tokens@3.5": 103390
+      },
+      "deep-plain": {
+        "tokens@2.7": 99628,
+        "tokens@3.5": 76856
+      },
+      "finalize": {
+        "tokens@2.7": 50412,
+        "tokens@3.5": 38889
+      },
+      "fix-loop": {
+        "tokens@2.7": 94470,
+        "tokens@3.5": 72877
+      },
+      "review-all": {
+        "tokens@2.7": 105528,
+        "tokens@3.5": 81407
+      },
+      "review-plain": {
+        "tokens@2.7": 71132,
+        "tokens@3.5": 54873
+      }
+    },
+    "rule": "total_bytes divided by chars-per-token, rounded down"
+  },
+  "schema": 1,
+  "source": [
+    "bytes and files: git show <baseline_commit>:plugins/vibe-check/<path>",
+    "file lists: MODE_PATHS in scripts/footprint.py at baseline_commit",
+    "words: whitespace-split count of the UTF-8 decoded text; agrees with footprint.py for every file",
+    "capture checked against footprint.path_stats(rev=baseline_commit)"
+  ]
+}

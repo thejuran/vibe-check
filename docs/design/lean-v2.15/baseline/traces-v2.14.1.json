@@ -1,0 +1,515 @@
+{
+  "baseline_commit": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "notes": [
+    "commands/review.md reaches the model by command expansion, not a Read; its absence from reads is expected",
+    "reads: successful main-session Reads of plugin files, plugin-relative, in order; failed Reads are left out",
+    "non_plugin_reads and tool_calls are counts only; no path outside the plugin is kept",
+    "bytes_at_baseline: git show at baseline_commit, whatever version the session ran",
+    "declared and observed are separate lists and are never merged",
+    "smoke sessions are this project's own recorded test sessions (D-19)"
+  ],
+  "paths": {
+    "deep-plain": {
+      "declared": [
+        "commands/deep-review.md",
+        "phases/shared/00-contract.md",
+        "phases/shared/01-bootstrap.md",
+        "phases/review/00-scope.md",
+        "phases/review/05-state.md",
+        "phases/review/06-config.md",
+        "phases/review/07-first-run.md",
+        "phases/review/10-triage.md",
+        "phases/review/15-intent.md",
+        "phases/review/20-dispatch.md",
+        "phases/review/30-collect-score.md",
+        "phases/review/40-render.md",
+        "phases/review/45-persist.md",
+        "phases/deep-review/01c-related-files.md",
+        "phases/deep-review/01d-coverage.md",
+        "phases/deep-review/20-selection.md",
+        "phases/deep-review/25-arch-prompt.md",
+        "phases/deep-review/2c-codex-kickoff.md",
+        "phases/deep-review/30-codex-collect.md"
+      ],
+      "gap": "no recorded 2.14.x session for this path; nothing was run to fill it (D-09)",
+      "label": "declared, not observed",
+      "observed": []
+    },
+    "finalize": {
+      "declared": [
+        "commands/review.md",
+        "phases/shared/00-contract.md",
+        "phases/shared/01-bootstrap.md",
+        "phases/review/00-scope.md",
+        "phases/review/05-state.md",
+        "phases/review/06-config.md",
+        "phases/shared/90-finalize.md"
+      ],
+      "label": "observed",
+      "observed": [
+        {
+          "kind": "finalize",
+          "label": "observed",
+          "malformed_lines": 0,
+          "non_plugin_reads": 2,
+          "reads": [
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 3811,
+              "in_declared": true,
+              "path": "phases/shared/00-contract.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 4621,
+              "in_declared": true,
+              "path": "phases/shared/01-bootstrap.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 19484,
+              "in_declared": true,
+              "path": "phases/review/05-state.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 15463,
+              "in_declared": true,
+              "path": "phases/review/06-config.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 55923,
+              "in_declared": true,
+              "path": "phases/shared/90-finalize.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 5035,
+              "in_declared": false,
+              "path": "templates/review-md-schema.md"
+            }
+          ],
+          "session": "b1bb3036",
+          "session_sha256": "f738368f39faf3590361a8ba065ec093c6d0ae9a243e6b4fe7d71552a1b648e5",
+          "smoke_session": true,
+          "tool_calls": {
+            "Bash": 12,
+            "Read": 9,
+            "Write": 4
+          },
+          "version": "2.14.0 candidate 0d2be77 (smoke session)"
+        }
+      ]
+    },
+    "review-plain": {
+      "declared": [
+        "commands/review.md",
+        "phases/shared/00-contract.md",
+        "phases/shared/01-bootstrap.md",
+        "phases/review/00-scope.md",
+        "phases/review/05-state.md",
+        "phases/review/06-config.md",
+        "phases/review/07-first-run.md",
+        "phases/review/10-triage.md",
+        "phases/review/15-intent.md",
+        "phases/review/20-dispatch.md",
+        "phases/review/30-collect-score.md",
+        "phases/review/40-render.md",
+        "phases/review/45-persist.md"
+      ],
+      "label": "observed",
+      "observed": [
+        {
+          "kind": "review-plain",
+          "label": "observed",
+          "malformed_lines": 0,
+          "non_plugin_reads": 2,
+          "reads": [
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 3811,
+              "in_declared": true,
+              "path": "phases/shared/00-contract.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 4621,
+              "in_declared": true,
+              "path": "phases/shared/01-bootstrap.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 19484,
+              "in_declared": true,
+              "path": "phases/review/05-state.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 15463,
+              "in_declared": true,
+              "path": "phases/review/06-config.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 2408,
+              "in_declared": true,
+              "path": "phases/review/07-first-run.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 6855,
+              "in_declared": true,
+              "path": "phases/review/10-triage.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 22141,
+              "in_declared": true,
+              "path": "phases/review/20-dispatch.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 46829,
+              "in_declared": true,
+              "path": "phases/review/30-collect-score.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 23486,
+              "in_declared": true,
+              "path": "phases/review/40-render.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 8353,
+              "in_declared": true,
+              "path": "phases/review/45-persist.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 63013,
+              "in_declared": false,
+              "path": "phases/review/50-fix-loop.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            }
+          ],
+          "session": "5caa5cec",
+          "session_sha256": "0e15b62b36cba89fd9449cee7d2206f27a836b6dfab1c952da5af223df15ac0d",
+          "smoke_session": true,
+          "tool_calls": {
+            "Agent": 8,
+            "AskUserQuestion": 3,
+            "Bash": 24,
+            "Read": 15,
+            "Write": 3
+          },
+          "version": "2.14.0 candidate 0d2be77 (smoke session)"
+        },
+        {
+          "kind": "review-plain",
+          "label": "observed",
+          "malformed_lines": 0,
+          "non_plugin_reads": 2,
+          "reads": [
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 3811,
+              "in_declared": true,
+              "path": "phases/shared/00-contract.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 4621,
+              "in_declared": true,
+              "path": "phases/shared/01-bootstrap.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 19484,
+              "in_declared": true,
+              "path": "phases/review/05-state.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 15463,
+              "in_declared": true,
+              "path": "phases/review/06-config.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 6855,
+              "in_declared": true,
+              "path": "phases/review/10-triage.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 22141,
+              "in_declared": true,
+              "path": "phases/review/20-dispatch.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 46829,
+              "in_declared": true,
+              "path": "phases/review/30-collect-score.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 23486,
+              "in_declared": true,
+              "path": "phases/review/40-render.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 14226,
+              "in_declared": false,
+              "path": "templates/output-format.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 8353,
+              "in_declared": true,
+              "path": "phases/review/45-persist.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 63013,
+              "in_declared": false,
+              "path": "phases/review/50-fix-loop.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            }
+          ],
+          "session": "15a3be6d",
+          "session_sha256": "0c749d41b1254b73bba6ec71fdc4070c7d6cdbe9f125ae114237acfdf7abab72",
+          "smoke_session": true,
+          "tool_calls": {
+            "Agent": 4,
+            "AskUserQuestion": 1,
+            "Bash": 21,
+            "Read": 15,
+            "Write": 6
+          },
+          "version": "2.14.0 candidate 0d2be77 (smoke session)"
+        },
+        {
+          "kind": "review-plain",
+          "label": "observed",
+          "malformed_lines": 0,
+          "non_plugin_reads": 3,
+          "reads": [
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 3811,
+              "in_declared": true,
+              "path": "phases/shared/00-contract.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 4621,
+              "in_declared": true,
+              "path": "phases/shared/01-bootstrap.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 19484,
+              "in_declared": true,
+              "path": "phases/review/05-state.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 15463,
+              "in_declared": true,
+              "path": "phases/review/06-config.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 2408,
+              "in_declared": true,
+              "path": "phases/review/07-first-run.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 6855,
+              "in_declared": true,
+              "path": "phases/review/10-triage.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 22141,
+              "in_declared": true,
+              "path": "phases/review/20-dispatch.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 46829,
+              "in_declared": true,
+              "path": "phases/review/30-collect-score.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 23486,
+              "in_declared": true,
+              "path": "phases/review/40-render.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 14226,
+              "in_declared": false,
+              "path": "templates/output-format.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 8353,
+              "in_declared": true,
+              "path": "phases/review/45-persist.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 63013,
+              "in_declared": false,
+              "path": "phases/review/50-fix-loop.md"
+            }
+          ],
+          "session": "b0294925",
+          "session_sha256": "e0cc4a1f3d413be73f3f7c2c1652462112db60c8cb8b4dbf2f47af6c067892ca",
+          "smoke_session": true,
+          "tool_calls": {
+            "Agent": 8,
+            "AskUserQuestion": 2,
+            "Bash": 29,
+            "Read": 16,
+            "Write": 4
+          },
+          "version": "2.14.1 (smoke session)"
+        },
+        {
+          "kind": "review-plain",
+          "label": "observed",
+          "malformed_lines": 0,
+          "non_plugin_reads": 1,
+          "reads": [
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 3811,
+              "in_declared": true,
+              "path": "phases/shared/00-contract.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 4621,
+              "in_declared": true,
+              "path": "phases/shared/01-bootstrap.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 20088,
+              "in_declared": true,
+              "path": "phases/review/00-scope.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 19484,
+              "in_declared": true,
+              "path": "phases/review/05-state.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 15463,
+              "in_declared": true,
+              "path": "phases/review/06-config.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 6855,
+              "in_declared": true,
+              "path": "phases/review/10-triage.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 22141,
+              "in_declared": true,
+              "path": "phases/review/20-dispatch.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 46829,
+              "in_declared": true,
+              "path": "phases/review/30-collect-score.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 23486,
+              "in_declared": true,
+              "path": "phases/review/40-render.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 14226,
+              "in_declared": false,
+              "path": "templates/output-format.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 8353,
+              "in_declared": true,
+              "path": "phases/review/45-persist.md"
+            },
+            {
+              "at_baseline": "present",
+              "bytes_at_baseline": 63013,
+              "in_declared": false,
+              "path": "phases/review/50-fix-loop.md"
+            }
+          ],
+          "session": "6a70827e",
+          "session_sha256": "15f8378ab99c4c50c7f6b3b5d86d22fdbe9e21fb318330562b223905ae880e6a",
+          "smoke_session": true,
+          "tool_calls": {
+            "Agent": 4,
+            "AskUserQuestion": 2,
+            "Bash": 21,
+            "Read": 13,
+            "Write": 4
+          },
+          "version": "2.14.1 (smoke session)"
+        }
+      ]
+    }
+  },
+  "schema": 1
+}
