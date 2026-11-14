@@ -1,6 +1,6 @@
 # Phase 62 CI record
 
-**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded. Not yet run: the red proof. `main`'s first run is plan 62-09.
+**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded, red proof recorded and its branch deleted. Remaining: `main`'s first run (plan 62-09); CI-02 stays open until then. `main`'s first run is plan 62-09.
 
 Precondition (checked before anything else): primary checkout `/Users/julianamacbook/turingmind-code-review` (`git rev-parse --absolute-git-dir` equals the common git dir), branch `feat/v2.15-phase-62`, HEAD `776cdd9245bea6418ffa7849eabc2565e2ed9209`. The workflow, both guard scripts, `docs/design/lean-v2.15/baseline/MANIFEST.json` and `docs/design/lean-v2.15/BASELINE-v2.14.1.md` are all present on the branch.
 
@@ -104,4 +104,16 @@ None beyond the recorded five and the recorded skips. No class S or T attempt wa
 
 ## Red proof
 
-(Not yet run.)
+One-line change, made only on the throwaway branch `ci-red-proof` (created from the phase branch at `1295b8a` in a temporary worktree under the session scratchpad, since removed): in `plugins/vibe-check/scripts/test_footprint.py`, inside `TestPinnedRev.test_deep_review_pinned_numbers`, `self.assertEqual(stats["bytes"], DEEP_MD_BYTES_AT_PIN)` became `self.assertEqual(stats["bytes"], DEEP_MD_BYTES_AT_PIN + 1)`. `git diff --stat`: `1 file changed, 1 insertion(+), 1 deletion(-)`. Locally that file then gave `1 failed, 22 passed, 12 subtests passed`. Commit `29f9acd15d14e9ef949e914ceb583bdac7ed4d3f`, `test: deliberate failure for the CI red proof (do not merge)`.
+
+| Branch | Commit | Run | Conclusion | Failing step | Failing test |
+|--------|--------|-----|------------|--------------|--------------|
+| `ci-red-proof` | `29f9acd15d14e9ef949e914ceb583bdac7ed4d3f` | https://github.com/thejuran/vibe-check/actions/runs/43568391505 | failure | Offline suite | `plugins/vibe-check/scripts/test_footprint.py::TestPinnedRev::test_deep_review_pinned_numbers` |
+
+Checks (from `gh run view 43568391505 --json conclusion,url,headSha,jobs` and `--log-failed`):
+1. Conclusion is `failure`: holds.
+2. The failing step is `Offline suite`: holds. `Left-out count guard` and `Skip guard` were `skipped` (they do not run after a red suite step), so no guard made the run red.
+3. `Stdlib-only check` and `Left-out list guard` succeeded in the same run: holds (both `success`).
+4. The failed log names the test and shows one failure: holds. Header `TestPinnedRev.test_deep_review_pinned_numbers`, `plugins/vibe-check/scripts/test_footprint.py:145: AssertionError`, `AssertionError: 84534 != 84535`, summary `1 failed, 4323 passed, 2 skipped, 5 deselected, 5300 subtests passed in 245.12s (0:04:05)`.
+
+Clean-up: `git push origin --delete ci-red-proof` (`[deleted]`), temporary worktree removed, `git branch -D ci-red-proof` (`was 29f9acd`). Afterwards `git ls-remote --heads origin ci-red-proof` and `git branch --list ci-red-proof` print nothing, and `gh pr list --head ci-red-proof --state all --json number` prints `[]`: no pull request was opened. `main` was not touched: `origin/main` was `eb790e4b4a7a23ef3123273314e4633d6e1f6720` before and after. The phase branch's plugin tree is unchanged by this task: `git diff --stat dd8e4ab… feat/v2.15-phase-62 -- plugins` prints nothing.
