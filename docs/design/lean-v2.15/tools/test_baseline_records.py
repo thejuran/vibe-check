@@ -405,17 +405,20 @@ class TestSuiteRecord(unittest.TestCase):
         self.assertTrue(any("plugins_tree" in p for p in problems), problems)
 
     def test_mutant_failed_nonzero(self):
+        # summary line and counts agree, so only the failed-is-zero rule can trip
         rec = self._good()
-        rec["failed"] = 1
+        rec["summary_line"] = "1 failed, " + LINE
+        rec.update(baseline_records.parse_summary_line(rec["summary_line"]))
+        self.assertEqual(rec["failed"], 1)
         problems = baseline_records.verify_suite_record(REPO_ROOT, rec)
-        self.assertTrue(any("failed" in p for p in problems), problems)
+        self.assertEqual(problems, ["failed is 1, not 0"])
 
     def test_mutant_passed_not_positive(self):
         for bad in (0, -1, "3886", True):
             rec = self._good()
             rec["passed"] = bad
             problems = baseline_records.verify_suite_record(REPO_ROOT, rec)
-            self.assertTrue(any("passed" in p for p in problems), (bad, problems))
+            self.assertTrue(any(p.startswith("passed is ") for p in problems), (bad, problems))
 
     def test_mutant_counts_disagree_with_the_summary_line(self):
         rec = self._good()
