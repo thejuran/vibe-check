@@ -1,0 +1,108 @@
+{
+  "files": [
+    {
+      "bash_fences": 1,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 1,
+      "path": "commands/review.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 0,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 0,
+      "path": "phases/shared/00-contract.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 1,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 1,
+      "path": "phases/shared/01-bootstrap.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 10,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 10,
+      "path": "phases/review/00-scope.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 7,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 7,
+      "path": "phases/review/05-state.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 5,
+      "carried_paste_sites": 0,
+      "inline_commands": 0,
+      "model_run_steps": 5,
+      "path": "phases/review/06-config.md",
+      "printed_literals": [],
+      "printed_literals_distinct": 0,
+      "write_tool_writes": 0
+    },
+    {
+      "bash_fences": 18,
+      "carried_paste_sites": 38,
+      "inline_commands": 5,
+      "model_run_steps": 68,
+      "path": "phases/shared/90-finalize.md",
+      "printed_literals": [
+        "ANSWERFILE",
+        "BLOBFILE",
+        "CARDROWSFILE",
+        "DECFILE",
+        "GATEFILE",
+        "PARSEFILE",
+        "REFSFILE",
+        "RESOLVEFILE",
+        "ROWSFILE",
+        "SUBSETFILE",
+        "SUGGESTFILE"
+      ],
+      "printed_literals_distinct": 11,
+      "write_tool_writes": 7
+    }
+  ],
+  "inline_run_leads": [
+    "run ",
+    "Run ",
+    "→ ",
+    "file-to-file with "
+  ],
+  "kind": "operation count — not tokens, not price",
+  "mode": "finalize",
+  "rev": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "rule_version": 1,
+  "totals": {
+    "bash_fences": 42,
+    "carried_paste_sites": 38,
+    "inline_commands": 5,
+    "model_run_steps": 92,
+    "printed_literals_distinct": 11,
+    "write_tool_writes": 7
+  },
+  "write_phrases": [
+    "with the Write tool",
+    "Use Write to create"
+  ]
+}
