@@ -11,9 +11,17 @@ earlier fence of the same file set without printing it.
 """
 import ast
 import importlib.util
+import json
 import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gitfixture  # noqa: E402  (shared temp-repo helper)
 
 # --------------------------------------------------------------------------- #
 # The fence rule, transcribed from docs/design/lean-v2.15/tools/step_count.py:
@@ -709,10 +717,180 @@ class TestMutants(LockCase):
 
 
 # --------------------------------------------------------------------------- #
+# The record: one row per flagged pair, what the fresh run showed, what the
+# owner would see and the proposed disposition (the owner confirms it before
+# anything is changed). `fixture` names the TestRepro63 test that reproduces it.
+# --------------------------------------------------------------------------- #
+SCOPE_REL = "phases/review/00-scope.md"
+CONFIG_REL = "phases/review/06-config.md"
+
+REPRO_63 = [
+    {"id": "X1", "file": SCOPE_REL, "name": "PHASE_DIR",
+     "outcome": "stop",
+     "owner_sees": "A review of a GSD phase stops at the safety check with "
+                   "'Phase resolution escaped .planning/ — refusing.' even "
+                   "though the phase exists.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x1_phase_dir"},
+    {"id": "X2", "file": STATE_REL, "name": "LEGACY_STATE_FILE",
+     "outcome": "wrong-file",
+     "owner_sees": "A review whose saved progress is still in the old "
+                   "location is not moved forward, so it starts again at "
+                   "pass 1 instead of carrying on.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x2_legacy_state_file"},
+    {"id": "X3", "file": STATE_REL, "name": "STATE_FILE",
+     "outcome": "stop",
+     "owner_sees": "A second pass of a review stops with 'the state file's "
+                   "last-pass head_sha is not a commit sha' although the "
+                   "saved progress is fine.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x3_state_file"},
+]
+
+
+class TestRepro63(unittest.TestCase):
+    """Each flagged pair run fresh (one process per Bash block) next to a
+    control (the same blocks in one process). Each test asserts what is
+    observed today, not what should be."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def run_pair(self, label, build, fences):
+        """(fresh, control, outcome, fresh files, control files)."""
+        work = os.path.join(self.tmp, label)
+        os.makedirs(work)
+        run = ShellRun(work, build)
+        fresh = run.fresh(fences)
+        control = run.control(fences)
+        fresh_files = tree_files(run.fresh_repo)
+        control_files = tree_files(run.control_repo)
+        self.assertEqual(control[0], 0, control)
+        return (fresh, control,
+                classify(fresh, control, fresh_files, control_files),
+                fresh_files, control_files)
+
+    # -- 00-scope.md ------------------------------------------------------- #
+    @staticmethod
+    def build_gsd_phase(repo):
+        gitfixture.write(repo, "src/a.txt", "a\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+        gitfixture.write(repo, ".planning/phases/02-code-review/02-01-PLAN.md",
+                         "plan\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "phase")
+
+    def test_x1_phase_dir(self):
+        fences = [
+            substitute(fence_holding(SCOPE_REL, "PHASE_DIR=$(find"),
+                       [("<arg>", "02")]),
+            fence_holding(SCOPE_REL,
+                          'python3 "$GUARD_PY" --root "$PWD/.planning"'),
+            fence_holding(SCOPE_REL, "PHASE_START=$(git log"),
+        ]
+        fresh, control, outcome, _, _ = self.run_pair(
+            "x1", self.build_gsd_phase, fences)
+        phase_sha = gitfixture.git(
+            os.path.join(self.tmp, "x1", "control", "repo"),
+            "log", "--format=%H", "-1", "--", ".planning").stdout.strip()
+        # The control resolves the phase, passes the guard and prints the
+        # commit that started the phase.
+        self.assertIn("contained", control[1])
+        self.assertIn("PHASE_START=%s\n" % phase_sha, control[1])
+        # Fresh: the guard sees an empty phase dir and refuses.
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 1, 0])
+        self.assertIn("Phase resolution escaped .planning/ — refusing.",
+                      fresh[1][1])
+        # Were the third block reached, git refuses the empty path and the
+        # phase is reviewed as uncommitted changes only.
+        self.assertIn("empty string is not a valid pathspec", fresh[2][2])
+        self.assertIn("PHASE_START=\n", fresh[2][1])
+        self.assertEqual(outcome, "stop")
+
+    # -- 05-state.md ------------------------------------------------------- #
+    STATE_SETTERS = (
+        ("gsd", 'STATE_FILE=".turingmind/state/format-53/${PHASE_ID}',
+         [("${PHASE_ID}", "02-code-review")], "02-code-review"),
+        ("branch", "BRANCH_SLUG=$(git branch", [], "repo-main"),
+    )
+
+    @staticmethod
+    def build_state(key):
+        """A repo with one commit and a pass-1 state file in the old place."""
+        def build(repo):
+            gitfixture.write(repo, "src/a.txt", "a\n")
+            gitfixture.git(repo, "add", "-A")
+            gitfixture.git(repo, "commit", "-qm", "base")
+            sha = gitfixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+            gitfixture.write(repo, ".turingmind/state/%s.json" % key,
+                             json.dumps({"passes": [{"pass_number": 1,
+                                                     "head_sha": sha,
+                                                     "findings": []}]}))
+        return build
+
+    def state_setter(self, needle, literals):
+        body = fence_holding(STATE_REL, needle)
+        return substitute(body, literals) if literals else body
+
+    def test_x2_legacy_state_file(self):
+        migrate = fence_holding(STATE_REL, 'review_archive.py" migrate')
+        for mode, needle, literals, key in self.STATE_SETTERS:
+            with self.subTest(mode=mode):
+                fences = [self.state_setter(needle, literals), migrate]
+                fresh, control, outcome, fresh_files, control_files = (
+                    self.run_pair("x2-" + mode, self.build_state(key), fences))
+                old = ".turingmind/state/%s.json" % key
+                new = ".turingmind/state/format-53/%s.json" % key
+                # The control moves the old file forward and archives it.
+                self.assertIn("state migrated forward to " + new, control[1])
+                self.assertIn(new, control_files)
+                self.assertNotIn(old, control_files)
+                # Fresh: both blocks exit 0, nothing is moved, nothing said.
+                self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
+                self.assertEqual(fresh[1][1], "")
+                self.assertIn(old, fresh_files)
+                self.assertNotIn(new, fresh_files)
+                self.assertEqual(outcome, "wrong-file")
+
+    def test_x3_state_file(self):
+        readers = [
+            fence_holding(STATE_REL, 'review_archive.py" migrate'),
+            substitute(fence_holding(STATE_REL, "last-head-sha"),
+                       [('"$FINALIZE_MODE"', '"0"')]),
+            fence_holding(STATE_REL, 'carry_state.py" decided'),
+            fence_holding(STATE_REL, 'carry_state.py" deferred'),
+        ]
+        for mode, needle, literals, key in self.STATE_SETTERS:
+            with self.subTest(mode=mode):
+                fences = [self.state_setter(needle, literals)] + readers
+                fresh, control, outcome, _, _ = self.run_pair(
+                    "x3-" + mode, self.build_state(key), fences)
+                sha = gitfixture.git(
+                    os.path.join(self.tmp, "x3-" + mode, "control", "repo"),
+                    "rev-parse", "HEAD").stdout.strip()
+                # The control carries the review: it reads the last pass and
+                # the decided and deferred lists.
+                self.assertIn("LAST_REVIEWED_SHA=%s\n[]\n[]\n" % sha,
+                              control[1])
+                # Fresh: each block that reads the state file halts.
+                self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 1, 1, 1])
+                self.assertIn("last-pass head_sha is not a commit sha",
+                              fresh[2][2])
+                self.assertIn("carry_state.py decided failed", fresh[3][2])
+                self.assertIn("carry_state.py deferred failed", fresh[4][2])
+                self.assertEqual(outcome, "stop")
+
+
+# --------------------------------------------------------------------------- #
 # This module stays stdlib only.
 # --------------------------------------------------------------------------- #
 class TestImportSet(unittest.TestCase):
-    ALLOWED = {"ast", "importlib", "os", "re", "unittest"}
+    # gitfixture is the repo's own stdlib-only temp-repo helper.
+    ALLOWED = {"ast", "importlib", "json", "os", "re", "shutil",
+               "subprocess", "sys", "tempfile", "unittest", "gitfixture"}
 
     def test_imports_are_stdlib_only(self):
         with open(os.path.abspath(__file__), encoding="utf-8") as fh:
