@@ -40,6 +40,52 @@ BASH_FENCES_TOTAL_AT_PIN = 42
 WRONG_RULE_TOTAL_AT_PIN = 18
 WRONG_RULE_PATTERN = r"^```bash$"
 
+# 2.14.1 totals and file list: verified at dd8e4ab on 2026-11-14 by
+# step_count.py and the two independent fence recounts below.
+INLINE_COMMANDS_AT_PIN = 5
+WRITE_TOOL_WRITES_AT_PIN = 7
+CARRIED_PASTE_SITES_AT_PIN = 38
+MODEL_RUN_STEPS_AT_PIN = 92
+PRINTED_LITERALS_AT_PIN = 11
+FINALIZE_FILES_AT_PIN = [
+    "commands/review.md",
+    "phases/shared/00-contract.md",
+    "phases/shared/01-bootstrap.md",
+    "phases/review/00-scope.md",
+    "phases/review/05-state.md",
+    "phases/review/06-config.md",
+    "phases/shared/90-finalize.md",
+]
+# footprint.py --rev dd8e4ab --json, mode finalize, read 2026-11-14.
+FOOTPRINT_FINALIZE_BYTES_AT_PIN = 136114
+FOOTPRINT_FINALIZE_FILES_AT_PIN = 7
+
+# Hand classification at dd8e4ab (CRITERION.md holds the tables).
+# Lines naming the Write tool in the seven files: all in 90-finalize.md,
+# lines 22, 55, 169, 184, 198, 243 and 301; every one instructs a write.
+WRITE_INSTRUCTION_LINES = [22, 55, 169, 184, 198, 243, 301]
+# Candidate inline spans: all in 90-finalize.md, lines 180, 184, 243, 271
+# and 272; every one instructs a run.
+INLINE_INSTRUCTION_LINES = [180, 184, 243, 271, 272]
+RM_SPAN = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+
+RECORD_PATH = os.path.abspath(
+    os.path.join(HERE, "..", "baseline", "steps-v2.14.1.json"))
+CRITERION_PATH = os.path.abspath(os.path.join(HERE, "..", "CRITERION.md"))
+
+SITUATION_IDS = ("clean-close", "card-first", "one-rebuild", "refused-close",
+                 "fresh-shell-restart")
+CRITERION_HEADINGS = (
+    "## The rule in one paragraph",
+    "## Baseline numbers (2.14.1)",
+    "## Counting rule",
+    "## Maintenance added",
+    "## If neither count drops",
+    "## Comparison workload",
+    '## What "same behaviour" means',
+    "## Usage and cost",
+)
+
 # test_finalize_card.bash_fences, copied character for character.
 _HOUSE_FENCE_RE = r"```bash\n(.*?)\n[ \t]*```"
 _PLAIN_FENCE_LINE = re.compile(r"^\s*`{3,4}bash$")
@@ -377,6 +423,234 @@ class TestMutants(unittest.TestCase):
         self.assertEqual(total, line_count)
         self.assertNotIn("BLOBFILE", printed)
         self.assertFalse(pinned_holds)
+
+
+class TestClassification(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.texts = {rel: _git_show(rel) for rel in FINALIZE_FILES_AT_PIN}
+
+    def _texts(self):
+        # Read here too, so a lone run under a mutant (no class fixture) works.
+        if not hasattr(self, "texts"):
+            self.texts = {rel: _git_show(rel) for rel in FINALIZE_FILES_AT_PIN}
+        return self.texts
+
+    def test_write_phrases_count_exactly_the_instruction_lines(self):
+        texts = self._texts()
+        total = sum(step_count.count_text(t)["write_tool_writes"]
+                    for t in texts.values())
+        self.assertEqual(total, WRITE_TOOL_WRITES_AT_PIN)
+        self.assertEqual(total, len(WRITE_INSTRUCTION_LINES))
+        hits = []
+        mentions = []
+        for rel, text in texts.items():
+            for n, line in enumerate(text.splitlines(), 1):
+                if any(p in line for p in step_count.WRITE_PHRASES):
+                    hits.append((rel, n))
+                if "Write tool" in line or "Use Write" in line:
+                    mentions.append((rel, n))
+        want = [(FINALIZE_MD, n) for n in WRITE_INSTRUCTION_LINES]
+        self.assertEqual(hits, want)
+        # Every line naming the Write tool was classified "instructs a write".
+        self.assertEqual(mentions, want)
+
+    def test_inline_commands_count_exactly_the_instruction_spans(self):
+        texts = self._texts()
+        total = sum(step_count.count_text(t)["inline_commands"]
+                    for t in texts.values())
+        self.assertEqual(total, INLINE_COMMANDS_AT_PIN)
+        self.assertEqual(total, len(INLINE_INSTRUCTION_LINES))
+        found = []
+        for rel, text in texts.items():
+            lines = text.splitlines()
+            for line, span, before in step_count.inline_candidates(text):
+                counted = any(before.endswith(l) for l in step_count.INLINE_RUN_LEADS)
+                found.append((rel, lines.index(line) + 1, counted))
+        want = [(FINALIZE_MD, n, True) for n in INLINE_INSTRUCTION_LINES]
+        self.assertEqual(found, want)
+
+    def test_rm_instruction_is_counted(self):
+        text = self._texts()[FINALIZE_MD]
+        lines = text.splitlines()
+        counted = [(lines.index(line) + 1, span)
+                   for line, span, before in step_count.inline_candidates(text)
+                   if any(before.endswith(l) for l in step_count.INLINE_RUN_LEADS)]
+        self.assertIn((272, RM_SPAN), counted)
+
+    def test_mutant_lead_list_back_to_run_only(self):
+        name = "test_inline_commands_count_exactly_the_instruction_spans"
+        self.assertTrue(_passes(TestClassification, name))
+        with mock.patch.object(step_count, "INLINE_RUN_LEADS", ("run ",)):
+            self.assertFalse(_passes(TestClassification, name))
+
+    def test_mutant_write_phrases_back_to_one(self):
+        name = "test_write_phrases_count_exactly_the_instruction_lines"
+        self.assertTrue(_passes(TestClassification, name))
+        with mock.patch.object(step_count, "WRITE_PHRASES", ("with the Write tool",)):
+            self.assertFalse(_passes(TestClassification, name))
+
+
+def _path_list_problems(record):
+    paths = [row["path"] for row in record["files"]]
+    if paths != FINALIZE_FILES_AT_PIN:
+        return ["record path list differs: %r" % paths]
+    return []
+
+
+class TestRecord(unittest.TestCase):
+    def _load(self):
+        with open(RECORD_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _tampered(self, record):
+        self.assertNotEqual(record, self._load())
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "steps.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(step_count.dump_json(record))
+        return path
+
+    def test_record_shape_and_pins(self):
+        rec = self._load()
+        self.assertEqual(rec["rev"], BASELINE_COMMIT)
+        self.assertEqual(rec["rule_version"], step_count.RULE_VERSION)
+        t = rec["totals"]
+        self.assertEqual(t["bash_fences"], BASH_FENCES_TOTAL_AT_PIN)
+        self.assertEqual(t["inline_commands"], INLINE_COMMANDS_AT_PIN)
+        self.assertEqual(t["write_tool_writes"], WRITE_TOOL_WRITES_AT_PIN)
+        self.assertEqual(t["carried_paste_sites"], CARRIED_PASTE_SITES_AT_PIN)
+        self.assertEqual(t["model_run_steps"], MODEL_RUN_STEPS_AT_PIN)
+        self.assertEqual(t["printed_literals_distinct"], PRINTED_LITERALS_AT_PIN)
+        self.assertEqual(rec["write_phrases"], list(step_count.WRITE_PHRASES))
+        self.assertEqual(rec["inline_run_leads"], list(step_count.INLINE_RUN_LEADS))
+
+    def test_record_file_is_the_cli_output(self):
+        fresh = step_count.count_path(REPO_ROOT, rev=BASELINE_COMMIT)
+        with open(RECORD_PATH, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), step_count.dump_json(fresh))
+
+    def test_record_path_list(self):
+        self.assertEqual(_path_list_problems(self._load()), [])
+
+    def test_verify_steps_clean(self):
+        self.assertEqual(step_count.verify_steps(REPO_ROOT, RECORD_PATH), [])
+
+    def test_mutant_total_off_by_one(self):
+        rec = self._load()
+        rec["totals"]["model_run_steps"] += 1
+        problems = step_count.verify_steps(REPO_ROOT, self._tampered(rec))
+        self.assertTrue(any("model_run_steps" in p for p in problems), problems)
+
+    def test_mutant_file_fences_off_by_one(self):
+        rec = self._load()
+        rec["files"][3]["bash_fences"] += 1
+        problems = step_count.verify_steps(REPO_ROOT, self._tampered(rec))
+        self.assertTrue(any("phases/review/00-scope.md" in p and "bash_fences" in p
+                            for p in problems), problems)
+
+    def test_mutant_row_removed(self):
+        rec = self._load()
+        del rec["files"][-1]
+        self._tampered(rec)
+        self.assertNotEqual(_path_list_problems(rec), [])
+
+    def test_baseline_does_not_follow_live_mode_paths(self):
+        if PLUGIN_SCRIPTS not in sys.path:
+            sys.path.insert(0, PLUGIN_SCRIPTS)
+        import footprint
+        orig = list(footprint.MODE_PATHS["finalize"])
+        shorter = orig[:-1]
+        with mock.patch.dict(footprint.MODE_PATHS, {"finalize": shorter}):
+            self.assertLess(len(footprint.MODE_PATHS["finalize"]), len(orig))
+            self.assertEqual(step_count.verify_steps(REPO_ROOT, RECORD_PATH), [])
+            # count_path does read the live list, so the patch really bites.
+            live = step_count.count_path(REPO_ROOT, rev=BASELINE_COMMIT)
+            self.assertEqual(len(live["files"]), len(shorter))
+
+
+def criterion_problems(doc, record, footprint_bytes):
+    """Problems with CRITERION.md against the record and the byte figure."""
+    problems = []
+    lines = doc.splitlines()
+    for heading in CRITERION_HEADINGS:
+        if heading not in lines:
+            problems.append("missing heading: " + heading)
+    for sid in SITUATION_IDS:
+        if "`%s`" % sid not in doc:
+            problems.append("missing situation: " + sid)
+    t = record["totals"]
+    row = ("| Model-run mechanical steps | %d | %d bash blocks, %d inline commands, "
+           "%d files written, %d values copied |" % (
+               t["model_run_steps"], t["bash_fences"], t["inline_commands"],
+               t["write_tool_writes"], t["carried_paste_sites"]))
+    if row not in doc:
+        problems.append("step row does not match the record")
+    if "and %d model-run mechanical steps" % t["model_run_steps"] not in doc:
+        problems.append("headline steps do not match the record")
+    flat = " ".join(doc.split())
+    total_line = "= %d + %d + %d + %d = %d." % (
+        t["bash_fences"], t["inline_commands"], t["write_tool_writes"],
+        t["carried_paste_sites"], t["model_run_steps"])
+    if total_line not in flat:
+        problems.append("step sum line does not match the record")
+    byte_row = "| Instructions loaded (bytes) | {:,} | {} files |".format(
+        footprint_bytes, FOOTPRINT_FINALIZE_FILES_AT_PIN)
+    if byte_row not in doc:
+        problems.append("byte row does not match the footprint figure")
+    if re.search(r"\$[0-9]", doc):
+        problems.append("dollar amount present")
+    if "%" in doc:
+        problems.append("percent sign present")
+    return problems
+
+
+class TestCriterionDoc(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with open(CRITERION_PATH, encoding="utf-8") as fh:
+            cls.doc = fh.read()
+        with open(RECORD_PATH, encoding="utf-8") as fh:
+            cls.record = json.load(fh)
+
+    def _check(self, doc):
+        return criterion_problems(doc, self.record, FOOTPRINT_FINALIZE_BYTES_AT_PIN)
+
+    def test_doc_matches_record(self):
+        self.assertEqual(self._check(self.doc), [])
+
+    def test_footprint_figure_at_pin(self):
+        if PLUGIN_SCRIPTS not in sys.path:
+            sys.path.insert(0, PLUGIN_SCRIPTS)
+        import footprint
+        root = os.path.join(REPO_ROOT, "plugins", "vibe-check")
+        stats = footprint.path_stats(root, "finalize", rev=BASELINE_COMMIT)
+        self.assertEqual(stats["bytes"], FOOTPRINT_FINALIZE_BYTES_AT_PIN)
+        self.assertEqual(len(stats["files"]), FOOTPRINT_FINALIZE_FILES_AT_PIN)
+        self.assertEqual(stats["missing"], [])
+
+    def test_pass_rule_wording(self):
+        self.assertIn("at least one drops and neither grows", self.doc)
+        self.assertIn("There is no percentage target", self.doc)
+
+    def test_mutant_total_plus_one(self):
+        total = self.record["totals"]["model_run_steps"]
+        old = "| Model-run mechanical steps | %d |" % total
+        self.assertIn(old, self.doc)
+        mutant = self.doc.replace(old, "| Model-run mechanical steps | %d |" % (total + 1))
+        self.assertNotEqual(mutant, self.doc)
+        self.assertNotEqual(self._check(mutant), [])
+
+    def test_mutant_missing_situation(self):
+        self.assertIn("`one-rebuild`", self.doc)
+        mutant = self.doc.replace("`one-rebuild`", "`one-retry`")
+        self.assertNotEqual(self._check(mutant), [])
+
+    def test_mutant_heading_renamed(self):
+        self.assertIn("## Counting rule\n", self.doc)
+        mutant = self.doc.replace("## Counting rule\n", "## Counting\n")
+        self.assertNotEqual(self._check(mutant), [])
 
 
 class TestCli(unittest.TestCase):

@@ -38,6 +38,10 @@ CLI:
 
     python3 docs/design/lean-v2.15/tools/step_count.py [--repo <root>]
         (--rev <commit> | --root <plugin root>) [--mode finalize] [--json]
+        [--out <path>]
+
+`verify_steps(repo, record_path)` recounts a committed record over the file
+list stored in the record itself, at the record's revision.
 
 Exit codes: 0 ok, 2 unusable input (unknown revision, a missing file, an
 unknown mode). Nothing is printed on stdout when the exit is 2.
@@ -63,12 +67,17 @@ PLUGIN_SCRIPTS_REL = os.path.join("plugins", "vibe-check", "scripts")
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 
-# Phrases that instruct the model to write a file with the Write tool.
-WRITE_PHRASES = ("with the Write tool",)
+# Phrases that instruct the model to write a file with the Write tool. At
+# BASELINE_COMMIT every Finalize-path line naming the Write tool instructs a
+# write (six "with the Write tool", one "Use Write to create"); CRITERION.md
+# holds the line-by-line classification.
+WRITE_PHRASES = ("with the Write tool", "Use Write to create")
 
 # Text that, directly before an inline code span, makes it an instruction to
-# run that command (as opposed to a mention of it).
-INLINE_RUN_LEADS = ("run ",)
+# run that command (as opposed to a mention of it). At BASELINE_COMMIT the five
+# candidate spans all instruct a run, led by "run " (two), "Run " (one), "→ "
+# (one) and "file-to-file with " (one); CRITERION.md holds the classification.
+INLINE_RUN_LEADS = ("run ", "Run ", "→ ", "file-to-file with ")
 
 # The one test for a bash fence's opening line.
 FENCE_OPEN = re.compile(r"^[ \t]*`{3,4}bash$")
@@ -255,6 +264,40 @@ def count_path(repo, rev=None, root=None, mode="finalize"):
                        root=root, mode=mode)
 
 
+def verify_steps(repo, record_path):
+    """Recount a committed record over its own file list at its own revision.
+
+    Never imports `footprint`: the baseline is tied to the files named in the
+    record, so a later change to `MODE_PATHS` cannot move it. Returns `[]` when
+    the recount equals the record, else one line per differing file or total.
+    """
+    try:
+        with open(record_path, encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return ["record unreadable: %s" % exc]
+    try:
+        files = [row["path"] for row in record["files"]]
+        fresh = count_files(repo, record["rev"], files, mode=record.get("mode", "finalize"))
+    except (KeyError, TypeError) as exc:
+        return ["record malformed: %s" % exc]
+    except StepCountError as exc:
+        return ["recount failed: %s" % exc]
+    problems = []
+    for want, got in zip(record["files"], fresh["files"]):
+        diffs = sorted(k for k in set(want) | set(got) if want.get(k) != got.get(k))
+        if diffs:
+            problems.append("file differs: %s (%s)" % (want["path"], ", ".join(diffs)))
+    for key in sorted(set(record.get("totals", {})) | set(fresh["totals"])):
+        if record.get("totals", {}).get(key) != fresh["totals"].get(key):
+            problems.append("total differs: %s (record %r, recount %r)" % (
+                key, record.get("totals", {}).get(key), fresh["totals"].get(key)))
+    for key in ("rule_version", "write_phrases", "inline_run_leads", "kind"):
+        if record.get(key) != fresh[key]:
+            problems.append("rule differs: %s" % key)
+    return problems
+
+
 def _render(record):
     cols = ("bash_fences", "inline_commands", "write_tool_writes",
             "carried_paste_sites", "model_run_steps")
@@ -281,6 +324,7 @@ def build_parser():
     src.add_argument("--root")
     p.add_argument("--mode", default="finalize")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--out", help="write the JSON record to this path")
     return p
 
 
@@ -295,6 +339,14 @@ def main(argv=None):
     except StepCountError as exc:
         sys.stderr.write("step_count.py: %s\n" % exc)
         return 2
+    if args.out:
+        try:
+            with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(dump_json(record))
+        except OSError as exc:
+            sys.stderr.write("step_count.py: cannot write %s: %s\n" % (args.out, exc))
+            return 2
+        return 0
     sys.stdout.write(dump_json(record) if args.json else _render(record))
     return 0
 
