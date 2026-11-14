@@ -63,6 +63,7 @@ cannot run as documented, e.g. as root).
 """
 
 import argparse
+import getpass
 import hashlib
 import json
 import os
@@ -95,6 +96,8 @@ NORMALISATION = (
     "A ten-digit epoch stamp starting with 1 (optionally with a fraction) "
     "becomes <TIME>.",
     "Standard error is recorded only as present or absent, never as text.",
+    "files_written and files_archived are sorted after normalising, and the "
+    "mktemp scratch files under <WORK>/scratch are not listed in them.",
 )
 
 # One output schema for all five situations, fixed before any driver exists.
@@ -825,17 +828,156 @@ def capture_situation(repo, situation_id, commit=BASELINE_COMMIT,
     return record
 
 
-def capture_record(repo, situation_ids, commit=BASELINE_COMMIT):
-    situations = {}
-    for sid in situation_ids:
-        outputs = capture_one(repo, sid, commit)
-        situations[sid] = {"inputs": SITUATIONS[sid]["inputs"],
-                           "outputs": outputs,
-                           "sha256": canonical_sha256(outputs)}
-    return {"schema": SCHEMA, "commit": commit,
-            "normalisation": list(NORMALISATION), "situations": situations}
+def _driver_for(commit, driver):
+    if driver is not None:
+        return driver
+    driver_cls = DRIVERS.get(commit)
+    if driver_cls is None:
+        raise UsageError("no driver walks commit %s" % commit)
+    return driver_cls()
 
 
+def capture(repo, commit=BASELINE_COMMIT, driver=None, tmp_root=None):
+    """The full record: all five situations, in order, walked at `commit`,
+    with the normalisation rules and the canonical fingerprint of the
+    situations object."""
+    driver = _driver_for(commit, driver)
+    situations = {sid: capture_situation(repo, sid, commit, driver, tmp_root)
+                  for sid in SITUATIONS}
+    return {"schema": SCHEMA, "baseline_commit": commit,
+            "driver": getattr(driver, "NAME", type(driver).__name__),
+            "normalisation": list(NORMALISATION),
+            "situations": situations,
+            "sha256": canonical_sha256(situations)}
+
+
+def _sorted_obj(obj):
+    if isinstance(obj, dict):
+        return {k: _sorted_obj(obj[k]) for k in sorted(obj)}
+    if isinstance(obj, list):
+        return [_sorted_obj(v) for v in obj]
+    return obj
+
+
+def record_text(record):
+    """The record as committed: two-space indent, keys sorted everywhere
+    except the situations, which keep their D-07 order, and a trailing
+    newline. The fingerprint is over canonical JSON, so this layout does not
+    change it."""
+    out = _sorted_obj(record)
+    situations = record.get("situations")
+    if isinstance(situations, dict):
+        out["situations"] = {sid: _sorted_obj(situations[sid])
+                             for sid in situations}
+    return json.dumps(out, indent=2, ensure_ascii=False) + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# Machine paths
+# --------------------------------------------------------------------------- #
+MACHINE_PATH_MARKERS = ("/Users/", "/private/", "/tmp/", "/home/")
+
+
+def current_account():
+    """The account name this process runs as, or None."""
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError, ImportError):
+        return None
+
+
+def machine_path_problems(text, account=None):
+    """One named problem per machine-specific marker in `text`: a home or
+    temp path prefix, or the account name (when longer than three
+    characters, as a whole word). `account` defaults to the current
+    account; pass "" to skip the account check."""
+    problems = ["machine path: %r found" % marker
+                for marker in MACHINE_PATH_MARKERS if marker in text]
+    if account is None:
+        account = current_account() or ""
+    if len(account) > 3 and re.search(
+            r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(account), text):
+        problems.append("the account name of this machine found")
+    return problems
+
+
+# --------------------------------------------------------------------------- #
+# Verify
+# --------------------------------------------------------------------------- #
+def _differences(want, got, path=""):
+    """Paths (like `steps[3].stdout`) where `got` differs from `want`."""
+    if isinstance(want, dict) and isinstance(got, dict):
+        found = []
+        for key in sorted(set(want) | set(got)):
+            sub = "%s.%s" % (path, key) if path else key
+            if key not in got:
+                found.append(sub + " missing")
+            elif key not in want:
+                found.append(sub + " added")
+            else:
+                found += _differences(want[key], got[key], sub)
+        return found
+    if isinstance(want, list) and isinstance(got, list):
+        found = []
+        if len(want) != len(got):
+            found.append("%s has %d entries, not %d" % (path or "<root>",
+                                                        len(got), len(want)))
+        for i, (w, g) in enumerate(zip(want, got)):
+            found += _differences(w, g, "%s[%d]" % (path, i))
+        return found
+    return [] if want == got else [path or "<root>"]
+
+
+def verify(repo, record_path, driver=None, fresh=None):
+    """Problems with the record at `record_path` against a fresh capture at
+    the pinned commit (`fresh`, when given, is used instead of capturing
+    again). [] when they match; otherwise one line per difference, each
+    starting with the situation id, or with `sha256`, `record` or the top-
+    level key it concerns. Raises UsageError for an unreadable record."""
+    try:
+        with open(record_path, encoding="utf-8") as fh:
+            text = fh.read()
+        record = json.loads(text)
+    except (OSError, ValueError) as exc:
+        raise UsageError("cannot read the record %s: %s" % (record_path, exc))
+    if not isinstance(record, dict) or not isinstance(
+            record.get("situations"), dict):
+        raise UsageError("%s holds no situations object" % record_path)
+    if fresh is None:
+        fresh = capture(repo, BASELINE_COMMIT, driver)
+    problems = ["record: " + p for p in machine_path_problems(text)]
+    for key in ("schema", "baseline_commit", "driver", "normalisation"):
+        if record.get(key) != fresh[key]:
+            problems.append("%s: %r, the fresh capture has %r"
+                            % (key, record.get(key), fresh[key]))
+    recorded = record["situations"]
+    if record.get("sha256") != canonical_sha256(recorded):
+        problems.append("sha256: the stored fingerprint does not match the "
+                        "recorded situations")
+    sidecar = record_path + ".sha256"
+    if os.path.exists(sidecar):
+        with open(sidecar, encoding="utf-8") as fh:
+            if fh.read().strip() != record.get("sha256"):
+                problems.append("sha256: %s does not hold the record's "
+                                "fingerprint" % os.path.basename(sidecar))
+    for sid in SITUATIONS:
+        if sid not in recorded:
+            problems.append("%s: missing from the record" % sid)
+            continue
+        for where in _differences(fresh["situations"][sid], recorded[sid]):
+            problems.append("%s: %s differs" % (sid, where))
+    for sid in recorded:
+        if sid not in SITUATIONS:
+            problems.append("%s: not a known situation" % sid)
+    if (set(recorded) == set(SITUATIONS)
+            and list(recorded) != list(SITUATIONS)):
+        problems.append("situations: not in the D-07 order")
+    return problems
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
 def _parse(argv):
     ap = argparse.ArgumentParser(prog="finalize_capture.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -843,8 +985,39 @@ def _parse(argv):
     cap.add_argument("--repo", required=True)
     cap.add_argument("--out", required=True)
     cap.add_argument("--commit", default=BASELINE_COMMIT)
-    cap.add_argument("--situation", action="append", choices=list(SITUATIONS))
+    ver = sub.add_parser("verify")
+    ver.add_argument("--repo", required=True)
+    ver.add_argument("--record", required=True)
     return ap.parse_args(argv)
+
+
+def _capture_cmd(args):
+    record = capture(args.repo, args.commit)
+    text = record_text(record)
+    problems = machine_path_problems(text)
+    if problems:
+        print("RECORD HOLDS A MACHINE PATH — STOPPING", file=sys.stderr)
+        for line in problems:
+            print("  " + line, file=sys.stderr)
+        return 1
+    with open(args.out, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    with open(args.out + ".sha256", "w", encoding="utf-8") as fh:
+        fh.write(record["sha256"] + "\n")
+    print("wrote %s (%d situations, sha256 %s)"
+          % (args.out, len(record["situations"]), record["sha256"]))
+    return 0
+
+
+def _verify_cmd(args):
+    problems = verify(args.repo, args.record)
+    if problems:
+        print("FINALIZE BASELINE DIFFERS — STOPPING")
+        for line in problems:
+            print("  " + line)
+        return 1
+    print("finalize baseline matches (%d situations)" % len(SITUATIONS))
+    return 0
 
 
 def main(argv=None):
@@ -853,16 +1026,12 @@ def main(argv=None):
     except SystemExit as exc:
         return 2 if exc.code else 0
     try:
-        record = capture_record(args.repo, args.situation or list(SITUATIONS),
-                                args.commit)
+        if args.cmd == "capture":
+            return _capture_cmd(args)
+        return _verify_cmd(args)
     except UsageError as exc:
         print("finalize_capture: %s — STOPPING" % exc, file=sys.stderr)
         return 2
-    with open(args.out, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, sort_keys=True, indent=1,
-                            ensure_ascii=False) + "\n")
-    print("wrote %s (%d situation(s))" % (args.out, len(record["situations"])))
-    return 0
 
 
 if __name__ == "__main__":
