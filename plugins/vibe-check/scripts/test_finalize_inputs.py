@@ -827,7 +827,8 @@ class TestResultMutants(ResultCase):
         self.assertNotEqual(code, finalize_inputs.EXIT_REPORT)
 
     def test_mutant_report_on_non_write_trips(self):
-        mod = self.mutant('if action == "write":', "if True:")
+        mod = self.mutant('    if action == "write":\n        source = ',
+                          '    if True:\n        source = ')
         code, result = mod.build_result(load_six_row(), {}, INTERACTIVE)
         self.assertEqual(code, 0)
         self.assertIsNotNone(result["report"])

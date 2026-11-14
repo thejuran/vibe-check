@@ -52,10 +52,31 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import batch_card  # noqa: E402  (the report data, decisions_report)
+import carry_state  # noqa: E402  (the counts, finalize_counts)
+import finalize_gate  # noqa: E402  (the gate decision)
 import guard  # noqa: E402  (the ONE containment source)
 from fixcommit import PATH_RE  # noqa: E402  (pre-filter constant only)
 
 GIT_TIMEOUT = 60
+
+EXIT_OK = 0
+EXIT_USAGE = 2
+EXIT_STATE = 3
+EXIT_GATE = 4
+EXIT_REPORT = 5
+
+# What the model does next, one value per Finalize branch.
+NEXT_ACTIONS = ("write-review-md", "finalize-card", "stop-fallback-cw",
+                "stop-fallback-nv", "stop-fallback-medium", "stop-no-state",
+                "stop-refused")
+
+# The eight `carry_state.py finalize-counts` keys, in the order
+# `phases/shared/90-finalize.md` lists them.
+COUNT_KEYS = ("outstanding_cw", "unacknowledged_medium", "undecided_nv",
+              "outstanding_cw_hashes", "unacknowledged_medium_hashes",
+              "undecided_nv_hashes", "verified_obsolete_hashes",
+              "confirmed_fix_awaiting_recheck_hashes")
 
 
 def _git(args, cwd):
@@ -134,3 +155,73 @@ def head_blobs(state, cwd=None):
         return _head_blobs(state, cwd)
     except (KeyError, IndexError, TypeError, AttributeError):
         return {}
+
+
+# --------------------------------------------------------------------------- #
+# The result: counts, gate decision, next action and report bundle.
+# --------------------------------------------------------------------------- #
+def next_action(action, counts):
+    """The next action for a gate `action` and the counts it was decided on.
+    Pure; always one of NEXT_ACTIONS."""
+    if action == "write":
+        return "write-review-md"
+    if action in ("outstanding-to-phase-5", "medium-ack-loop"):
+        return "finalize-card"
+    if action == "fallback":
+        if counts["outstanding_cw"] > 0:
+            return "stop-fallback-cw"
+        if counts["undecided_nv"] > 0:
+            return "stop-fallback-nv"
+        return "stop-fallback-medium"
+    if action == "error":
+        return "stop-no-state"
+    return "stop-refused"
+
+
+def _no_state_counts():
+    """The counts with no state file: the three counts 0, every list empty."""
+    return {k: (0 if i < 3 else []) for i, k in enumerate(COUNT_KEYS)}
+
+
+def build_result(state, blobs, switches, report_source=None):
+    """(exit code, result or None) for a parsed `state` (None = no state file),
+    the HEAD fingerprint map `blobs` and the three boolean `switches`.
+
+    The counts come from carry_state.finalize_counts, the decision from
+    finalize_gate.run on the seven flags, and on `write` only the report from
+    batch_card.decisions_report of the state `report_source()` returns (the
+    state given here when no source is passed). Nothing is re-derived here."""
+    if state is None:
+        counts = _no_state_counts()
+    else:
+        counts = carry_state.finalize_counts(state, blobs)
+        if counts is None:
+            return EXIT_STATE, None
+    flags = {
+        "state_file_present": state is not None,
+        "outstanding_cw": int(counts["outstanding_cw"]),
+        "unacknowledged_medium": int(counts["unacknowledged_medium"]),
+        "undecided_nv": int(counts["undecided_nv"]),
+        "noninteractive": bool(switches["noninteractive"]),
+        "pr_mode": bool(switches["pr_mode"]),
+        "range_mode": bool(switches["range_mode"]),
+    }
+    try:
+        gate = finalize_gate.run({"flags": flags})
+        action = gate["action"]
+        reason = gate["reason"]
+    except Exception:  # noqa: BLE001  (any gate failure is the gate stop)
+        return EXIT_GATE, None
+    if action not in finalize_gate.ACTIONS:
+        return EXIT_GATE, None
+    report = None
+    if action == "write":
+        source = state if report_source is None else report_source()
+        if source is not None:
+            report = batch_card.decisions_report(source)
+        if report is None:
+            return EXIT_REPORT, None
+    return EXIT_OK, {"action": action, "reason": reason,
+                     "next": next_action(action, counts),
+                     "counts": {k: counts[k] for k in COUNT_KEYS},
+                     "report": report}
