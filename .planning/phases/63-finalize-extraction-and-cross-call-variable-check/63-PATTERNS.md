@@ -6,7 +6,7 @@
 
 All paths below are relative to `/Users/julianamacbook/turingmind-code-review`. Line numbers are from the tree at `ff786c0` (branch `feat/v2.15-phase-63`), where `plugins/vibe-check/phases/` is byte-identical to `dd8e4ab` (v2.14.1).
 
-> **Superseded in one respect by D-18 (owner, 2026-11-14).** Where this map says to reuse the gate fence's `.err` convention for the new helper call ("Helper fence with diagnostics to `.err`", the `<BLOBFILE>.err` sentence, "the fence redirects stderr to `<BLOBFILE>.err`"), do not: the new fence does not redirect the helper's stderr, the helper writes only the 2.14.1 counting line on a counting-stage refusal and nothing otherwise, and the `.err` sentence is not carried over. Plans 63-02 and 63-06 carry the exact contract.
+> **Superseded in one respect by D-18 (owner, 2026-11-14).** Where this map says to reuse the gate fence's `.err` convention for the new helper call ("Helper fence with diagnostics to `.err`", the `<BLOBFILE>.err` sentence, "the fence redirects stderr to `<BLOBFILE>.err`"), do not: the new fence does not redirect the helper's stderr, the helper writes only the 2.14.1 line on a counting-stage or report-stage refusal and nothing otherwise, and the `.err` sentence is not carried over. Plans 63-02 and 63-06 carry the exact contract.
 
 ## File Classification
 

@@ -4,7 +4,7 @@
 **Domain:** Moving model-run shell steps into a stdlib Python helper (Finalize gate inputs), offline behaviour equivalence, and a static lint over bash fences in Markdown instruction files
 **Confidence:** HIGH for the codebase facts (all read or run in this session); MEDIUM for the projected counts (computed with the real counting rule on a proposed design, not on a written candidate)
 
-> **Superseded in one respect by D-18 (owner, 2026-11-14).** Wherever this file says the helper's stderr is sent to `<BLOBFILE>.err` (Project Constraints, the architecture diagram, Pattern 2, Pitfall 5 "How to avoid", "The candidate fence", Security Domain V7), read instead: the fence does not redirect the helper's stderr. On a counting-stage refusal the helper writes exactly the one line the 2.14.1 counting command printed, so the owner sees the same line above the same sentence; on every other exit it writes nothing. No traceback and no path, hash or title is ever written. Plans 63-02 and 63-06 carry the exact contract.
+> **Superseded in one respect by D-18 (owner, 2026-11-14).** Wherever this file says the helper's stderr is sent to `<BLOBFILE>.err` (Project Constraints, the architecture diagram, Pattern 2, Pitfall 5 "How to avoid", "The candidate fence", Security Domain V7), read instead: the fence does not redirect the helper's stderr. On a counting-stage refusal the helper writes exactly the one line the 2.14.1 counting command printed, and on a report-stage refusal exactly the line the 2.14.1 report command printed, so the owner sees the same line above the same sentence; on every other exit it writes nothing. No traceback and no path, hash or title is ever written. Plans 63-02 and 63-06 carry the exact contract.
 
 ## Summary
 
