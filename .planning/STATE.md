@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "planning — v2.15 Lean orchestration started; defining requirements and roadmap"
-stopped_at: "v2.15 activated 2026-11-13 via /bm:new-milestone (research skipped); requirements and roadmap being defined; no code changed"
-last_updated: "2026-11-14T03:17:48.260Z"
-last_activity: 2026-11-13 -- milestone v2.15 Lean orchestration started (branch feat/v2.15-phase-62)
+status: "ready — v2.15 roadmap approved (Phases 62–65); Phase 62 not started"
+stopped_at: "v2.15 roadmap written 2026-11-13: Phases 62–65, 17/17 requirements mapped; owner approved 2026-11-13; no code changed"
+last_updated: "2026-11-14T03:24:01Z"
+last_activity: 2026-11-13 -- v2.15 roadmap written (Phases 62–65; 17/17 requirements mapped)
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,19 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.15 Lean orchestration — defining requirements and roadmap
+**Current focus:** v2.15 Lean orchestration — roadmap approved (Phases 62–65); Phase 62 (baseline and continuous test run) is next
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 62 (baseline-and-continuous-test-run) — NOT STARTED
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-13 — Milestone v2.15 started
+Status: Ready — v2.15 roadmap approved (Phases 62–65); Phase 62 not started
+Last activity: 2026-11-13 — v2.15 roadmap written (Phases 62–65; 17/17 requirements mapped)
 
 ## Operator Next Steps
 
 - Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
-- Approve the v2.15 requirements and roadmap, then /bm:discuss-phase 62
+- Approve the v2.15 roadmap (Phases 62–65; 17/17 requirements mapped)
+- Then /bm:discuss-phase 62 on branch feat/v2.15-phase-62
 
 ## Deferred Items
 
@@ -55,7 +56,7 @@ Carried from earlier:
 | Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
 | Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
-| Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
+| Scheduled | 999.12 cost visibility feasibility | v2.15 Phase 62 (BASE-01..04); bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
@@ -72,13 +73,15 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.14 Decision reliability active, Phases 59–61 (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration active, Phases 62–65 (62 baseline 999.12 + continuous test run, 63 Finalize extraction + cross-call variable check, 64 optional extension, 65 release gate) → conditional Reviewer efficiency; 999.31 waits until v2.15 ships; 999.26 deferred. v2.14 archived: [roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-13: v2.15 roadmap written: Phase 62 Baseline and continuous test run (BASE-01..04, CI-01..02), Phase 63 Finalize extraction and cross-call variable check (FINX-01..05, XVAR-01..02), Phase 64 Optional bounded extension, conditional (EXT-01; a recorded skip satisfies it; activates only after Finalize passes equivalence), Phase 65 Release gate (GATE-04..06). 17/17 mapped. Planning files only; no code changed. Awaiting owner approval; uncommitted. Update: owner approved the roadmap the same day; committed on feat/v2.15-phase-62.
 
 2026-11-13: Activated v2.15 Lean orchestration via /bm:new-milestone (research skipped by owner; scope = the owner-approved roadmap section; equivalence baseline 2.14.1 dd8e4ab). Branch feat/v2.15-phase-62 from main 69117d9. Phases continue from 62.
 

@@ -73,16 +73,33 @@ Scheduled later (ROADMAP.md), not this milestone:
 
 ## Traceability
 
-Which phases cover which requirements. Filled in during roadmap creation.
+Which phases cover which requirements. Filled in during roadmap creation (2026-11-13). EXT-01 is conditional: a recorded skip satisfies it.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| BASE-01 | Phase 62 | Pending |
+| BASE-02 | Phase 62 | Pending |
+| BASE-03 | Phase 62 | Pending |
+| BASE-04 | Phase 62 | Pending |
+| CI-01 | Phase 62 | Pending |
+| CI-02 | Phase 62 | Pending |
+| FINX-01 | Phase 63 | Pending |
+| FINX-02 | Phase 63 | Pending |
+| FINX-03 | Phase 63 | Pending |
+| FINX-04 | Phase 63 | Pending |
+| FINX-05 | Phase 63 | Pending |
+| XVAR-01 | Phase 63 | Pending |
+| XVAR-02 | Phase 63 | Pending |
+| EXT-01 | Phase 64 | Pending |
+| GATE-04 | Phase 65 | Pending |
+| GATE-05 | Phase 65 | Pending |
+| GATE-06 | Phase 65 | Pending |
 
 **Coverage:**
 - v2.15 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-11-13*
-*Last updated: 2026-11-13 after initial definition*
+*Last updated: 2026-11-13 after roadmap creation (traceability filled)*

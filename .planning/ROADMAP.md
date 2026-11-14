@@ -1,6 +1,6 @@
 # Roadmap: vibe-check
 
-Updated 2026-11-13 (owner approved three additions after the codebase remap: a continuous test run and a general cross-call variable check inside Lean orchestration, and backlog 999.31/999.32; no milestone activated). v2.14 Decision reliability shipped as 2.14.0 (PR #7, squash ecc3299, tag v2.14, GitHub release), then 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1, GitHub release) fixing 999.28. Lean orchestration is next and not yet activated, and Reviewer efficiency stays conditional. Each future phase begins by reproducing its failure on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-11-13 (v2.15 Lean orchestration active as of 2026-11-13: Phases 62–65 mapped to its 17 requirements; requirements and roadmap defined, no code changed; Reviewer efficiency stays conditional and is not activated). v2.14 Decision reliability shipped as 2.14.0 (PR #7, squash ecc3299, tag v2.14, GitHub release), then 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1, GitHub release) fixing 999.28. Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
@@ -8,9 +8,9 @@ Updated 2026-11-13 (owner approved three additions after the codebase remap: a c
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
 - ✅ v2.14 Decision reliability -- Phases 59–61 (shipped as 2.14.0; 2.14.1 patch fixed 999.28; known limits 999.23 residuals, 999.26, 999.27, 999.29, 999.30) — [archive](milestones/v2.14-ROADMAP.md) (shipped 2026-10-30)
-- 📋 Lean orchestration -- planned (activates via /bm:new-milestone after 2.14.0 ships)
+- 🚧 v2.15 Lean orchestration -- Phases 62–65 (in progress)
 
-No active milestone: awaiting the next one. Lean orchestration is agreed and starts with `/bm:new-milestone`.
+Active milestone: v2.15 Lean orchestration (Phases 62–65). Reviewer efficiency is scoped below and stays conditional; backlog records remain the evidence ledger.
 
 <details>
 <summary>✅ v2.14 Decision reliability (Phases 59–61) — SHIPPED 2026-10-30</summary>
@@ -23,25 +23,94 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 </details>
 
-## Next milestone: Lean orchestration
+### 🚧 v2.15 Lean orchestration (Phases 62–65, in progress)
+
+- [ ] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
+- [ ] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's input assembly and gate/report handoff run through stdlib helpers with the same gate decisions and reports as 2.14.1, and one general check catches shell variables read across Bash calls
+- [ ] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate)
+- [ ] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars
 
 **Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
 
 **Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behavior delivered by Decision reliability.
 
-**Prerequisite:** Decision reliability has passed its release gate and shipped. This is the agreed second milestone, not active work. Estimated size: medium with Finalize as the initial implementation boundary.
+**Status:** Activated 2026-11-13 as v2.15 via `/bm:new-milestone` (research skipped by the owner; scope is this owner-approved section; requirements BASE, CI, FINX, XVAR, EXT, GATE in REQUIREMENTS.md, 17 mapped). The prerequisite is met: Decision reliability passed its release gate and shipped (2.14.0, then 2.14.1). The equivalence baseline is plugin 2.14.1 (PR #8, squash `dd8e4ab`, tag `v2.14.1`). Estimated size: medium, with Finalize as the initial implementation boundary. Requirements and roadmap are defined; no code has changed.
 
-1. [ ] **P1 — Baseline cost and quality with existing evidence (999.12, bounded feasibility).** Inspect local archives only; identify trustworthy per-run/per-lane model, input/output/cache usage, retries and elapsed time where present. Report missing attribution explicitly; do not reconstruct invented usage or treat subscription usage as a bill. Record current mode-path bytes and actual loaded-file traces separately from token and price estimates. Retain a pinned current-code behavioral baseline and archived replay results before refactoring. **Done when:** a go/no-go note names available fields, the smallest useful report, the intended comparison workload, and the improvement criterion chosen before implementation. If reliable attribution is unavailable, stop accounting work and use clearly labeled footprint/operation counts. No new telemetry service, accounting platform, paid baseline or enforceable-dollar-cap claim.
+**Sequence:** The baseline and the continuous test run come before any extraction (Phase 62); the test run is the standing check behind the later equivalence gate. Finalize is the first and only committed extraction, and the cross-call variable check rides with it (Phase 63). The extension is conditional and may close as a recorded skip (Phase 64). The release gate is last (Phase 65). Finalize alone can satisfy the milestone.
 
-2. [ ] **Continuous test run (owner-approved 2026-11-13).** Add one GitHub Actions workflow that runs the existing offline suite and the stdlib-only check on every push and pull request to `main`. It uses no secrets, no paid runs and no live model calls, and it changes no branch-protection setting. **Done when:** `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red. This is the standing check behind the equivalence gate in item 5; it does not replace the release gates or any live check.
-
-3. [ ] **Finalize extraction first.** Reuse existing stdlib helpers and the single-writer state path to assemble Finalize inputs and perform the gate/report handoff. Return compact structured results and explicit next actions. Keep judgment, owner decisions and reviewer calls in the existing host; remove superseded prose and locks while retaining behavioral invariants and recovery guidance. **Done when:** equivalent inputs produce the same gate decisions and reports as the released Decision reliability baseline; missing, malformed or stale inputs fail visibly; restart/retry works across fresh shells. Compare loaded prose and helper/tool steps on the same paths before and after. Revert the slice if it adds complexity without demonstrable benefit. Also add one general check (owner-approved 2026-11-13) that walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; today only the two repaired 999.25 cases are covered. It needs a mutant, and any phase file it flags is recorded with its repro before being changed. No new orchestration framework, wholesale state rewrite or changed model defaults.
-
-4. [ ] **Optional bounded extension after Finalize proves useful.** Only consider repeated evidence/envelope assembly or deterministic dispatch selection when the first extraction passes equivalence checks and the baseline identifies another worthwhile source of repeated work. Choose at most one additional family during detailed scoping; defer the remainder rather than grow the milestone. **Done when:** the selected slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behavior, with demonstrated footprint/operation savings. Skip this item if the first slice is inconclusive; Finalize alone can satisfy the milestone.
-
-5. [ ] **Release gate — orchestration equivalence and useful savings.** Run the applicable full offline suite, archived replay and mode/recovery integration checks on the exact candidate, comparing against the released reliability baseline. Unexpected behavioral differences block release. **Done when:** safeguards and independent fix verification remain intact and the included extraction demonstrably reduces loaded prose or mechanical work without an unaccounted regression. Report byte/operation savings separately from tokens or dollars; claim billing savings only with comparable usage evidence. Any approved live validation covers changed orchestration paths under the default configuration; offline parity alone does not prove live model quality. Document any unmeasured behavior and require an explicit release waiver if needed. Publish independently; reviewer-efficiency experiments are not a prerequisite.
+**No growth per round (owner, 2026-10-17, restated 2026-10-28):** a new review, gap or fix round is not a reason to add points to a task, plan, success criterion or acceptance list. A round may add work only for a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, or a broken required workflow. Everything else is carried.
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
+
+**Next action:** `/bm:discuss-phase 62` on branch `feat/v2.15-phase-62`. This roadmap does not authorize paid runs.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 62. Baseline and continuous test run | 0/TBD | Not started | - |
+| 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
+| 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
+| 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
+
+## Phase Details
+
+### Phase 62: Baseline and continuous test run
+
+**Goal**: Before any extraction starts, the owner has a go/no-go note on cost visibility built from existing records, the 2.14.1 behaviour and footprint are pinned as the comparison baseline with the improvement criterion written down, and every push and pull request to `main` runs the offline suite automatically (999.12)
+**Depends on**: Nothing in v2.15 (first phase). Uses the released 2.14.1 baseline (`dd8e4ab`) and its archived replay results as they are
+**Requirements**: BASE-01, BASE-02, BASE-03, BASE-04, CI-01, CI-02
+**Approved scope** (owner, 2026-10-28; continuous test run added 2026-11-13): *Baseline cost and quality with existing evidence (999.12, bounded feasibility).* Inspect local archives only; identify trustworthy per-run/per-lane model, input/output/cache usage, retries and elapsed time where present. Report missing attribution explicitly; do not reconstruct invented usage or treat subscription usage as a bill. Record current mode-path bytes and actual loaded-file traces separately from token and price estimates. Retain a pinned current-code behavioral baseline and archived replay results before refactoring. **Done when:** a go/no-go note names available fields, the smallest useful report, the intended comparison workload, and the improvement criterion chosen before implementation. If reliable attribution is unavailable, stop accounting work and use clearly labeled footprint/operation counts. No new telemetry service, accounting platform, paid baseline or enforceable-dollar-cap claim. *Continuous test run.* Add one GitHub Actions workflow that runs the existing offline suite and the stdlib-only check on every push and pull request to `main`. It uses no secrets, no paid runs and no live model calls, and it changes no branch-protection setting. **Done when:** `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red. This is the standing check behind the equivalence gate in Phase 65; it does not replace the release gates or any live check.
+**Success Criteria** (what must be TRUE):
+
+  1. A go/no-go note built from existing local records only names which usage fields are trustworthy per run and per lane (model, input/output/cache usage, retries, elapsed time), states what attribution is missing, and names the smallest useful report; no usage is reconstructed or invented and no paid run is started
+  2. Current mode-path bytes and actual loaded-file traces are recorded for plain review, deep review and Finalize, kept separate from any token or price estimate
+  3. A pinned behavioural baseline of the 2.14.1 code and its archived replay results are retained before any refactoring starts
+  4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
+  5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
+
+**Plans**: TBD
+
+### Phase 63: Finalize extraction and cross-call variable check
+
+**Goal**: Finalize's mechanical steps run through tested stdlib helpers and behave exactly as in 2.14.1, with less model-interpreted prose on the same paths, and a shell variable read across Bash calls is caught by one general check in any phase file
+**Depends on**: Phase 62 (the pinned baseline, the comparison workload and the improvement criterion must exist first; the continuous test run is the standing check)
+**Requirements**: FINX-01, FINX-02, FINX-03, FINX-04, FINX-05, XVAR-01, XVAR-02
+**Approved scope** (owner, 2026-10-28; cross-call variable check added 2026-11-13): Reuse existing stdlib helpers and the single-writer state path to assemble Finalize inputs and perform the gate/report handoff. Return compact structured results and explicit next actions. Keep judgment, owner decisions and reviewer calls in the existing host; remove superseded prose and locks while retaining behavioral invariants and recovery guidance. **Done when:** equivalent inputs produce the same gate decisions and reports as the released Decision reliability baseline; missing, malformed or stale inputs fail visibly; restart/retry works across fresh shells. Compare loaded prose and helper/tool steps on the same paths before and after. Revert the slice if it adds complexity without demonstrable benefit. Also add one general check (owner-approved 2026-11-13) that walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; today only the two repaired 999.25 cases are covered. It needs a mutant, and any phase file it flags is recorded with its repro before being changed. No new orchestration framework, wholesale state rewrite or changed model defaults.
+**Success Criteria** (what must be TRUE):
+
+  1. Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline
+  2. Missing, malformed or stale Finalize inputs stop with a plain message; a failed or refused attempt writes no report and archives nothing; restart and retry work across fresh shell calls
+  3. Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host
+  4. Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit
+  5. One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed
+
+**Plans**: TBD
+
+### Phase 64: Optional bounded extension (conditional)
+
+**Goal**: The owner has a recorded decision on whether one more family is worth extracting; if one is selected it behaves exactly as before with demonstrated savings, and if not, the skip is on record and the milestone proceeds on Finalize alone
+**Depends on**: Phase 63. This phase activates only after the Finalize extraction has passed its equivalence checks; it does not start before that
+**Requirements**: EXT-01
+**Conditional**: A recorded skip satisfies EXT-01 and completes this phase. A skip changes no code. If the Finalize slice is inconclusive or was reverted, this phase closes as a recorded skip.
+**Approved scope** (owner, 2026-10-28; 999.32 named as a candidate 2026-11-13): Only consider repeated evidence/envelope assembly or deterministic dispatch selection when the first extraction passes equivalence checks and the baseline identifies another worthwhile source of repeated work. Choose at most one additional family during detailed scoping; defer the remainder rather than grow the milestone. **Done when:** the selected slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behavior, with demonstrated footprint/operation savings. Skip this item if the first slice is inconclusive; Finalize alone can satisfy the milestone. The 999.32 fix-loop Rerun step is a candidate family alongside these two.
+**Success Criteria** (what must be TRUE):
+
+  1. No extension work starts until Phase 63's Finalize extraction has passed its equivalence checks
+  2. A recorded decision either skips the extension or selects at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step) that the Phase 62 baseline identifies as worthwhile; families not selected are deferred, not added to this milestone. A recorded skip satisfies this phase
+  3. If a family is selected, its slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behaviour against the 2.14.1 baseline, with demonstrated footprint/operation savings
+
+**Plans**: TBD
+
+### Phase 65: Release gate — orchestration equivalence and useful savings
+
+**Goal**: The release candidate is proven equivalent to 2.14.1 in behaviour, its reduction in loaded prose or mechanical steps is shown without any unsupported cost claim, and it ships through the existing close workflow without waiting for reviewer-efficiency work
+**Depends on**: Phase 63, and Phase 64 closed (as a recorded skip or a completed slice)
+**Requirements**: GATE-04, GATE-05, GATE-06
+**Approved scope** (owner, 2026-10-28): Run the applicable full offline suite, archived replay and mode/recovery integration checks on the exact candidate, comparing against the released reliability baseline. Unexpected behavioral differences block release. **Done when:** safeguards and independent fix verification remain intact and the included extraction demonstrably reduces loaded prose or mechanical work without an unaccounted regression. Report byte/operation savings separately from tokens or dollars; claim billing savings only with comparable usage evidence. Any approved live validation covers changed orchestration paths under the default configuration; offline parity alone does not prove live model quality. Document any unmeasured behavior and require an explicit release waiver if needed. Publish independently; reviewer-efficiency experiments are not a prerequisite.
+**Success Criteria** (what must be TRUE):
+
+  1. On the exact release candidate, the full offline suite, archived replay and mode/recovery integration checks pass against the 2.14.1 baseline; any unexpected behavioural difference blocks release
+  2. The release record shows safeguards and independent fix verification intact and a demonstrated reduction in loaded prose or mechanical steps, with byte/operation savings reported separately from tokens or dollars and no billing-savings claim without comparable usage evidence
+  3. Live validation of changed orchestration paths runs only under an approved bounded proposal; otherwise the unmeasured behaviour is documented and the release goes out under an explicit owner waiver
 
 ## Future milestone: Reviewer efficiency (conditional)
 
@@ -152,7 +221,7 @@ Original record: Reproduced in the Phase 61 live smoke (61-LIVE-SMOKE.md S1, C1)
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
 
-Finish with a go/no-go recommendation for the smallest useful reporting change. Stop if reliable attribution is unavailable; document the limitation rather than build new accounting infrastructure. Existing chunk limits and estimates are not enforceable dollar caps. Scheduled as Lean orchestration item 1, after Decision reliability ships; not activated. This check does not block correctness repairs; missing attribution stops accounting work, not the reliability milestone. Budget-control implementation and cross-repo orchestration changes require their own scope.
+Finish with a go/no-go recommendation for the smallest useful reporting change. Stop if reliable attribution is unavailable; document the limitation rather than build new accounting infrastructure. Existing chunk limits and estimates are not enforceable dollar caps. Scheduled as v2.15 Lean orchestration Phase 62 (BASE-01..04, activated 2026-11-13). This check does not block correctness repairs; missing attribution stops accounting work, not the reliability milestone. Budget-control implementation and cross-repo orchestration changes require their own scope.
 
 ### Maintenance: Keep the Codex companion; improve setup and disclosure
 
@@ -160,7 +229,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- No milestone is active. Lean orchestration starts with /bm:new-milestone; its scope now includes the continuous test run and the general cross-call variable check (owner-approved 2026-11-13). Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.15 Lean orchestration is the only active milestone (activated 2026-11-13; requirements and roadmap defined, Phases 62–65; no code changed). Its scope includes the continuous test run and the general cross-call variable check (owner-approved 2026-11-13). Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.
