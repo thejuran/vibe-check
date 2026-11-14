@@ -70,17 +70,34 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 **Plans:** 11 plans in 6 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 62-01-PLAN.md — stdlib-only check, the left-out list guard and the skip-set guard for CI, each with mutants (CI-01)
 - [ ] 62-02-PLAN.md — the one GitHub Actions workflow and its shape locks, one break test per rule (CI-01)
 - [ ] 62-03-PLAN.md — step-counting rule as a script, 2.14.1 step counts, improvement criterion and comparison workload (BASE-04)
 - [ ] 62-04-PLAN.md — Finalize capture harness pinned to 2.14.1 and the two close routes (BASE-03)
 - [ ] 62-05-PLAN.md — mode-path bytes and labelled loaded-file traces for plain review, deep review and Finalize (BASE-02)
 - [ ] 62-06-PLAN.md — usage-field reader and the cost visibility go/no-go note (BASE-01)
-- [ ] 62-07-PLAN.md — suite and replay baseline and the manifest with one verify command (BASE-03)
-- [ ] 62-08-PLAN.md — CI proof before merge: recording run and pinned skip list, green on the phase branch, red on a throwaway branch (CI-02)
-- [ ] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 62-10-PLAN.md — the remaining three Finalize situations and the five-situation record with a fingerprint (BASE-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 62-07-PLAN.md — suite and replay baseline and the manifest with one verify command (BASE-03)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 62-11-PLAN.md — the plain-terms baseline page and kit README, figures locked to the records (BASE-03)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 62-08-PLAN.md — CI proof before merge: recording run and pinned skip list, green on the phase branch, red on a throwaway branch (CI-02)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
 
 Run order is by wave, not by plan number: wave 1 = 01–06, wave 2 = 10, wave 3 = 07, wave 4 = 11, wave 5 = 08, wave 6 = 09. Plans 08 and 09 run on the phase branch in the primary checkout, without worktree isolation.
 

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "ready — Phase 62 context gathered (17 decisions); planning not started"
-stopped_at: "Phase 62 context gathered 2026-11-13 (62-CONTEXT.md, D-01..D-17); no plans yet; no code changed"
-last_updated: "2026-11-14T03:39:18Z"
-last_activity: 2026-11-13 -- Phase 62 context gathered (62-CONTEXT.md)
+status: "ready to execute — Phase 62 planned (11 plans in 6 waves, plan check passed); no code changed"
+stopped_at: "Phase 62 planned 2026-11-14 (62-01..62-11, D-01..D-20); execution not started; nothing pushed"
+last_updated: "2026-11-14T05:13:09Z"
+last_activity: 2026-11-14 — Phase 62 planned (11 plans in 6 waves; plan check passed)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 11
   completed_plans: 0
   percent: 0
 ---
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.15 Lean orchestration — Phase 62 (baseline and continuous test run): context gathered, planning next
+**Current focus:** v2.15 Lean orchestration — Phase 62 (baseline and continuous test run): planned, execution next
 
 ## Current Position
 
-Phase: 62 (baseline-and-continuous-test-run) — CONTEXT GATHERED
-Plan: —
-Status: Ready — Phase 62 context gathered; planning not started
-Last activity: 2026-11-13 — Phase 62 context gathered (62-CONTEXT.md, D-01..D-17)
+Phase: 62 (baseline-and-continuous-test-run) — PLANNED
+Plan: 0 of 11 complete
+Status: Ready to execute — Phase 62 planned; execution not started
+Last activity: 2026-11-14 — Phase 62 planned (11 plans in 6 waves; plan check passed)
 
 ## Operator Next Steps
 
 - Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
 - Approve the v2.15 roadmap (Phases 62–65; 17/17 requirements mapped)
-- Then /bm:plan-phase 62 on branch feat/v2.15-phase-62 (context: .planning/phases/62-baseline-and-continuous-test-run/62-CONTEXT.md)
+- Then /bm:execute-phase 62 on branch feat/v2.15-phase-62 (11 plans in 6 waves; plans 62-08 and 62-09 run in the primary checkout without worktree isolation; 62-09 holds the owner go/no-go and merge checkpoint)
 
 ## Deferred Items
 
@@ -80,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: Phase 62 planned via /bm:plan-phase: research, validation strategy, pattern map, 11 plans in 6 waves; plan check passed on the third pass (4 blockers and 5 warnings closed over two revisions). Owner rulings recorded after research: D-18 (CI leaves out exactly five named Linux-impossible tests, guarded), D-19 (smoke-test sessions count as existing records), D-20 (Linux self-skips allowed only as an exact pinned list from the first real run). Planning files only; no code changed; nothing pushed.
 
 2026-11-13: v2.15 roadmap written: Phase 62 Baseline and continuous test run (BASE-01..04, CI-01..02), Phase 63 Finalize extraction and cross-call variable check (FINX-01..05, XVAR-01..02), Phase 64 Optional bounded extension, conditional (EXT-01; a recorded skip satisfies it; activates only after Finalize passes equivalence), Phase 65 Release gate (GATE-04..06). 17/17 mapped. Planning files only; no code changed. Awaiting owner approval; uncommitted. Update: owner approved the roadmap the same day; committed on feat/v2.15-phase-62.
 
