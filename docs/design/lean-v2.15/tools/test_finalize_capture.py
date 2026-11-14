@@ -337,12 +337,23 @@ class TestCloseRoutes(_PinnedTree):
                         + before["unacknowledged_medium_hashes"]
                         + before["undecided_nv_hashes"])
 
-    def test_unwalked_situations_raise_a_named_usage_error(self):
-        for sid in ("one-rebuild", "refused-close", "fresh-shell-restart"):
-            work = tempfile.mkdtemp(dir=self._tmp)
-            with self.assertRaises(fc.UsageError) as ctx:
-                fc.FenceWalk2141().run(sid, self.vc_root, work)
-            self.assertIn(sid, str(ctx.exception))
+    def test_unknown_situation_or_leg_raises_a_named_usage_error(self):
+        work = tempfile.mkdtemp(dir=self._tmp)
+        with self.assertRaises(fc.UsageError) as ctx:
+            fc.FenceWalk2141().run("no-such-situation", self.vc_root, work)
+        self.assertIn("no-such-situation", str(ctx.exception))
+        with self.assertRaises(fc.UsageError) as ctx:
+            fc.FenceWalk2141().run("clean-close", self.vc_root, work,
+                                   leg="no-such-leg")
+        self.assertIn("no-such-leg", str(ctx.exception))
+
+    def test_scratch_files_are_not_counted_as_written(self):
+        """The mktemp files the fences make are scratch, not Finalize's
+        writes: only the report counts on the clean route."""
+        self.assertEqual(self.outputs["clean-close"]["files_written"],
+                         [".turingmind/REVIEW.md"])
+        self.assertTrue(any("/" + fc.SCRATCH_DIR + "/vc." in s["stdout"]
+                            for s in self.outputs["clean-close"]["steps"]))
 
     def test_no_stray_files_outside_the_work_directory(self):
         root = tempfile.mkdtemp(prefix="fc-root-")
@@ -386,14 +397,309 @@ class TestCaptureOne(unittest.TestCase):
         self.assertIn(root_a, fc.canonical_json(a))
         self.assertNotEqual(fc.canonical_json(a), fc.canonical_json(b))
 
-    def test_unwalked_situation_raises_and_cleans_up(self):
+    def test_failing_driver_raises_and_cleans_up(self):
+        class Refuses:
+            def run(self, situation_id, vc_root, workdir, leg=None):
+                with open(os.path.join(workdir, "partial"), "w") as fh:
+                    fh.write("x")
+                raise fc.UsageError("refuses %s" % situation_id)
         root = tempfile.mkdtemp(prefix="fc-cap-")
         self.addCleanup(shutil.rmtree, root, True)
         with self.assertRaises(fc.UsageError) as ctx:
-            fc.capture_one(REPO, "refused-close", tmp_root=root)
+            fc.capture_one(REPO, "refused-close", driver=Refuses(),
+                           tmp_root=root)
         self.assertIn("refused-close", str(ctx.exception))
         self.assertEqual(os.listdir(root), [])
 
+
+# --------------------------------------------------------------------------- #
+# The rebuild, refusal and restart situations
+# --------------------------------------------------------------------------- #
+ARCH_HASH = ("22d360d9c3d841748413b88d41e0840f"
+             "d0898a854ee6fa5188f134846a8c7449")
+ARCH_FILE = "src/utils/integrationDeadline.ts"
+
+
+def _steps(out, step_id):
+    return [s for s in out["steps"] if s["id"] == step_id]
+
+
+def _minted(out, step_id, name):
+    """The paths printed after `NAME=` by every `step_id` step, in order."""
+    return [dict(re.findall(r"^([A-Z_]+FILE)=(.+)$", s["stdout"], re.M))[name]
+            for s in _steps(out, step_id)]
+
+
+def one_rebuild_problems(out):
+    """What is wrong with a raw (un-normalised) one-rebuild main leg: the
+    first counts step fails on the missing path, exactly one rebuild into a
+    NEW BLOBFILE follows, the gate decides `write` on a GATEFILE minted after
+    the rebuild, and the report is read."""
+    problems = []
+    counts = _steps(out, "counts")
+    if not counts or counts[0]["exit"] == 0 or counts[0]["stdout"] != "":
+        problems.append("the first counts step did not fail silently")
+    blobs = _minted(out, "blobfile", "BLOBFILE")
+    if len(blobs) != 2:
+        problems.append("%d BLOBFILE mints, not 2 (one rebuild)" % len(blobs))
+    elif blobs[0] == blobs[1]:
+        problems.append("the rebuild reused the first BLOBFILE")
+    if len(counts) != 2 or counts[-1]["exit"] != 0:
+        problems.append("the rebuilt counts step did not succeed")
+    if _gate_actions(out) != ["write"]:
+        problems.append("gate decisions %r, not ['write']"
+                        % _gate_actions(out))
+    if out["stop_sentence"] is not None:
+        problems.append("stopped: %r" % out["stop_sentence"])
+    if not (out["report"] or {}).get("entries"):
+        problems.append("no report entries")
+    return problems
+
+
+def stopped_problems(out, sentence):
+    """What is wrong with a raw leg that must stop with `sentence`, having
+    written nothing, archived nothing and left the state live."""
+    problems = []
+    if out["stop_sentence"] != sentence:
+        problems.append("stop sentence %r" % (out["stop_sentence"],))
+    for key in ("files_written", "files_archived"):
+        if out[key]:
+            problems.append("%s: %r" % (key, out[key]))
+    if out["state_closed"]:
+        problems.append("state closed")
+    if out["report"] is not None:
+        problems.append("a report was read for the owner")
+    return problems
+
+
+class TestFailureRoutes(_PinnedTree):
+    """one-rebuild, refused-close and fresh-shell-restart, walked raw from
+    the pinned fences (paths not normalised, so mints can be compared)."""
+
+    RUNS = (("one-rebuild", None), ("one-rebuild", "second-failure"),
+            ("refused-close", None), ("refused-close", "unarchivable-report"),
+            ("fresh-shell-restart", None))
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.outputs, cls.work = {}, {}
+        try:
+            cls.stop = fc.stop_sentence(cls.finalize_text)
+            for sid, leg in cls.RUNS:
+                work = tempfile.mkdtemp(prefix="fc-walk-", dir=cls._tmp)
+                cls.work[(sid, leg)] = work
+                cls.outputs[(sid, leg)] = fc.FenceWalk2141().run(
+                    sid, cls.vc_root, work, leg=leg)
+        except BaseException:
+            shutil.rmtree(cls._tmp, True)
+            raise
+
+    # -- fixtures ------------------------------------------------------------
+    def test_stop_sentence_is_read_from_the_pinned_file(self):
+        self.assertTrue(self.stop.strip())
+        self.assertTrue(self.stop.startswith("Finalize stopped"))
+        self.assertIn('The stop is exactly one sentence: "%s"' % self.stop,
+                      self.finalize_text)
+        pinned = _git_show_bytes(FINALIZE_REL).decode("utf-8")
+        self.assertIn(self.stop, pinned)
+
+    def test_archive_fence_is_the_four_backtick_fence(self):
+        four = re.findall(r"````bash\n(.*?)\n````", self.finalize_text, re.S)
+        self.assertEqual(len(four), 1)
+        used = fc.fence_holding(fc.extract_fences(self.finalize_text),
+                                fc.PRIOR_REVIEW_CALL)
+        self.assertEqual(used, four[0])
+
+    def test_legs_are_declared(self):
+        self.assertEqual(sorted(fc.SITUATIONS["one-rebuild"]["legs"]),
+                         ["second-failure"])
+        self.assertEqual(sorted(fc.SITUATIONS["refused-close"]["legs"]),
+                         ["unarchivable-report"])
+        for sid in ("clean-close", "card-first", "fresh-shell-restart"):
+            self.assertEqual(dict(fc.SITUATIONS[sid].get("legs", {})), {},
+                             sid)
+
+    def test_restart_fixture_has_the_arch_finding_and_no_verdict(self):
+        with open(os.path.join(self.vc_root, *fc.SIX_ROW.split("/")),
+                  encoding="utf-8") as fh:
+            state = json.load(fh)
+        arch = [f for p in state["passes"] for f in p.get("findings", [])
+                if f.get("stable_hash") == ARCH_HASH]
+        self.assertEqual([(f["band"], f["file"]) for f in arch],
+                         [("critical", ARCH_FILE)])
+        self.assertNotIn("fix_verdicts", state)
+        inputs = fc.SITUATIONS["fresh-shell-restart"]["inputs"]
+        self.assertEqual(sorted(inputs["fix_verdicts"]), [ARCH_HASH])
+        self.assertEqual(inputs["head_blobs"],
+                         {ARCH_FILE: inputs["fix_verdicts"][ARCH_HASH]
+                          ["verified_blob"]})
+
+    # -- one-rebuild --------------------------------------------------------
+    def test_one_rebuild_takes_exactly_one_rebuild_and_writes(self):
+        self.assertEqual(one_rebuild_problems(
+            self.outputs[("one-rebuild", None)]), [])
+
+    def test_one_rebuild_first_counts_failure_shows_stderr_only(self):
+        first = _steps(self.outputs[("one-rebuild", None)], "counts")[0]
+        self.assertTrue(first["stderr_present"])
+
+    def test_one_rebuild_gate_decides_on_a_gatefile_minted_after_rebuild(self):
+        out = self.outputs[("one-rebuild", None)]
+        ids = [s["id"] for s in out["steps"]]
+        blob_at = [i for i, x in enumerate(ids) if x == "blobfile"]
+        gate_at = [i for i, x in enumerate(ids) if x == "gatefile"]
+        self.assertEqual(len(gate_at), 1)
+        self.assertGreater(gate_at[0], blob_at[1])
+
+    def test_second_failure_stops_with_the_stop_sentence(self):
+        out = self.outputs[("one-rebuild", "second-failure")]
+        self.assertEqual(stopped_problems(out, self.stop), [])
+        self.assertEqual(len(_steps(out, "blobfile")), 2)
+        self.assertEqual(out["gate"], [])
+        self.assertTrue(all(s["exit"] != 0 for s in _steps(out, "counts")))
+
+    # -- refused-close ------------------------------------------------------
+    def test_refused_close_shows_only_the_stop_sentence(self):
+        out = self.outputs[("refused-close", None)]
+        self.assertEqual(stopped_problems(out, self.stop), [])
+        self.assertEqual(out["gate"], [])
+        gates = _steps(out, "gate")
+        self.assertEqual(len(gates), 2)
+        for step in gates:
+            self.assertEqual((step["exit"], step["stdout"]), (1, ""))
+            self.assertTrue(step["stderr_present"])
+        files = _minted(out, "gatefile", "GATEFILE")
+        self.assertEqual(len(files), 2)
+        self.assertNotEqual(files[0], files[1])
+        for path in files:
+            with open(path + ".err", encoding="utf-8") as fh:
+                self.assertIn("Traceback", fh.read())
+        self.assertFalse(os.path.exists(os.path.join(
+            self.work[("refused-close", None)], ".turingmind", "REVIEW.md")))
+
+    def test_refused_close_leaves_the_state_live(self):
+        work = self.work[("refused-close", None)]
+        self.assertTrue(os.path.isfile(os.path.join(
+            work, *fc.STATE_REL.split("/"))))
+
+    def test_unarchivable_report_stops_and_archives_nothing(self):
+        out = self.outputs[("refused-close", "unarchivable-report")]
+        self.assertTrue(out["stop_sentence"])
+        self.assertTrue(out["stop_sentence"].startswith(
+            "Finalize stopped — the earlier REVIEW.md could not be archived"))
+        self.assertIn(out["stop_sentence"], self.finalize_text)
+        self.assertEqual(stopped_problems(out, out["stop_sentence"]), [])
+        self.assertEqual(_gate_actions(out), ["write"])
+        self.assertNotEqual(_steps(out, "prior-review-archive")[0]["exit"], 0)
+        self.assertEqual(_steps(out, "archive-state"), [])
+        work = self.work[("refused-close", "unarchivable-report")]
+        tm = os.path.join(work, ".turingmind")
+        with open(os.path.join(tm, "REVIEW.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), fc.SITUATIONS["refused-close"]
+                             ["legs"]["unarchivable-report"]["prior_review_md"])
+        self.assertEqual(sorted(os.listdir(tm)), ["REVIEW.md", "state"])
+        # the driver gave the directory its permissions back
+        self.assertTrue(os.access(tm, os.W_OK))
+
+    def test_unarchivable_report_as_root_is_a_named_usage_error(self):
+        work = tempfile.mkdtemp(prefix="fc-root-", dir=self._tmp)
+        with mock.patch.object(fc.os, "geteuid", return_value=0):
+            self.assertEqual(fc.os.geteuid(), 0)
+            with self.assertRaises(fc.UsageError) as ctx:
+                fc.FenceWalk2141().run("refused-close", self.vc_root, work,
+                                       leg="unarchivable-report")
+        self.assertIn("root", str(ctx.exception))
+
+    # -- fresh-shell-restart ------------------------------------------------
+    def test_restart_decides_on_new_gatefile_and_blobfile(self):
+        out = self.outputs[("fresh-shell-restart", None)]
+        self.assertEqual(_gate_actions(out),
+                         ["outstanding-to-phase-5", "write"])
+        blobs = _minted(out, "blobfile", "BLOBFILE")
+        gates = _minted(out, "gatefile", "GATEFILE")
+        self.assertEqual(len(blobs), 2)
+        self.assertEqual(len(gates), 2)
+        self.assertNotEqual(blobs[0], blobs[1])
+        self.assertNotEqual(gates[0], gates[1])
+        ids = [s["id"] for s in out["steps"]]
+        record_at = ids.index("record-decisions")
+        second_blob = [i for i, x in enumerate(ids) if x == "blobfile"][1]
+        second_gate = [i for i, x in enumerate(ids) if x == "gatefile"][1]
+        last_gate = [i for i, x in enumerate(ids) if x == "gate"][-1]
+        self.assertLess(record_at, second_blob)
+        self.assertLess(second_blob, second_gate)
+        self.assertLess(second_gate, last_gate)
+        self.assertTrue(out["report"]["entries"])
+        self.assertIsNone(out["stop_sentence"])
+        self.assertTrue(out["state_closed"])
+
+    def test_restart_honours_the_verdict_on_each_fresh_fingerprint(self):
+        out = self.outputs[("fresh-shell-restart", None)]
+        counts = [json.loads(s["stdout"].strip().splitlines()[0])
+                  for s in _steps(out, "counts")]
+        self.assertEqual(len(counts), 2)
+        self.assertEqual([(c["outstanding_cw"], c["unacknowledged_medium"],
+                           c["undecided_nv"]) for c in counts],
+                         [(4, 1, 0), (0, 0, 0)])
+        for c in counts:
+            self.assertEqual(c["verified_obsolete_hashes"], [ARCH_HASH])
+
+    def test_restart_answer_names_every_card_row(self):
+        answer = fc.SITUATIONS["fresh-shell-restart"]["inputs"][
+            "owner_answers"][0]["q1"]
+        self.assertEqual(answer.split()[1],
+                         ",".join(str(n) for n in range(1, 6)))
+
+    # -- driver mutants -----------------------------------------------------
+    def test_mutant_no_rebuild_changes_one_rebuild(self):
+        self.assertEqual(fc.FenceWalk2141.REBUILDS, 1)
+        work = tempfile.mkdtemp(prefix="fc-mut-", dir=self._tmp)
+        with mock.patch.object(fc.FenceWalk2141, "REBUILDS", 0):
+            self.assertEqual(fc.FenceWalk2141.REBUILDS, 0)
+            mutant = fc.FenceWalk2141().run("one-rebuild", self.vc_root, work)
+        self.assertNotEqual(one_rebuild_problems(mutant), [])
+        real = self.outputs[("one-rebuild", None)]
+        self.assertNotEqual(
+            fc.canonical_json(fc.normalise_outputs(mutant, work, self.vc_root)),
+            fc.canonical_json(fc.normalise_outputs(
+                real, self.work[("one-rebuild", None)], self.vc_root)))
+
+    def test_mutant_report_after_malformed_gate_is_caught(self):
+        real_stop = fc._Walk.stop
+
+        def stop_then_write(walk, sentence):
+            real_stop(walk, sentence)
+            walk.write(os.path.join(walk.workdir,
+                                    *fc.REVIEW_REL.split("/")), "report\n")
+        work = tempfile.mkdtemp(prefix="fc-mut-", dir=self._tmp)
+        with mock.patch.object(fc._Walk, "stop", stop_then_write):
+            self.assertIs(fc._Walk.stop, stop_then_write)
+            mutant = fc.FenceWalk2141().run("refused-close", self.vc_root,
+                                            work)
+        self.assertEqual(mutant["files_written"], [fc.REVIEW_REL])
+        self.assertNotEqual(stopped_problems(mutant, self.stop), [])
+
+
+class TestFailureRoutesDeterministic(unittest.TestCase):
+    def test_each_situation_captured_twice_is_equal(self):
+        for sid in ("one-rebuild", "refused-close", "fresh-shell-restart"):
+            with self.subTest(sid):
+                roots = []
+                got = []
+                for _ in range(2):
+                    root = tempfile.mkdtemp(prefix="fc-det-")
+                    self.addCleanup(shutil.rmtree, root, True)
+                    roots.append(root)
+                    got.append(fc.capture_situation(REPO, sid, tmp_root=root))
+                    self.assertEqual(os.listdir(root), [])
+                self.assertNotEqual(roots[0], roots[1])
+                self.assertEqual(set(got[0]),
+                                 set(fc.OUTPUT_KEYS) | {"legs"})
+                self.assertEqual(sorted(got[0]["legs"]),
+                                 sorted(fc.SITUATIONS[sid].get("legs", {})))
+                self.assertEqual(fc.canonical_json(got[0]),
+                                 fc.canonical_json(got[1]))
 
 class TestImportSet(unittest.TestCase):
     ALLOWED = {"argparse", "hashlib", "json", "os", "re", "shutil",
