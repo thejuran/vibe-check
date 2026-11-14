@@ -1,0 +1,5 @@
+plugins/vibe-check/scripts/test_replay.py::TestPhase53SameLineRegressionCases::test_a2_pair_sits_on_adjacent_lines_of_one_statement
+plugins/vibe-check/scripts/test_replay.py::TestPhase53SameLineRegressionCases::test_off_line_credit_mutation_trips
+plugins/vibe-check/scripts/test_replay.py::TestPhase53SameLineRegressionCases::test_pre_same_line_scorer_gave_critical_100
+plugins/vibe-check/scripts/test_footprint.py::TestWordCountLocaleDrift::test_c_locale_wc_matches_the_recorded_number
+plugins/vibe-check/scripts/test_footprint.py::TestWordCountLocaleDrift::test_utf8_locale_wc_is_the_plans_figure_and_differs_by_two

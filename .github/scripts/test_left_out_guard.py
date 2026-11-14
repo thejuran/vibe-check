@@ -88,7 +88,7 @@ def junit_text(cases):
 
 
 def log_text(summary):
-    return ("....................................................... [ 99%]\n"
+    return ("....................................................... [ 99%%]\n"
             "SKIPPED [1] plugins/vibe-check/scripts/test_replay.py:281: whatever\n"
             "%s\n" % summary)
 
@@ -397,9 +397,15 @@ class TestCheckSkipsCount(SkipCase):
         self.assertIn(COUNT_STOP, err)
 
     def test_subtests_skipped_is_not_the_test_count(self):
-        summary = GOOD_SUMMARY.replace(" in 201", ", 4 subtests skipped in 201")
-        code, _out, _err = self.skips(GOOD_PAIRS, GOOD_CASES, summary)
-        self.assertEqual(code, 0)
+        # No test-level skips, only subtest skips: the count must read 0.
+        cases = [c for c in GOOD_CASES if c[2] is None]
+        summary = GOOD_SUMMARY.replace(" 2 skipped,", "").replace(
+            " in 201", ", 4 subtests skipped in 201")
+        self.assertNotIn(" 2 skipped", summary)
+        self.assertIn("4 subtests skipped", summary)
+        code, out, err = self.skips((), cases, summary)
+        self.assertEqual(code, 0, err)
+        self.assertIn("skipped set matches the recorded 0", out)
 
 
 class TestCheckSkipsUnusable(SkipCase):
@@ -422,7 +428,9 @@ class TestCheckSkipsUnusable(SkipCase):
         with mock.patch.object(log_guard, "MAX_RESULT_BYTES", 10):
             code, _out, err = self.run_with(path)
         self.assertEqual(code, 2)
-        self.assertIn("— STOPPING", err)
+        # Refused for its size, before any parse is attempted.
+        self.assertIn("RESULT FILE OVER 10 BYTES", err)
+        self.assertNotIn("CANNOT PARSE", err)
 
     def test_size_cap_is_50_mb(self):
         self.assertEqual(log_guard.MAX_RESULT_BYTES, 50 * 1024 * 1024)
@@ -478,7 +486,7 @@ class TestSkipListProblems(unittest.TestCase):
 
     def test_mutant_empty_reason(self):
         mutant = ((LANE_SKIP_ID, ""), GOOD_PAIRS[1])
-        self.assert_rule_trips(mutant, LANE_SKIP_ID)
+        self.assert_rule_trips(mutant, "empty reason: " + LANE_SKIP_ID)
 
     def test_mutant_duplicated_id(self):
         self.assert_rule_trips(GOOD_PAIRS + (GOOD_PAIRS[1],), REPLAY_SKIP_ID)
