@@ -77,7 +77,7 @@ def _clean(line):
 
 
 def _lines(text):
-    return [c for c in (_clean(l) for l in text.splitlines()) if c.strip()]
+    return [c for c in (_clean(ln) for ln in text.splitlines()) if c.strip()]
 
 
 def _indent(line):
@@ -149,7 +149,7 @@ def move_step(text, name, anchor, where):
 
 def pytest_lines(text):
     joined = text.replace("\\\n", " ")
-    return [l for l in joined.splitlines() if re.match(r"^\s*pytest\s", l)]
+    return [ln for ln in joined.splitlines() if re.match(r"^\s*pytest\s", ln)]
 
 
 def pytest_option_text(text):
@@ -157,9 +157,9 @@ def pytest_option_text(text):
     line(s) and any line that sets PYTEST_ADDOPTS."""
     joined = text.replace("\\\n", " ")
     keep = [
-        l
-        for l in joined.splitlines()
-        if re.match(r"^\s*pytest\s", l) or "PYTEST_ADDOPTS" in l
+        ln
+        for ln in joined.splitlines()
+        if re.match(r"^\s*pytest\s", ln) or "PYTEST_ADDOPTS" in ln
     ]
     return "\n".join(keep)
 
@@ -192,7 +192,7 @@ def push_trigger_holds(text):
     problems = []
     if push is None:
         problems.append("push-present: no push trigger under on:")
-    body = [l.strip() for l in push or []]
+    body = [ln.strip() for ln in push or []]
     if body != ["branches: ['**']"]:
         problems.append(f"push-all-branches: push filters are {body!r}, expected only branches: ['**']")
     return problems
@@ -204,7 +204,7 @@ def pr_trigger_holds(text):
     problems = []
     if pr is None:
         problems.append("pr-present: no pull_request trigger under on:")
-    body = [l.strip() for l in pr or []]
+    body = [ln.strip() for ln in pr or []]
     if body != ["branches: [main]"]:
         problems.append(f"pr-targets-main: pull_request filters are {body!r}, expected only branches: [main]")
     if "pull_request_target" in text:
@@ -214,7 +214,7 @@ def pr_trigger_holds(text):
 
 def permissions_hold(text):
     perms = _children(_lines(text), "permissions", 0)
-    entries = [l.strip() for l in perms or []]
+    entries = [ln.strip() for ln in perms or []]
     problems = []
     if "contents: read" not in entries:
         problems.append(f"contents-read: top-level permissions are {entries!r}, expected contents: read")
@@ -285,11 +285,11 @@ def runner_holds(text):
 
 
 def tools_pinned_hold(text):
-    pip_lines = [l for l in _lines(text) if re.search(r"\bpip\s+install\b", l)]
+    pip_lines = [ln for ln in _lines(text) if re.search(r"\bpip\s+install\b", ln)]
     problems = []
     tokens = []
-    for l in pip_lines:
-        after = re.split(r"\bpip\s+install\b", l, maxsplit=1)[1]
+    for ln in pip_lines:
+        after = re.split(r"\bpip\s+install\b", ln, maxsplit=1)[1]
         tokens += [t for t in after.split() if not t.startswith("-")]
     if "pytest==9.0.3" not in tokens:
         problems.append(f"pytest-pinned: pip installs {tokens!r}, expected pytest==9.0.3")
@@ -307,7 +307,7 @@ def stdlib_step_holds(text):
     if block is None:
         problems.append("step-named: no step named 'Stdlib-only check'")
     where = block if block is not None else text
-    runs = [l.strip() for l in _lines(where) if re.match(r"^\s*run:", l)]
+    runs = [ln.strip() for ln in _lines(where) if re.match(r"^\s*run:", ln)]
     if "run: " + STDLIB_RUN not in runs:
         problems.append(f"run-line: no run line '{STDLIB_RUN}'")
     return problems
@@ -426,7 +426,7 @@ def suite_command_holds(text):
     if pl:
         rest = text.replace("\\\n", " ").splitlines()
         idx = rest.index(pl)
-        following = [l.strip() for l in rest[idx + 1:] if l.strip()]
+        following = [ln.strip() for ln in rest[idx + 1:] if ln.strip()]
         after = following[0] if following else ""
     if after != PIPESTATUS_LINE:
         problems.append(f"pipestatus: the line after pytest is {after!r}, expected {PIPESTATUS_LINE!r}")
@@ -814,7 +814,7 @@ class TestImportSet(unittest.TestCase):
         self.assertLessEqual(found, ALLOWED_IMPORTS)
         self.assertIn("unittest", found)
         with self.subTest("mutant: a YAML import added"):
-            mutant = source + "\nimport yaml\n"
+            mutant = source + "\nimport " + "yaml\n"
             self.assertNotEqual(mutant, source)
             self.assertFalse(found_imports(mutant) <= ALLOWED_IMPORTS)
 
