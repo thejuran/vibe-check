@@ -25,7 +25,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 ### 🚧 v2.15 Lean orchestration (Phases 62–65, in progress)
 
-- [ ] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
+- [x] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
 - [ ] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's input assembly and gate/report handoff run through stdlib helpers with the same gate decisions and reports as 2.14.1, and one general check catches shell variables read across Bash calls
 - [ ] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate)
 - [ ] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars
@@ -42,11 +42,11 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:execute-phase 62` on branch `feat/v2.15-phase-62` (11 plans, 6 waves). This roadmap does not authorize paid runs.
+**Next action:** `/bm:discuss-phase 63` on a new branch `feat/v2.15-phase-63` cut from `main` (Phase 62 closed 2026-11-14: PR #9 squash-merged as `d0adb5b`, CI green on `main`). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 10/11 | In Progress|  |
+| 62. Baseline and continuous test run | 11/11 | Complete | 2026-11-14 |
 | 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
@@ -67,7 +67,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
   4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
   5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
 
-**Plans:** 10/11 plans executed
+**Plans:** 11/11 plans executed
 
 Plans:
 **Wave 1**
@@ -97,7 +97,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
+- [x] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
 
 Run order is by wave, not by plan number: wave 1 = 01–06, wave 2 = 10, wave 3 = 07, wave 4 = 11, wave 5 = 08, wave 6 = 09. Plans 08 and 09 run on the phase branch in the primary checkout, without worktree isolation.
 
@@ -249,11 +249,28 @@ Fixed in 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1) on every route except `--al
 
 Original record: Reproduced in the Phase 61 live smoke (61-LIVE-SMOKE.md S1, C1): on the default review of uncommitted code, a finding deferred or dismissed at pass 1 was re-asked at pass 2 on a byte-identical working tree, and the card said "code next to it changed since your decision", which was false. Cause (from 61-RELEASE-RECORD.md Carried C1): on pass >= 2 the ranges come from `git diff <last-reviewed-sha>`; before any commit that sha is still HEAD, so the whole uncommitted block counts as changed every pass. Fails toward asking: nothing is lost and Close out completes. Probably predates 2.14 (2.13 also took ranges from `git diff HEAD` each pass; inferred from the 2.13 instructions, not tested). Owner ruling 2026-10-30 (61-SIGNOFF.md Decision 1, first A, then switched the same day to B): ships in 2.14.0 as the first Known limit in the release notes and in the README's "Known limitations (2.14)" (candidate C2 47978aa, README-only change; pending owner re-sign). Also carried here (C4): in S2 the model stopped and listed choices instead of taking the fix loop's Rerun after a typed defer (fails toward stopping; decisions saved). Candidate direction: compare the working-tree content against what the decision saw (not HEAD) so an unchanged uncommitted block does not count as changed. Reproduce on the real chain first; needs a fixture and a mutant. Reopen as worse if a re-ask on unchanged committed code is reproduced. Not scheduled.
 
+### 999.34: Phase 62 review carry: baseline checks that pass on inputs they should reject
+
+The Phase 62 code review (`.planning/phases/62-baseline-and-continuous-test-run/62-REVIEW.md`) found six checks that cannot fail on some bad inputs, plus two items set aside for a ruling. The owner merged Phase 62 with them carried (2026-11-14). None lets a failing test run show green today. Not scheduled; this entry commits no work.
+
+- WR-01: the CI skip guard passes when one recorded skip appears twice.
+- WR-02: the step-count check accepts a step record over any file list, including an empty one.
+- WR-03: the footprint, traces and step checks trust the commit written in the record instead of the 2.14.1 commit, so the verify command can say "baseline holds" for other records.
+- WR-04: the proxy token figures in the footprint record are never recomputed.
+- WR-05: the suite record check accepts a baseline run that had errors or skips.
+- WR-06: the stdlib-only check passes imports that only newer Pythons have, and any same-named file anywhere in the plugin; it needs an owner ruling on the plugin's minimum Python version.
+- SA-01: the headline replay figure is a typed string that no check re-derives.
+- SA-02: the stdlib-only check does not look at Python run from the instruction files.
+
+WR-02 and WR-03 should be closed before Phase 65's equivalence gate relies on those checks.
+
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
 
 Finish with a go/no-go recommendation for the smallest useful reporting change. Stop if reliable attribution is unavailable; document the limitation rather than build new accounting infrastructure. Existing chunk limits and estimates are not enforceable dollar caps. Scheduled as v2.15 Lean orchestration Phase 62 (BASE-01..04, activated 2026-11-13). This check does not block correctness repairs; missing attribution stops accounting work, not the reliability milestone. Budget-control implementation and cross-repo orchestration changes require their own scope.
+
+**Outcome (2026-11-14):** the owner recorded NO-GO on cost visibility, following the note's recommendation (`.planning/phases/62-baseline-and-continuous-test-run/62-COST-NOTE.md`, `## Owner decision`). Accounting work stops; the milestone uses the labelled byte and step counts from the Phase 62 baseline as its evidence, and no usage-report backlog item is filed.
 
 ### Maintenance: Keep the Codex companion; improve setup and disclosure
 

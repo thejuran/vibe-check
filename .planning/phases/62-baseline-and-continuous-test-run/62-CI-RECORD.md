@@ -1,6 +1,6 @@
 # Phase 62 CI record
 
-**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded, red proof recorded and its branch deleted, pull request #9 opened and green on its head commit. Remaining: `main`'s first run (plan 62-09); CI-02 stays open until then. `main`'s first run is plan 62-09.
+**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded, red proof recorded and its branch deleted, pull request #9 green on its final commit and squash-merged, and `main`'s first run green at the merge commit. CI-01 and CI-02 are met (see `## First run on main`).
 
 Precondition (checked before anything else): primary checkout `/Users/julianamacbook/turingmind-code-review` (`git rev-parse --absolute-git-dir` equals the common git dir), branch `feat/v2.15-phase-62`, HEAD `776cdd9245bea6418ffa7849eabc2565e2ed9209`. The workflow, both guard scripts, `docs/design/lean-v2.15/baseline/MANIFEST.json` and `docs/design/lean-v2.15/BASELINE-v2.14.1.md` are all present on the branch.
 
@@ -139,3 +139,38 @@ Checks (from `gh run view <id> --json conclusion,headSha,event,jobs` and each ru
 Tree identity at the head commit: `git rev-parse cf0baf491e1861abfd7ce93fcb185651530a60b5:plugins` prints `90e0697363ee5c09bb7942a963cf670e16717c4a`, the 2.14.1 plugin tree.
 
 The commit that adds this section starts two more runs (push and pull_request) on the new head. Their rows are not added here (another edit would start more runs); they are named in the plan summary and written under `### Final commit` at the phase's closing step, once the pull request's final commit is known.
+
+### Final commit
+
+Pull request #9 was squash-merged at 2026-11-14T15:45:18Z (merged by the main session on the owner's explicit instruction). Head commit at merge: `1659a99ca1c096c5edee18a228eb78181dfc9f90` (`gh pr view 9 --json headRefOid`). Runs on it (`gh run list --workflow offline-suite.yml --commit 1659a99ca1c096c5edee18a228eb78181dfc9f90`):
+
+| Event | Run | Conclusion | Deselected | Skipped |
+|-------|-----|------------|------------|---------|
+| push | https://github.com/thejuran/vibe-check/actions/runs/43611416017 | success | 5 | 2 |
+| pull_request | https://github.com/thejuran/vibe-check/actions/runs/43611421379 | success | 5 | 2 |
+
+From each run's log: push run `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 250.11s (0:04:10)`; pull-request run `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 245.93s (0:04:05)`; both print `skipped set matches the recorded 2`. `git rev-parse 1659a99:plugins` prints `90e0697363ee5c09bb7942a963cf670e16717c4a`.
+
+Earlier heads of the pull request, each with a green push and pull-request run: `cf0baf4` (rows above) and `93f13ab` (https://github.com/thejuran/vibe-check/actions/runs/43570126290 push, https://github.com/thejuran/vibe-check/actions/runs/43570130481 pull_request, both success).
+
+## First run on main
+
+The first `push` run of the workflow on `main`, at the squash-merge commit `d0adb5b08b7ed92677c1ae414b903f0cc4fa45f4` (`gh run list --workflow offline-suite.yml --branch main --event push`; it is the only run listed, `headSha` equal to the merge commit):
+
+| Branch | Commit | Run | Conclusion | Suite summary | Deselected | Skipped |
+|--------|--------|-----|------------|---------------|------------|---------|
+| `main` | `d0adb5b08b7ed92677c1ae414b903f0cc4fa45f4` | https://github.com/thejuran/vibe-check/actions/runs/43611870373 | success | `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 258.09s (0:04:18)` | 5 | 2 |
+
+Run URL: https://github.com/thejuran/vibe-check/actions/runs/43611870373
+
+Checks (from `gh run view 43611870373 --json conclusion,status,headSha,event,jobs` and `gh run view 43611870373 --log`):
+- Every step `success`: Checkout (`HEAD is now at d0adb5b Phase 62: baseline and continuous test run (#9)`), Setup Python, Test-only tools, Stdlib-only check (`33 shipped .py files; third-party imports: none`), Left-out list guard (`left-out list matches the recorded five`), Offline suite, Left-out count guard (`suite log: 5 deselected, no failure (…)`), Skip guard.
+- Skip guard: the two pinned `OBSERVED-SKIP` lines (the lane-archive and replay tests above, with their exact reasons), `OBSERVED-SKIP-COUNT 2`, `skipped set matches the recorded 2`.
+- No `FAILED` or `ERROR` line in the log.
+
+Tree identity: `git rev-parse d0adb5b08b7ed92677c1ae414b903f0cc4fa45f4:plugins` prints `90e0697363ee5c09bb7942a963cf670e16717c4a`, the 2.14.1 plugin tree. `main` shows a green run on the release baseline.
+
+| Requirement | Evidence | Result |
+|-------------|----------|--------|
+| CI-01 | One workflow, `.github/workflows/offline-suite.yml` (push on every branch, pull requests into `main`, `permissions: contents: read`, no `secrets.` reference); its shape is locked by `.github/scripts/test_workflow_shape.py`, which runs in the suite and passed in every run above; `gh secret list --repo thejuran/vibe-check` prints nothing; `gh api repos/thejuran/vibe-check/branches/main --jq .protected` prints `false`, as before the phase (no branch-protection change) | met |
+| CI-02 | Green on `main` at the merge commit (run 43611870373, above) and red on the throwaway branch `ci-red-proof` on a deliberately broken test (run 43568391505, `## Red proof`) | met |
