@@ -21,6 +21,7 @@ present) and show the guarded case goes through. Each guard is load-bearing.
 import ast
 import copy
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -33,6 +34,9 @@ from unittest import mock
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
 
+import batch_card  # noqa: E402  (oracle: the 2.14.1 report data)
+import carry_state  # noqa: E402  (oracle: the 2.14.1 counts)
+import finalize_gate  # noqa: E402  (oracle: the 2.14.1 gate)
 import finalize_inputs  # noqa: E402  (module under test)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
 from gitfixture import git, write  # noqa: E402
@@ -496,6 +500,350 @@ class TestMutants(InputsCase):
         self.assertEqual(rec.calls, [["rev-parse", "--show-toplevel"]])
 
 
+
+# --------------------------------------------------------------------------- #
+# The result: next action, counts, gate and report bundle.
+# --------------------------------------------------------------------------- #
+SIX_ROW = os.path.join(SCRIPTS_DIR, "fixtures", "iplayarr45-six-row-state.json")
+ARCH_FILE = "plugins/vibe-check/phases/deep-review/01d-coverage.md"
+
+SWITCH_NAMES = ("noninteractive", "pr_mode", "range_mode")
+ALL_SWITCHES = [dict(zip(SWITCH_NAMES, combo))
+                for combo in itertools.product((False, True), repeat=3)]
+INTERACTIVE = {"noninteractive": False, "pr_mode": False, "range_mode": False}
+RESULT_KEYS = {"action", "reason", "next", "counts", "report"}
+COUNT_KEYS_EXPECTED = (
+    "outstanding_cw", "unacknowledged_medium", "undecided_nv",
+    "outstanding_cw_hashes", "unacknowledged_medium_hashes",
+    "undecided_nv_hashes", "verified_obsolete_hashes",
+    "confirmed_fix_awaiting_recheck_hashes")
+
+
+def load_six_row():
+    with open(SIX_ROW, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def dismiss(state, hashes):
+    out = carry_state.record_decisions(state, {
+        "at_pass": state["passes"][-1]["pass_number"],
+        "decisions": [{"stable_hash": h, "decision": "dismiss",
+                       "reason": "walk"} for h in hashes]})
+    assert out is not None
+    return out
+
+
+def dismissed_all_state():
+    s = load_fixture()
+    c = carry_state.finalize_counts(s)
+    return dismiss(s, c["outstanding_cw_hashes"]
+                   + c["unacknowledged_medium_hashes"]
+                   + c["undecided_nv_hashes"])
+
+
+def nv_open_state():
+    """Only an undecided Needs-verification item open."""
+    s = load_fixture()
+    row(s, ARCH_HASH)["band"] = "needs-verification"
+    return dismiss(s, [BUGS_HASH])
+
+
+def medium_only_state():
+    return dismiss(load_fixture(), [ARCH_HASH])
+
+
+def fix_obsolete_state(blob):
+    """The warning row closed by a last-pass fix-obsolete verdict on `blob`;
+    the medium dismissed, so the gate writes when `blob` is HEAD's."""
+    s = dismiss(load_fixture(), [BUGS_HASH])
+    last = s["passes"][-1]
+    s["fix_verdicts"] = {ARCH_HASH: dict(
+        verdict(at_pass=last["pass_number"], kind="obsolete", blob=blob),
+        head_sha=last["head_sha"])}
+    return s
+
+
+def oracle(state, blobs, switches):
+    """What the three 2.14.1 helpers give, called in-process."""
+    if state is None:
+        counts = None
+        flags = {"state_file_present": False, "outstanding_cw": 0,
+                 "unacknowledged_medium": 0, "undecided_nv": 0}
+    else:
+        counts = carry_state.finalize_counts(state, blobs)
+        flags = {"state_file_present": True,
+                 "outstanding_cw": counts["outstanding_cw"],
+                 "unacknowledged_medium": counts["unacknowledged_medium"],
+                 "undecided_nv": counts["undecided_nv"]}
+    flags.update(switches)
+    gate = finalize_gate.run({"flags": flags})
+    report = None
+    if gate["action"] == "write":
+        report = batch_card.decisions_report(state)
+    return counts, gate, report
+
+
+class ResultCase(InputsCase):
+    """InputsCase plus ARCH_FILE committed, for the fix-obsolete state."""
+
+    def setUp(self):
+        super().setUp()
+        write(self.repo, ARCH_FILE, "coverage\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "arch")
+
+    def prepared(self):
+        """(label, state, blobs) for each prepared state."""
+        fix = fix_obsolete_state(self.blob(ARCH_FILE))
+        fix_blobs = finalize_inputs.head_blobs(fix, cwd=self.repo)
+        return [
+            ("six-row", load_six_row(), {}),
+            ("loop", load_fixture(), {}),
+            ("dismissed-all", dismissed_all_state(), {}),
+            ("nv-open", nv_open_state(), {}),
+            ("medium-only", medium_only_state(), {}),
+            ("fix-obsolete", fix, fix_blobs),
+        ]
+
+
+class TestNextAction(unittest.TestCase):
+
+    def test_next_actions_are_the_seven_values_in_order(self):
+        self.assertEqual(finalize_inputs.NEXT_ACTIONS, (
+            "write-review-md", "finalize-card", "stop-fallback-cw",
+            "stop-fallback-nv", "stop-fallback-medium", "stop-no-state",
+            "stop-refused"))
+
+    def test_exit_codes(self):
+        f = finalize_inputs
+        self.assertEqual((f.EXIT_OK, f.EXIT_USAGE, f.EXIT_STATE, f.EXIT_GATE,
+                          f.EXIT_REPORT), (0, 2, 3, 4, 5))
+
+    def test_count_keys_in_the_instruction_order(self):
+        self.assertEqual(finalize_inputs.COUNT_KEYS, COUNT_KEYS_EXPECTED)
+
+    def test_next_mapping(self):
+        def counts(cw=0, nv=0, medium=0):
+            return {"outstanding_cw": cw, "undecided_nv": nv,
+                    "unacknowledged_medium": medium}
+        cases = [
+            ("write", counts(), "write-review-md"),
+            ("outstanding-to-phase-5", counts(cw=1), "finalize-card"),
+            ("outstanding-to-phase-5", counts(nv=1), "finalize-card"),
+            ("medium-ack-loop", counts(medium=1), "finalize-card"),
+            ("fallback", counts(cw=1), "stop-fallback-cw"),
+            ("fallback", counts(cw=1, nv=1, medium=1), "stop-fallback-cw"),
+            ("fallback", counts(nv=1), "stop-fallback-nv"),
+            ("fallback", counts(nv=2, medium=1), "stop-fallback-nv"),
+            ("fallback", counts(medium=1), "stop-fallback-medium"),
+            ("fallback", counts(), "stop-fallback-medium"),
+            ("error", counts(), "stop-no-state"),
+            ("refuse", counts(), "stop-refused"),
+            ("bogus", counts(), "stop-refused"),
+            (None, counts(), "stop-refused"),
+        ]
+        for action, c, want in cases:
+            with self.subTest(action=action, counts=c):
+                got = finalize_inputs.next_action(action, c)
+                self.assertEqual(got, want)
+                self.assertIn(got, finalize_inputs.NEXT_ACTIONS)
+
+    def test_every_gate_action_maps_into_next_actions(self):
+        for action in finalize_gate.ACTIONS:
+            with self.subTest(action=action):
+                self.assertIn(finalize_inputs.next_action(
+                    action, {"outstanding_cw": 0, "undecided_nv": 0,
+                             "unacknowledged_medium": 0}),
+                    finalize_inputs.NEXT_ACTIONS)
+
+
+class TestBuildResultParity(ResultCase):
+
+    def test_parity_with_the_three_helpers_on_every_prepared_state(self):
+        for label, state, blobs in self.prepared():
+            for sw in ALL_SWITCHES:
+                with self.subTest(state=label, switches=sw):
+                    code, result = finalize_inputs.build_result(
+                        copy.deepcopy(state), blobs, dict(sw))
+                    counts, gate, report = oracle(state, blobs, sw)
+                    self.assertEqual(code, 0)
+                    self.assertEqual(set(result), RESULT_KEYS)
+                    self.assertEqual(result["counts"], counts)
+                    self.assertEqual(tuple(result["counts"]),
+                                     COUNT_KEYS_EXPECTED)
+                    self.assertEqual({"action": result["action"],
+                                      "reason": result["reason"]}, gate)
+                    self.assertEqual(result["report"], report)
+                    self.assertEqual(result["next"], finalize_inputs.next_action(
+                        gate["action"], counts))
+
+    def test_parity_actions_cover_the_branches(self):
+        seen = set()
+        for label, state, blobs in self.prepared():
+            for sw in ALL_SWITCHES:
+                _, result = finalize_inputs.build_result(
+                    copy.deepcopy(state), blobs, dict(sw))
+                seen.add((label, result["next"]))
+        self.assertIn(("dismissed-all", "write-review-md"), seen)
+        self.assertIn(("fix-obsolete", "write-review-md"), seen)
+        self.assertIn(("six-row", "finalize-card"), seen)
+        self.assertIn(("six-row", "stop-fallback-cw"), seen)
+        self.assertIn(("nv-open", "stop-fallback-nv"), seen)
+        self.assertIn(("medium-only", "stop-fallback-medium"), seen)
+        self.assertIn(("medium-only", "finalize-card"), seen)
+
+    def test_parity_write_carries_the_report_and_obsolete_hashes(self):
+        fix = fix_obsolete_state(self.blob(ARCH_FILE))
+        blobs = finalize_inputs.head_blobs(fix, cwd=self.repo)
+        self.assertEqual(blobs, {ARCH_FILE: self.blob(ARCH_FILE)})
+        code, result = finalize_inputs.build_result(fix, blobs, INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["action"], "write")
+        self.assertEqual(result["counts"]["verified_obsolete_hashes"],
+                         [ARCH_HASH])
+        self.assertEqual(result["report"], batch_card.decisions_report(fix))
+        self.assertTrue(result["report"]["entries"])
+
+    def test_parity_non_write_has_no_report(self):
+        code, result = finalize_inputs.build_result(load_six_row(), {},
+                                                    INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["action"], "outstanding-to-phase-5")
+        self.assertIsNone(result["report"])
+
+    def test_parity_no_state(self):
+        for sw in ALL_SWITCHES:
+            with self.subTest(switches=sw):
+                code, result = finalize_inputs.build_result(None, {}, dict(sw))
+                self.assertEqual(code, 0)
+                self.assertEqual(result["action"], "error")
+                self.assertEqual(result["reason"],
+                                 finalize_gate.REASON_NO_STATE)
+                self.assertEqual(result["next"], "stop-no-state")
+                self.assertIsNone(result["report"])
+                self.assertEqual(tuple(result["counts"]), COUNT_KEYS_EXPECTED)
+                for k in COUNT_KEYS_EXPECTED[:3]:
+                    self.assertEqual(result["counts"][k], 0)
+                for k in COUNT_KEYS_EXPECTED[3:]:
+                    self.assertEqual(result["counts"][k], [])
+
+    def test_parity_each_switch_alone_gives_fallback(self):
+        for name in SWITCH_NAMES:
+            sw = dict(INTERACTIVE, **{name: True})
+            for label, state, want in (
+                    ("six-row", load_six_row(), "stop-fallback-cw"),
+                    ("nv-open", nv_open_state(), "stop-fallback-nv"),
+                    ("medium-only", medium_only_state(),
+                     "stop-fallback-medium")):
+                with self.subTest(switch=name, state=label):
+                    code, result = finalize_inputs.build_result(state, {}, sw)
+                    self.assertEqual(code, 0)
+                    self.assertEqual(result["action"], "fallback")
+                    self.assertEqual(result["next"], want)
+
+    def test_flags_passed_to_the_gate_are_exactly_the_seven(self):
+        seen = []
+        real = finalize_gate.run
+
+        def spy(envelope):
+            seen.append(copy.deepcopy(envelope))
+            return real(envelope)
+
+        with mock.patch.object(finalize_inputs.finalize_gate, "run", spy):
+            finalize_inputs.build_result(load_six_row(), {}, INTERACTIVE)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(set(seen[0]), {"flags"})
+        flags = seen[0]["flags"]
+        self.assertEqual(set(flags), set(finalize_gate.FLAGS))
+        for k in ("state_file_present",) + SWITCH_NAMES:
+            self.assertIs(type(flags[k]), bool)
+        for k in ("outstanding_cw", "unacknowledged_medium", "undecided_nv"):
+            self.assertIs(type(flags[k]), int)
+
+
+class TestBuildResultFailures(ResultCase):
+
+    def test_refuse_malformed_state_gives_exit_state(self):
+        for bad in ({}, {"passes": []}, {"passes": "x"}, [], 7):
+            with self.subTest(state=repr(bad)):
+                self.assertIsNone(carry_state.finalize_counts(bad))
+                self.assertEqual(finalize_inputs.build_result(
+                    bad, {}, INTERACTIVE), (finalize_inputs.EXIT_STATE, None))
+
+    def test_refuse_report_none_on_write_gives_exit_report(self):
+        # A1: no real state has finalize_counts succeed and decisions_report
+        # return None (both refuse on carry_state.state_reason), so the
+        # report's None is patched in.
+        with mock.patch.object(finalize_inputs.batch_card, "decisions_report",
+                               return_value=None):
+            self.assertEqual(finalize_inputs.build_result(
+                dismissed_all_state(), {}, INTERACTIVE),
+                (finalize_inputs.EXIT_REPORT, None))
+
+    def test_report_not_computed_on_non_write(self):
+        with mock.patch.object(finalize_inputs.batch_card, "decisions_report",
+                               side_effect=AssertionError("called")):
+            code, result = finalize_inputs.build_result(load_six_row(), {},
+                                                        INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertIsNone(result["report"])
+
+    def test_refuse_gate_raising_gives_exit_gate(self):
+        with mock.patch.object(finalize_inputs.finalize_gate, "run",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(finalize_inputs.build_result(
+                load_six_row(), {}, INTERACTIVE),
+                (finalize_inputs.EXIT_GATE, None))
+
+    def test_refuse_gate_unknown_action_gives_exit_gate(self):
+        for bad in ({"action": "approve", "reason": "x"}, {"reason": "x"},
+                    None, "write", {"action": None}):
+            with self.subTest(gate=repr(bad)):
+                with mock.patch.object(finalize_inputs.finalize_gate, "run",
+                                       return_value=bad):
+                    self.assertEqual(finalize_inputs.build_result(
+                        load_six_row(), {}, INTERACTIVE),
+                        (finalize_inputs.EXIT_GATE, None))
+
+    def test_refuse_gate_refuse_action_is_a_result(self):
+        with mock.patch.object(finalize_inputs.finalize_gate, "run",
+                               return_value={"action": "refuse",
+                                             "reason": "malformed gate input"}):
+            code, result = finalize_inputs.build_result(load_six_row(), {},
+                                                        INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["next"], "stop-refused")
+
+
+class TestResultMutants(ResultCase):
+
+    def test_mutant_report_exit_mapped_to_state_exit_trips(self):
+        mod = self.mutant("return EXIT_REPORT, None",
+                          "return EXIT_STATE, None")
+        with mock.patch.object(mod.batch_card, "decisions_report",
+                               return_value=None):
+            code, _ = mod.build_result(dismissed_all_state(), {}, INTERACTIVE)
+        self.assertEqual(code, 3)
+        self.assertNotEqual(code, finalize_inputs.EXIT_REPORT)
+
+    def test_mutant_report_on_non_write_trips(self):
+        mod = self.mutant('if action == "write":', "if True:")
+        code, result = mod.build_result(load_six_row(), {}, INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(result["report"])
+        _, real = finalize_inputs.build_result(load_six_row(), {}, INTERACTIVE)
+        self.assertIsNone(real["report"])
+
+    def test_mutant_dropping_undecided_nv_flag_trips(self):
+        mod = self.mutant('"undecided_nv": int(counts["undecided_nv"]),', "")
+        code, result = mod.build_result(dismissed_all_state(), {}, INTERACTIVE)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["action"], "refuse")
+        _, real = finalize_inputs.build_result(dismissed_all_state(), {},
+                                               INTERACTIVE)
+        self.assertEqual(real["action"], "write")
+
+
 class TestImportSet(unittest.TestCase):
     """Import set and subprocess discipline stated in the docstring."""
 
@@ -511,10 +859,10 @@ class TestImportSet(unittest.TestCase):
                 names.update(a.name for a in node.names)
             elif isinstance(node, ast.ImportFrom):
                 names.add(node.module)
-        self.assertEqual(names - {"guard", "fixcommit"},
-                         {"json", "os", "subprocess", "sys"})
-        self.assertIn("guard", names)
-        self.assertIn("fixcommit", names)
+        siblings = {"batch_card", "carry_state", "finalize_gate", "fixcommit",
+                    "guard"}
+        self.assertEqual(names - siblings, {"json", "os", "subprocess", "sys"})
+        self.assertEqual(names & siblings, siblings)
 
     def test_only_path_re_is_taken_from_fixcommit(self):
         froms = [n for n in ast.walk(self.tree)
