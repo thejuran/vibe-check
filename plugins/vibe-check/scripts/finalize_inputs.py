@@ -25,12 +25,15 @@ Omission is how the map tells `carry_state.py finalize-counts` "unbound", and
 that helper fails closed for an absent file. A wrongly shaped state gives `{}`.
 With no last-pass fix verdicts no git command runs at all.
 
-WORKING DIRECTORY. Every git call runs in the caller's `cwd` (None = this
-process's cwd, the session's working directory), exactly where the 2.14.1
-instructions ran them. Calls are not re-rooted at the repo root: git reads
-`HEAD:<file>` from the root whatever the cwd, and reads the pathspec after
-`--` relative to the cwd; re-rooting would make this helper stricter than
-2.14.1 for a session that sits in a subdirectory.
+WORKING DIRECTORY. The repo root is found from the caller's `cwd` (None =
+this process's cwd, the session's working directory); the three per-file
+checks then run from that root, so the finding's root-relative file name means
+the same file in all three. git reads `HEAD:<file>` from the root whatever the
+cwd, but reads the pathspec after `--` relative to the cwd: run from a
+subfolder, `sub/c.ts` would mean `sub/sub/c.ts`, match nothing and exit 0, and
+a file with unsaved or staged edits would be fingerprinted. The 2.14.1
+instructions ran the checks in the session's folder and had that gap; this
+helper deliberately does not.
 
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders. It does not count or gate.
@@ -111,12 +114,12 @@ def _head_blobs(state, cwd):
     for f in files:
         if not PATH_RE.match(f) or not guard.contained(root, f)[0]:
             continue
-        rev = _git(["rev-parse", "HEAD:" + f], cwd)
+        rev = _git(["rev-parse", "HEAD:" + f], root)
         if not _ok(rev):
             continue
-        if not _ok(_git(["diff", "--quiet", "HEAD", "--", f], cwd)):
+        if not _ok(_git(["diff", "--quiet", "HEAD", "--", f], root)):
             continue
-        if not _ok(_git(["diff", "--cached", "--quiet", "--", f], cwd)):
+        if not _ok(_git(["diff", "--cached", "--quiet", "--", f], root)):
             continue
         blob = rev[1].strip()
         if blob:

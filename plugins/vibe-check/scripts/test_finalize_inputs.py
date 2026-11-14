@@ -442,7 +442,7 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", f], cwd)',
+        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", f], root)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
@@ -454,10 +454,36 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", f], cwd)',
+        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", f], root)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
+
+    def test_mutant_checks_in_session_folder_fingerprint_edit_from_subfolder(self):
+        sub = os.path.join(self.repo, "sub")
+        write(self.repo, "sub/c.ts", "c2\n")
+        s = state_for(["sub/c.ts"])
+        out, _ = self.run_helper(s, cwd=sub)
+        self.assertEqual(out, {})
+        mod = self.mutant(
+            '_git(["diff", "--quiet", "HEAD", "--", f], root)',
+            '_git(["diff", "--quiet", "HEAD", "--", f], cwd)')
+        out, _ = self.run_helper(s, cwd=sub, module=mod)
+        self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
+
+    def test_mutant_index_check_in_session_folder_fingerprints_staged_file(self):
+        sub = os.path.join(self.repo, "sub")
+        write(self.repo, "sub/c.ts", "staged\n")
+        git(self.repo, "add", "--", "sub/c.ts")
+        write(self.repo, "sub/c.ts", "c1\n")
+        s = state_for(["sub/c.ts"])
+        out, _ = self.run_helper(s, cwd=sub)
+        self.assertEqual(out, {})
+        mod = self.mutant(
+            '_git(["diff", "--cached", "--quiet", "--", f], root)',
+            '_git(["diff", "--cached", "--quiet", "--", f], cwd)')
+        out, _ = self.run_helper(s, cwd=sub, module=mod)
+        self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
 
     def test_mutant_unconditional_root_query_calls_git_with_no_candidates(self):
         s = state_for(["src/a.ts"], at_pass=1)
