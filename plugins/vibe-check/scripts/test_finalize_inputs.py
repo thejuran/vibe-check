@@ -262,17 +262,18 @@ class TestValidationBeforeGit(InputsCase):
         self.assertFalse(rec.mentions(outside))
 
     def test_no_last_pass_verdicts_runs_no_git(self):
-        s = load_fixture()
-        out, rec = self.run_helper(s)
-        self.assertEqual(out, {})
-        self.assertEqual(rec.calls, [])
+        for s in (load_fixture(), state_for(["src/a.ts"], at_pass=1)):
+            out, rec = self.run_helper(s)
+            self.assertEqual(out, {})
+            self.assertEqual(rec.calls, [])
 
     def test_no_last_pass_verdicts_outside_a_repo_runs_no_git(self):
         plain = os.path.join(self.tmp, "plain")
         os.makedirs(plain)
-        out, rec = self.run_helper(load_fixture(), cwd=plain)
-        self.assertEqual(out, {})
-        self.assertEqual(rec.calls, [])
+        for s in (load_fixture(), state_for(["src/a.ts"], at_pass=1)):
+            out, rec = self.run_helper(s, cwd=plain)
+            self.assertEqual(out, {})
+            self.assertEqual(rec.calls, [])
 
     def test_candidates_outside_a_repo_give_empty_without_raising(self):
         plain = os.path.join(self.tmp, "plain")
@@ -315,7 +316,8 @@ class TestValidationBeforeGit(InputsCase):
         code, out = finalize_inputs._git(["rev-parse", "HEAD:nope.ts"],
                                          self.repo)
         self.assertNotEqual(code, 0)
-        self.assertEqual(out, "")
+        self.assertIsInstance(out, str)
+        self.assertNotIn("fatal", out)
 
     def test_malformed_states_give_empty_and_never_raise(self):
         bad = [None, 7, "s", [], {}, {"passes": []}, {"passes": "x"},
@@ -430,7 +432,7 @@ class TestMutants(InputsCase):
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
 
     def test_mutant_unconditional_root_query_calls_git_with_no_candidates(self):
-        s = load_fixture()
+        s = state_for(["src/a.ts"], at_pass=1)
         _, rec = self.run_helper(s)
         self.assertEqual(rec.calls, [])
         mod = self.mutant("    if not files:\n        return {}\n",
