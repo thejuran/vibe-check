@@ -1024,6 +1024,91 @@ class TestRepro63(unittest.TestCase):
             self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 1, 1])
             self.assertEqual(outcome, "stop")
 
+    # -- 06-config.md ------------------------------------------------------ #
+    # The owner's invocation, substituted for "$ARGUMENTS", and a repo config
+    # that disables one agent. The invoke block prints nothing, so the same
+    # one observation line is appended to it in both runs.
+    CONFIG_ARGS = '"--min-confidence 45 --codex off"'
+    CONFIG_PROBE = "printf 'CONFIG_JSON=%s\\n' \"$CONFIG_JSON\""
+
+    @staticmethod
+    def build_config(repo):
+        gitfixture.write(repo, ".vibe-check.toml",
+                         '[agents]\ndisabled = ["style"]\n')
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+
+    def config_pair(self, label, setter):
+        fences = [setter,
+                  fence_holding(CONFIG_REL, "CONFIG_JSON=$(REPO_ROOT=")
+                  + "\n" + self.CONFIG_PROBE]
+        fresh, control, outcome, _, _ = self.run_pair(
+            label, self.build_config, fences)
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
+        self.assertEqual(fresh[0][1], "")
+        return (self.config_values(fresh[1][1]), self.config_values(control[1]),
+                outcome)
+
+    def config_values(self, out):
+        line = [l for l in out.splitlines() if l.startswith("CONFIG_JSON=")]
+        self.assertEqual(len(line), 1, out)
+        return json.loads(line[0][len("CONFIG_JSON="):])["values"]
+
+    def flag_setter(self, needle):
+        return substitute(fence_holding(CONFIG_REL, needle),
+                          [('"$ARGUMENTS"', self.CONFIG_ARGS)])
+
+    def test_x4_codex_flag_val(self):
+        fresh, control, outcome = self.config_pair(
+            "x4", self.flag_setter("CODEX_FLAG_VAL=$(printf"))
+        self.assertEqual(control["codex"], "off")
+        self.assertEqual(fresh["codex"], "auto")
+        self.assertEqual(outcome, "ignored-setting")
+
+    def test_x5_config_repo_root(self):
+        fresh, control, outcome = self.config_pair(
+            "x5", fence_holding(CONFIG_REL, "CONFIG_REPO_ROOT=$(git rev-parse"))
+        # An empty repo root does not make the helper refuse: it reads no
+        # config file at all and returns the defaults.
+        self.assertEqual(control["disabled"], ["style"])
+        self.assertEqual(fresh["disabled"], [])
+        self.assertEqual(outcome, "ignored-setting")
+
+    def test_x6_min_confidence_flag_val(self):
+        fresh, control, outcome = self.config_pair(
+            "x6", self.flag_setter("MIN_CONFIDENCE_FLAG_VAL=$(printf"))
+        self.assertEqual(control["min_confidence"], 45)
+        self.assertIsNone(fresh["min_confidence"])
+        self.assertEqual(outcome, "ignored-setting")
+
+
+class TestRepro63Record(LockCase):
+    """Every exception has exactly one record row, with a fixture that
+    exists, an allowed outcome and the disposition the rule gives it."""
+
+    def test_record_holds(self):
+        self.assert_holds(record_problems, REPRO_63, EXCEPTIONS)
+
+    def test_mutant_row_removed_trips(self):
+        fewer = [r for r in REPRO_63 if r["id"] != "X1"]
+        self.assertEqual(len(fewer), len(REPRO_63) - 1)
+        self.assert_trips(record_problems, fewer, EXCEPTIONS)
+
+    def test_mutant_fixture_misspelled_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["fixture"] = rows[0]["fixture"] + "_typo"
+        self.assert_trips(record_problems, rows, EXCEPTIONS)
+
+    def test_mutant_unknown_outcome_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["outcome"] = "flaky"
+        self.assert_trips(record_problems, rows, EXCEPTIONS)
+
+    def test_mutant_proposed_off_rule_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["proposed"] = "pin" if rows[0]["proposed"] != "pin" else "fix"
+        self.assert_trips(record_problems, rows, EXCEPTIONS)
+
 
 # --------------------------------------------------------------------------- #
 # This module stays stdlib only.
