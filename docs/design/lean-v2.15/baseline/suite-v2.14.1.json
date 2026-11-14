@@ -1,0 +1,17 @@
+{
+  "baseline_commit": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "captured": "2026-11-14",
+  "command": "pytest -q -p no:cacheprovider (from plugins/vibe-check/scripts)",
+  "errors": 0,
+  "failed": 0,
+  "passed": 3886,
+  "platform": "Darwin 27.2.0",
+  "plugins_tree": "90e0697363ee5c09bb7942a963cf670e16717c4a",
+  "python": "3.12.12",
+  "runner": "pytest 9.0.3",
+  "schema": 1,
+  "seconds": 188,
+  "skipped": 0,
+  "subtests_passed": 5060,
+  "summary_line": "3886 passed, 5060 subtests passed in 187.57s (0:03:07)"
+}

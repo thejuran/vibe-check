@@ -83,7 +83,7 @@ BASELINE_REL = os.path.join("docs", "design", "lean-v2.15", "baseline")
 SCRIPTS_REL = os.path.join("plugins", "vibe-check", "scripts")
 
 REPLAY_VOLATILE_RE = re.compile(rb"^- (HEAD|head|generated( \(UTC\))?): ")
-REPLAY_RULE = ("drop every line matching %s (the commit the report was run at and "
+REPLAY_RULE = ("drop every line matching `%s` (the commit the report was run at and "
                "the time it was written), then sha256 the remaining bytes"
                % REPLAY_VOLATILE_RE.pattern.decode("ascii"))
 REPLAY_FILES = {12: "replay-baseline-v2.14.1.md",

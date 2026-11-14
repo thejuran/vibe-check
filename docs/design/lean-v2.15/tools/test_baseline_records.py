@@ -609,6 +609,76 @@ class TestCli(TempDirCase):
         self.assertEqual(baseline_records.verify_suite_record(REPO_ROOT, rec), [])
 
 
+class TestCommittedBaseline(TempDirCase):
+    """The committed records, re-derived against the real replay.py and the
+    pinned commit. Which replay fingerprint is used depends on how many
+    private recordings this checkout holds (12 in the owner's primary
+    checkout, 0 in a linked worktree or CI); no other count is accepted."""
+
+    def test_committed_baseline_holds(self):
+        count = baseline_records.recording_count(SCRIPTS_DIR)
+        self.assertIn(count, baseline_records.REPLAY_FILES)
+        self.assertEqual(baseline_records.verify_baseline(REPO_ROOT, BASELINE_DIR, SCRIPTS_DIR),
+                         [])
+
+    def test_manifest_lists_exactly_the_files_present(self):
+        manifest = json.loads(read(os.path.join(BASELINE_DIR, "MANIFEST.json")))
+        present = sorted(n for n in os.listdir(BASELINE_DIR) if n != "MANIFEST.json")
+        self.assertEqual(sorted(manifest["files"]), present)
+        self.assertGreaterEqual(len(present), 9)
+        self.assertEqual(manifest["facts"]["transcripts_with_private"], 12)
+        self.assertEqual(manifest["facts"]["transcripts_without_private"], 0)
+        self.assertEqual(manifest["facts"]["replay_normalisation"], baseline_records.REPLAY_RULE)
+
+    def test_suite_record_is_the_released_count(self):
+        rec = json.loads(read(os.path.join(BASELINE_DIR, baseline_records.SUITE_FILE)))
+        self.assertEqual(rec["passed"], 3886)
+        self.assertEqual(rec["failed"], 0)
+        self.assertEqual(rec["skipped"], 0)
+        self.assertEqual(rec["plugins_tree"], PLUGINS_TREE)
+        self.assertEqual(rec["baseline_commit"], BASELINE_COMMIT)
+
+    def test_each_committed_replay_report_matches_its_sidecar(self):
+        for name in baseline_records.REPLAY_FILES.values():
+            with open(os.path.join(BASELINE_DIR, name), "rb") as fh:
+                data = fh.read()
+            self.assertEqual(baseline_records.replay_fingerprint(data),
+                             read(os.path.join(BASELINE_DIR, name + ".sha256")).strip())
+            self.assertNotIn(b"/Users/", data)
+            self.assertTrue(all(len(line) <= 2000 for line in data.splitlines()))
+
+    def _tampered(self, name, old, new):
+        base = os.path.join(self.tmp, "baseline")
+        shutil.copytree(BASELINE_DIR, base)
+        path = os.path.join(base, name)
+        text = read(path)
+        self.assertIn(old, text)
+        mutated = text.replace(old, new, 1)
+        self.assertNotEqual(mutated, text)
+        write(path, mutated)
+        return baseline_records.verify_baseline(REPO_ROOT, base, SCRIPTS_DIR)
+
+    def test_mutant_suite_record_character_changed(self):
+        problems = self._tampered(baseline_records.SUITE_FILE, '"passed": 3886', '"passed": 3887')
+        self.assertTrue(problems)
+        self.assertTrue(any(p.startswith("suite-v2.14.1.json: ") for p in problems), problems)
+        self.assertTrue(all("suite-v2.14.1.json" in p for p in problems), problems)
+
+    def test_mutant_steps_record_character_changed(self):
+        problems = self._tampered("steps-v2.14.1.json", '"model_run_steps": 92',
+                                  '"model_run_steps": 93')
+        self.assertTrue(any(p.startswith("steps-v2.14.1.json: total differs") for p in problems),
+                        problems)
+        self.assertTrue(all("steps-v2.14.1.json" in p for p in problems), problems)
+
+    def test_mutant_replay_report_character_changed(self):
+        name = baseline_records.expected_replay_file(
+            baseline_records.recording_count(SCRIPTS_DIR))
+        problems = self._tampered(name, "REPRODUCED", "REPRODUCEd")
+        self.assertTrue(any(p.startswith(name + ": ") for p in problems), problems)
+        self.assertTrue(all(name in p for p in problems), problems)
+
+
 class TestImportSet(unittest.TestCase):
     def _tree(self):
         with open(BASELINE_RECORDS_PY, encoding="utf-8") as fh:
