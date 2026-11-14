@@ -235,6 +235,166 @@ class TestRunFence(unittest.TestCase):
         self.assertEqual((rc, out, err), (3, "", "boom\n"))
 
 
+def _pinned_counts(vc_root, state_path, tmp):
+    """The pinned counts helper's JSON for `state_path` with empty HEAD
+    fingerprints, run in a child process."""
+    blobs = os.path.join(tmp, "blobs.json")
+    with open(blobs, "w", encoding="utf-8") as fh:
+        fh.write("{}")
+    with open(state_path, encoding="utf-8") as fh:
+        proc = subprocess.run(
+            ["python3", os.path.join(vc_root, "scripts", "carry_state.py"),
+             "finalize-counts", "--head-blobs", blobs],
+            stdin=fh, capture_output=True, text=True, timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr)
+    return json.loads(proc.stdout)
+
+
+def _gate_actions(outputs):
+    return [d["action"] for d in outputs["gate"]]
+
+
+class TestCloseRoutes(_PinnedTree):
+    """The two close routes walked from the pinned fences."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.outputs = {}
+        try:
+            for sid in ("clean-close", "card-first"):
+                work = tempfile.mkdtemp(prefix="fc-walk-", dir=cls._tmp)
+                cls.outputs[sid] = fc.FenceWalk2141().run(sid, cls.vc_root,
+                                                          work)
+        except BaseException:
+            shutil.rmtree(cls._tmp, True)
+            raise
+
+    def test_outputs_follow_the_fixed_schema(self):
+        for sid, out in self.outputs.items():
+            self.assertEqual(set(out), set(fc.OUTPUT_KEYS), sid)
+            self.assertEqual(set(out["tally"]), set(fc.TALLY_KEYS), sid)
+            for step in out["steps"]:
+                self.assertEqual(set(step), set(fc.STEP_KEYS), sid)
+
+    def test_clean_close_writes(self):
+        out = self.outputs["clean-close"]
+        self.assertEqual(_gate_actions(out), ["write"])
+        self.assertTrue(out["report"]["entries"])
+        self.assertIsNone(out["stop_sentence"])
+        self.assertGreaterEqual(out["tally"]["writes"], 1)
+        self.assertGreaterEqual(out["tally"]["commands_run"], 3)
+        self.assertTrue(out["state_closed"])
+        self.assertTrue(out["files_archived"])
+
+    def test_card_first_shows_the_card_before_any_write(self):
+        out = self.outputs["card-first"]
+        actions = _gate_actions(out)
+        self.assertNotEqual(actions[0], "write")
+        self.assertEqual(actions[-1], "write")
+        ids = [s["id"] for s in out["steps"]]
+        self.assertIn("card", ids)
+        card_at = ids.index("card")
+        gate_steps = [i for i, s in enumerate(out["steps"])
+                      if s["id"] == "gate"]
+        write_gate = [i for i in gate_steps
+                      if json.loads(out["steps"][i]["stdout"].strip()
+                                    .splitlines()[-1])["action"] == "write"]
+        self.assertTrue(write_gate)
+        self.assertLess(card_at, write_gate[0])
+        self.assertTrue(out["steps"][card_at]["stdout"].strip())
+        # the owner's answers were saved before the final gate
+        record_at = ids.index("record-decisions")
+        self.assertLess(card_at, record_at)
+        self.assertLess(record_at, write_gate[0])
+        self.assertTrue(out["report"]["entries"])
+        self.assertIsNone(out["stop_sentence"])
+
+    def test_owner_answers_are_fixed_strings(self):
+        answers = fc.SITUATIONS["card-first"]["inputs"]["owner_answers"]
+        self.assertEqual(answers, [{"q1": "dismiss 1,2,3,4,5,6 -- walk",
+                                    "q2": None}])
+
+    def test_fixture_six_row_has_open_findings(self):
+        state = os.path.join(self.vc_root, *fc.SIX_ROW.split("/"))
+        counts = _pinned_counts(self.vc_root, state, self._tmp)
+        self.assertTrue(counts["outstanding_cw_hashes"]
+                        + counts["unacknowledged_medium_hashes"]
+                        + counts["undecided_nv_hashes"])
+
+    def test_fixture_clean_close_state_has_none(self):
+        dest = os.path.join(tempfile.mkdtemp(dir=self._tmp), "state.json")
+        fc.prepare_state(self.vc_root, "clean-close", dest)
+        counts = _pinned_counts(self.vc_root, dest, self._tmp)
+        self.assertEqual((counts["outstanding_cw"],
+                          counts["unacknowledged_medium"],
+                          counts["undecided_nv"]), (0, 0, 0))
+        # and the fixture it starts from did have some
+        raw = os.path.join(self.vc_root, *fc.LOOP_STATE.split("/"))
+        before = _pinned_counts(self.vc_root, raw, self._tmp)
+        self.assertTrue(before["outstanding_cw_hashes"]
+                        + before["unacknowledged_medium_hashes"]
+                        + before["undecided_nv_hashes"])
+
+    def test_unwalked_situations_raise_a_named_usage_error(self):
+        for sid in ("one-rebuild", "refused-close", "fresh-shell-restart"):
+            work = tempfile.mkdtemp(dir=self._tmp)
+            with self.assertRaises(fc.UsageError) as ctx:
+                fc.FenceWalk2141().run(sid, self.vc_root, work)
+            self.assertIn(sid, str(ctx.exception))
+
+    def test_no_stray_files_outside_the_work_directory(self):
+        root = tempfile.mkdtemp(prefix="fc-root-")
+        self.addCleanup(shutil.rmtree, root, True)
+        work = tempfile.mkdtemp(prefix="fc-work-", dir=root)
+        fc.FenceWalk2141().run("clean-close", self.vc_root, work)
+        self.assertEqual(os.listdir(root), [os.path.basename(work)])
+        self.assertTrue(os.listdir(work))
+        shutil.rmtree(work)
+        self.assertEqual(os.listdir(root), [])
+
+
+class TestCaptureOne(unittest.TestCase):
+    def _capture(self, sid):
+        root = tempfile.mkdtemp(prefix="fc-cap-")
+        self.addCleanup(shutil.rmtree, root, True)
+        out = fc.capture_one(REPO, sid, tmp_root=root)
+        self.assertEqual(os.listdir(root), [], "capture_one left files")
+        return root, out
+
+    def test_clean_close_is_deterministic(self):
+        root_a, a = self._capture("clean-close")
+        root_b, b = self._capture("clean-close")
+        self.assertNotEqual(root_a, root_b)
+        self.assertEqual(fc.canonical_json(a), fc.canonical_json(b))
+        self.assertNotIn(root_a, fc.canonical_json(a))
+
+    def test_card_first_is_deterministic(self):
+        _, a = self._capture("card-first")
+        _, b = self._capture("card-first")
+        self.assertEqual(fc.canonical_json(a), fc.canonical_json(b))
+
+    def test_normaliser_mutant_makes_captures_differ(self):
+        def identity(text, workdir, vc_root=None):
+            return text
+        with mock.patch.object(fc, "normalise", identity):
+            self.assertIs(fc.normalise, identity)
+            root_a, a = self._capture("clean-close")
+            root_b, b = self._capture("clean-close")
+        self.assertNotEqual(root_a, root_b)
+        self.assertIn(root_a, fc.canonical_json(a))
+        self.assertNotEqual(fc.canonical_json(a), fc.canonical_json(b))
+
+    def test_unwalked_situation_raises_and_cleans_up(self):
+        root = tempfile.mkdtemp(prefix="fc-cap-")
+        self.addCleanup(shutil.rmtree, root, True)
+        with self.assertRaises(fc.UsageError) as ctx:
+            fc.capture_one(REPO, "refused-close", tmp_root=root)
+        self.assertIn("refused-close", str(ctx.exception))
+        self.assertEqual(os.listdir(root), [])
+
+
 class TestImportSet(unittest.TestCase):
     ALLOWED = {"argparse", "hashlib", "json", "os", "re", "shutil",
                "subprocess", "sys", "tempfile", "textwrap"}
