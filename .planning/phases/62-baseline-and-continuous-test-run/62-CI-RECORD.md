@@ -1,6 +1,6 @@
 # Phase 62 CI record
 
-**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done. Not yet run: the recording run on GitHub's Linux machines, the pinned skip list, the green run on the phase branch, the red proof. `main`'s first run is plan 62-09.
+**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded. Not yet run: the red proof. `main`'s first run is plan 62-09.
 
 Precondition (checked before anything else): primary checkout `/Users/julianamacbook/turingmind-code-review` (`git rev-parse --absolute-git-dir` equals the common git dir), branch `feat/v2.15-phase-62`, HEAD `776cdd9245bea6418ffa7849eabc2565e2ed9209`. The workflow, both guard scripts, `docs/design/lean-v2.15/baseline/MANIFEST.json` and `docs/design/lean-v2.15/BASELINE-v2.14.1.md` are all present on the branch.
 
@@ -85,11 +85,22 @@ Checks (from `gh run view 43566043041 --json conclusion,url,headSha,jobs` and th
 
 ## Green run on the phase branch
 
-(Not yet run.)
+| Branch | Commit | Run | Conclusion | Suite summary | Deselected | Skipped |
+|--------|--------|-----|------------|---------------|------------|---------|
+| `feat/v2.15-phase-62` | `4231836783be8bb1f2334cf33e2c4f15c27296ad` | https://github.com/thejuran/vibe-check/actions/runs/43567045328 | success | `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 176.29s (0:02:56)` | 5 | 2 |
+
+Commit `4231836` holds the pinned list (it is the pin commit). Every step concluded `success`: Stdlib-only check `33 shipped .py files; third-party imports: none`; Left-out list guard `left-out list matches the recorded five`; Left-out count guard `suite log: 5 deselected, no failure (…)`; Skip guard printed the same two `OBSERVED-SKIP` lines as the recording run, `OBSERVED-SKIP-COUNT 2` and `skipped set matches the recorded 2`. The log holds no `FAILED` or `ERROR` line. The passed count is 5 higher than the recording run (4319) because the pin commit replaced one guard test with six.
+
+The runner skips 2 tests (the pinned two); on the owner's Mac in the primary checkout both run and the 2.14.1 baseline has 0 skips. The plugin tree at `4231836` is still `90e0697363ee5c09bb7942a963cf670e16717c4a`.
 
 ## Runner findings
 
-(Not yet run.)
+None beyond the recorded five and the recorded skips. No class S or T attempt was needed (0 of 3 used); no class P, G or K finding.
+
+- A1 (Python 3.14 available through `actions/setup-python` on ubuntu-24.04): held, `Successfully set up CPython (3.14.10)` in both runs.
+- A2 (the real x64 runner gives the container's result): held in substance. 0 failed with the five left out, as in the container. The container saw 2 skips from the same two tests; the real runner skipped exactly those two, with the reasons above.
+- Linux determinism of this phase's own records: the whole `docs/design/lean-v2.15/tools` suite passed on the runner in both runs, including `test_finalize_capture.py` (re-derives the committed Finalize captures, so far only checked on macOS) and `test_baseline_records.py` (re-derives the 0-recording replay report). No disagreement with the committed records on Linux.
+- Note: the first `gh run list --workflow offline-suite.yml` call after the first push returned `HTTP 404: workflow offline-suite.yml not found on the default branch`; the retry seconds later found the run. The workflow file is not on `main` yet; this did not affect any run.
 
 ## Red proof
 
