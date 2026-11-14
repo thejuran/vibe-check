@@ -46,7 +46,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 8/11 | In Progress|  |
+| 62. Baseline and continuous test run | 9/11 | In Progress|  |
 | 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
@@ -67,7 +67,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
   4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
   5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
 
-**Plans:** 8/11 plans executed
+**Plans:** 9/11 plans executed
 
 Plans:
 **Wave 1**
@@ -89,7 +89,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 62-11-PLAN.md — the plain-terms baseline page and kit README, figures locked to the records (BASE-03)
+- [x] 62-11-PLAN.md — the plain-terms baseline page and kit README, figures locked to the records (BASE-03)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
