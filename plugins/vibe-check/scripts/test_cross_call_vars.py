@@ -10,6 +10,7 @@ This module walks every phase file and flags each read of a variable that an
 earlier fence of the same file set without printing it.
 """
 import ast
+import importlib.util
 import os
 import re
 import unittest
@@ -259,6 +260,74 @@ def cross_call_reads(text):
                 continue
             found.add((name, i, j))
     return sorted(found)
+
+
+# --------------------------------------------------------------------------- #
+# The whole tree.
+# --------------------------------------------------------------------------- #
+PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(PLUGIN_ROOT))
+STEP_COUNT_PY = os.path.join(
+    REPO_ROOT, "docs", "design", "lean-v2.15", "tools", "step_count.py")
+
+# Today's flagged places, by file and variable name, each with the id of its
+# fresh-shell reproduction record. The check fails on a flag not listed here
+# AND on a listed pair that no longer flags, so the list can only shrink.
+EXCEPTIONS = {
+    ("phases/review/00-scope.md", "PHASE_DIR"): "X1",
+    ("phases/review/05-state.md", "LEGACY_STATE_FILE"): "X2",
+    ("phases/review/05-state.md", "STATE_FILE"): "X3",
+    ("phases/review/06-config.md", "CODEX_FLAG_VAL"): "X4",
+    ("phases/review/06-config.md", "CONFIG_REPO_ROOT"): "X5",
+    ("phases/review/06-config.md", "MIN_CONFIDENCE_FLAG_VAL"): "X6",
+}
+
+KNOWN_LIMITS = (
+    "The check covers plugins/vibe-check/phases/ only; command and agent "
+    "files are not scanned.",
+    "The check is same-file: a read whose setter is in another file is not "
+    "checked.",
+)
+
+
+def phase_files():
+    """Every .md file under PLUGIN_ROOT/phases, in sorted order."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(os.path.join(PLUGIN_ROOT, "phases")):
+        dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+        found += [os.path.join(dirpath, n) for n in filenames if n.endswith(".md")]
+    return sorted(found)
+
+
+def flagged_pairs():
+    """{(path under the plugin root, NAME)} for every cross-call read."""
+    pairs = set()
+    for path in phase_files():
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        rel = os.path.relpath(path, PLUGIN_ROOT).replace(os.sep, "/")
+        pairs |= {(rel, name) for name, _, _ in cross_call_reads(text)}
+    return pairs
+
+
+def check_exceptions(flagged, exceptions):
+    """Problems when the flagged set and the named exceptions differ."""
+    listed = set(exceptions)
+    return (["new cross-call read: %s %s" % p for p in sorted(flagged - listed)]
+            + ["listed but no longer flagged: %s %s" % p
+               for p in sorted(listed - flagged)])
+
+
+def load_step_count():
+    spec = importlib.util.spec_from_file_location("step_count", STEP_COUNT_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def remove(text, needle):
+    assert needle in text, needle
+    return text.replace(needle, "")
 
 
 class LockCase(unittest.TestCase):
