@@ -42,11 +42,11 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:discuss-phase 62` on branch `feat/v2.15-phase-62`. This roadmap does not authorize paid runs.
+**Next action:** `/bm:execute-phase 62` on branch `feat/v2.15-phase-62` (9 plans, 4 waves). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 0/TBD | Not started | - |
+| 62. Baseline and continuous test run | 0/9 | Planned | - |
 | 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
@@ -67,7 +67,18 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
   4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
   5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
 
-**Plans**: TBD
+**Plans:** 9 plans in 4 waves
+
+Plans:
+- [ ] 62-01-PLAN.md — stdlib-only check and the left-out list guard for CI, each with mutants (CI-01)
+- [ ] 62-02-PLAN.md — the one GitHub Actions workflow and its shape locks (CI-01)
+- [ ] 62-03-PLAN.md — step-counting rule as a script, 2.14.1 step counts, improvement criterion and comparison workload (BASE-04)
+- [ ] 62-04-PLAN.md — the five Finalize situations captured from the pinned 2.14.1 commit with a fingerprint (BASE-03)
+- [ ] 62-05-PLAN.md — mode-path bytes and labelled loaded-file traces for plain review, deep review and Finalize (BASE-02)
+- [ ] 62-06-PLAN.md — usage-field reader and the cost visibility go/no-go note (BASE-01)
+- [ ] 62-07-PLAN.md — suite and replay baseline, manifest and the plain-terms baseline page (BASE-03)
+- [ ] 62-08-PLAN.md — CI proof before merge: green on the phase branch, red on a throwaway branch (CI-02)
+- [ ] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
 
 ### Phase 63: Finalize extraction and cross-call variable check
 
