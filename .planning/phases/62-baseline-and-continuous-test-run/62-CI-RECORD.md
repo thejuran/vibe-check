@@ -36,8 +36,12 @@ The recorded tests still run on the owner's Mac at every release gate, where the
 
 | # | Test id | Reason | Group |
 |---|---------|--------|-------|
+| 1 | `plugins/vibe-check/scripts/test_lanearchive.py::TestSandboxTempRoot::test_real_sandbox_root_tmp_and_private_tmp_forms` | `no sandbox temp root on this machine` | lane-archive (the test's own `skipTest` when `/tmp/claude-<uid>` is absent; test_lanearchive.py:415-416) |
+| 2 | `plugins/vibe-check/scripts/test_replay.py::TestReconstruction::test_transcript_recovery_covers_survivor_agents` | `Phase-40 transcripts are local-only (gitignored); a linked worktree has none to recover from` | replay (the test's own `skipIf(IN_LINKED_WORKTREE)`; test_replay.py:281-282) |
 
-(Filled from the recording run.)
+Count: **2**, taken from the recording run https://github.com/thejuran/vibe-check/actions/runs/43566043041 and pinned in `RECORDED_SKIPS` in `.github/scripts/left_out_guard.py`. `skip_list_problems` on the observed pairs returned `[]` (both inside the two approved groups, each with its file's exact reason).
+
+Difference from the owner's Mac: in a linked worktree on the Mac (local run below) only the replay test skips, because the Mac has a `/tmp/claude-<uid>` sandbox root and the lane-archive test runs. In the primary checkout on the Mac, where the 2.14.1 baseline was taken, both tests run and the baseline has 0 skips.
 
 ## Local run of the CI commands
 
@@ -66,7 +70,18 @@ Skips seen on the owner's Mac in a linked worktree (for comparison only; never p
 
 ## Recording run (D-20)
 
-(Not yet run.)
+| Branch | Commit | Run | Conclusion | Failing step | Suite summary |
+|--------|--------|-----|------------|--------------|---------------|
+| `feat/v2.15-phase-62` | `385cbab119064c4c610dcd41c318046c0fe3080c` | https://github.com/thejuran/vibe-check/actions/runs/43566043041 | failure | Skip guard | `4319 passed, 2 skipped, 5 deselected, 5298 subtests passed in 209.65s (0:03:29)` |
+
+This is the recording run. It is red by design at the skip guard step because no skip list existed yet. It is not a green run and is not counted as one.
+
+Checks (from `gh run view 43566043041 --json conclusion,url,headSha,jobs` and the run log):
+- Steps: Checkout, Setup Python (`Successfully set up CPython (3.14.10)`), Test-only tools, Stdlib-only check (`33 shipped .py files; third-party imports: none`), Left-out list guard (`left-out list matches the recorded five`), Offline suite and Left-out count guard (`suite log: 5 deselected, no failure (…)`) all `success`; Skip guard `failure`, the only failing step.
+- Skip guard output: `SKIP LIST NOT YET RECORDED — THIS IS A RECORDING RUN, NOT A GREEN RUN — STOPPING`.
+- Suite summary: `5 deselected`, no `failed` or `error`.
+- `-rs` lines: `SKIPPED [1] plugins/vibe-check/scripts/test_lanearchive.py:413: no sandbox temp root on this machine` and `SKIPPED [1] plugins/vibe-check/scripts/test_replay.py:281: Phase-40 transcripts are local-only (gitignored); a linked worktree has none to recover from`.
+- `OBSERVED-SKIP` lines: 2; `OBSERVED-SKIP-COUNT 2`; summary `2 skipped`. All three agree.
 
 ## Green run on the phase branch
 

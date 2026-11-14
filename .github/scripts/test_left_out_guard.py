@@ -309,8 +309,102 @@ class TestCheckSkipsNotRecorded(SkipCase):
         self.assertIn(NOT_RECORDED_STOP, err)
         self.assertIn("OBSERVED-SKIP-COUNT 0", out)
 
-    def test_skip_list_is_not_yet_recorded(self):
-        self.assertIsNone(log_guard.RECORDED_SKIPS)
+
+# The list pinned from the runner's recording run (D-20).
+RECORDED_SKIP_COUNT_AT_PIN = 2
+EXTRA_SKIP_PAIR = (REPLAY + "TestCensus::test_census", REPLAY_REASON)
+
+
+def _cases_skipping(pairs):
+    """Synthetic result-file rows that skip exactly `pairs`, plus two that ran."""
+    rows = []
+    for test_id, reason in pairs:
+        path, cls, func = test_id.split("::")
+        module = path[:-len(".py")].replace("/", ".")
+        rows.append(("%s.%s" % (module, cls), func, reason))
+    rows.append(("plugins.vibe-check.scripts.test_replay.TestCensus", "test_census", None))
+    rows.append(("plugins.vibe-check.scripts.test_footprint.TestImportSet", "test_imports", None))
+    return rows
+
+
+class TestPinnedSkipList(SkipCase):
+    def pinned_files(self):
+        pinned = log_guard.RECORDED_SKIPS
+        summary = ("4319 passed, %d skipped, 5 deselected, 5298 subtests passed in 209.65s"
+                   % len(pinned))
+        return self.files(_cases_skipping(pinned), summary)
+
+    def run_pinned(self, recorded):
+        xml, logp = self.pinned_files()
+        with mock.patch.object(log_guard, "RECORDED_SKIPS", recorded):
+            return run_main(["check-skips", xml, logp])
+
+    def test_skip_list_is_recorded(self):
+        pinned = log_guard.RECORDED_SKIPS
+        self.assertIsNotNone(pinned)
+        self.assertEqual(len(pinned), RECORDED_SKIP_COUNT_AT_PIN)
+        self.assertEqual(log_guard.skip_list_problems(pinned), [])
+        for test_id, _reason in pinned:
+            with self.subTest(test_id=test_id):
+                path, cls, func = test_id.split("::")
+                classes = [n for n in _parse(path).body
+                           if isinstance(n, ast.ClassDef) and n.name == cls]
+                self.assertEqual(len(classes), 1, cls)
+                funcs = {n.name for n in classes[0].body if isinstance(n, ast.FunctionDef)}
+                self.assertIn(func, funcs)
+
+    def test_pinned_set_passes_unpatched(self):
+        xml, logp = self.pinned_files()
+        code, out, _err = run_main(["check-skips", xml, logp])
+        self.assertEqual(code, 0)
+        self.assertIn("skipped set matches the recorded %d" % RECORDED_SKIP_COUNT_AT_PIN, out)
+
+    def test_break_back_to_none_is_a_recording_run(self):
+        code, _out, err = self.run_pinned(None)
+        self.assertEqual(code, 1)
+        self.assertIn(NOT_RECORDED_STOP, err)
+
+    def test_break_one_pair_removed_reports_unexpected(self):
+        pinned = log_guard.RECORDED_SKIPS
+        removed = pinned[1:]
+        self.assertEqual(len(removed), len(pinned) - 1)
+        code, _out, err = self.run_pinned(removed)
+        self.assertEqual(code, 1)
+        self.assertIn(SKIP_STOP, err)
+        self.assertIn("unexpected %s — %s" % pinned[0], err)
+
+    def test_break_one_pair_added_reports_missing(self):
+        pinned = log_guard.RECORDED_SKIPS
+        self.assertNotIn(EXTRA_SKIP_PAIR, pinned)
+        added = tuple(sorted(pinned + (EXTRA_SKIP_PAIR,)))
+        self.assertEqual(len(added), len(pinned) + 1)
+        code, _out, err = self.run_pinned(added)
+        self.assertEqual(code, 1)
+        self.assertIn(SKIP_STOP, err)
+        self.assertIn("missing %s — %s" % EXTRA_SKIP_PAIR, err)
+
+    def test_break_one_reason_changed_reports_unexpected_and_missing(self):
+        pinned = log_guard.RECORDED_SKIPS
+        test_id, reason = pinned[0]
+        changed_reason = reason[:-1] + ("X" if reason[-1] != "X" else "Y")
+        changed = ((test_id, changed_reason),) + pinned[1:]
+        self.assertNotEqual(changed, pinned)
+        # The runtime rule refuses a reason that is not the approved one for its file.
+        code, _out, err = self.run_pinned(changed)
+        self.assertEqual(code, 1)
+        self.assertIn("RECORDED SKIP LIST BREAKS THE APPROVED-GROUP RULE — STOPPING", err)
+        # With the rule moved to the changed reason too, the set comparison still
+        # catches it on its own: both directions name the id.
+        prefix = test_id.split("::")[0] + "::"
+        approved = tuple((p, changed_reason if p == prefix else r)
+                         for p, r in log_guard.APPROVED_SKIP_REASONS)
+        self.assertNotEqual(approved, log_guard.APPROVED_SKIP_REASONS)
+        with mock.patch.object(log_guard, "APPROVED_SKIP_REASONS", approved):
+            code, _out, err = self.run_pinned(changed)
+        self.assertEqual(code, 1)
+        self.assertIn(SKIP_STOP, err)
+        self.assertIn("unexpected %s — %s" % (test_id, reason), err)
+        self.assertIn("missing %s — %s" % (test_id, changed_reason), err)
 
 
 class TestCheckSkipsMatch(SkipCase):

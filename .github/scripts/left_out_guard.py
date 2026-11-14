@@ -56,7 +56,18 @@ RECORDED_FIVE = (
 # run. The printed set is copied here (only if every entry passes
 # skip_list_problems), and only a later run on that pinned commit can be
 # called green. An empty tuple means "recorded: no skips expected".
-RECORDED_SKIPS = None
+#
+# Recorded from the runner's first complete run (ubuntu-24.04, Python 3.14.10),
+# https://github.com/thejuran/vibe-check/actions/runs/43566043041 on commit
+# 385cbab119064c4c610dcd41c318046c0fe3080c, 2026-11-14. Copied character for
+# character from its OBSERVED-SKIP lines, sorted by id. Pinned once: a later
+# difference is a stop, never an edit to this list.
+RECORDED_SKIPS = (
+    ("plugins/vibe-check/scripts/test_lanearchive.py::TestSandboxTempRoot::test_real_sandbox_root_tmp_and_private_tmp_forms",
+     "no sandbox temp root on this machine"),
+    ("plugins/vibe-check/scripts/test_replay.py::TestReconstruction::test_transcript_recovery_covers_survivor_agents",
+     "Phase-40 transcripts are local-only (gitignored); a linked worktree has none to recover from"),
+)
 
 # The only skip reasons a recorded entry may carry, one per approved file.
 # Each is the exact string its test file passes to skipIf / skipTest.
