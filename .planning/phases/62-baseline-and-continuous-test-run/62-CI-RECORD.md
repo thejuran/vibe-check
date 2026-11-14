@@ -1,6 +1,6 @@
 # Phase 62 CI record
 
-**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded, red proof recorded and its branch deleted. Remaining: `main`'s first run (plan 62-09); CI-02 stays open until then. `main`'s first run is plan 62-09.
+**Status (2026-11-14):** tree identity checked, D-18 exception reproduced, local run of the exact CI commands done, recording run done, skip list pinned (2 entries), green run on the phase branch recorded, red proof recorded and its branch deleted, pull request #9 opened and green on its head commit. Remaining: `main`'s first run (plan 62-09); CI-02 stays open until then. `main`'s first run is plan 62-09.
 
 Precondition (checked before anything else): primary checkout `/Users/julianamacbook/turingmind-code-review` (`git rev-parse --absolute-git-dir` equals the common git dir), branch `feat/v2.15-phase-62`, HEAD `776cdd9245bea6418ffa7849eabc2565e2ed9209`. The workflow, both guard scripts, `docs/design/lean-v2.15/baseline/MANIFEST.json` and `docs/design/lean-v2.15/BASELINE-v2.14.1.md` are all present on the branch.
 
@@ -117,3 +117,25 @@ Checks (from `gh run view 43568391505 --json conclusion,url,headSha,jobs` and `-
 4. The failed log names the test and shows one failure: holds. Header `TestPinnedRev.test_deep_review_pinned_numbers`, `plugins/vibe-check/scripts/test_footprint.py:145: AssertionError`, `AssertionError: 84534 != 84535`, summary `1 failed, 4323 passed, 2 skipped, 5 deselected, 5300 subtests passed in 245.12s (0:04:05)`.
 
 Clean-up: `git push origin --delete ci-red-proof` (`[deleted]`), temporary worktree removed, `git branch -D ci-red-proof` (`was 29f9acd`). Afterwards `git ls-remote --heads origin ci-red-proof` and `git branch --list ci-red-proof` print nothing, and `gh pr list --head ci-red-proof --state all --json number` prints `[]`: no pull request was opened. `main` was not touched: `origin/main` was `eb790e4b4a7a23ef3123273314e4633d6e1f6720` before and after. The phase branch's plugin tree is unchanged by this task: `git diff --stat dd8e4ab… feat/v2.15-phase-62 -- plugins` prints nothing.
+
+## Pull request
+
+Pull request #9, `feat/v2.15-phase-62` into `main`: https://github.com/thejuran/vibe-check/pull/9 (title `Phase 62: baseline and continuous test run`, opened 2026-11-14; no reviewers, labels or repository settings touched; `gh api repos/thejuran/vibe-check/branches/main --jq .protected` printed `false` before it was opened).
+
+Head commit when opened: `cf0baf491e1861abfd7ce93fcb185651530a60b5` (the phase branch was pushed from `4231836` to `cf0baf4` first, no force; the four commits pushed are planning records only).
+
+| Event | Run | Conclusion | Deselected | Skipped |
+|-------|-----|------------|------------|---------|
+| push | https://github.com/thejuran/vibe-check/actions/runs/43569640988 | success | 5 | 2 |
+| pull_request | https://github.com/thejuran/vibe-check/actions/runs/43569757945 | success | 5 | 2 |
+
+Checks (from `gh run view <id> --json conclusion,headSha,event,jobs` and each run's log), both runs at head `cf0baf491e1861abfd7ce93fcb185651530a60b5`:
+- Every step `success`: Checkout, Setup Python, Test-only tools, Stdlib-only check (`33 shipped .py files; third-party imports: none`), Left-out list guard (`left-out list matches the recorded five`), Offline suite, Left-out count guard, Skip guard.
+- Suite summary, push run: `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 179.31s (0:02:59)`.
+- Suite summary, pull-request run: `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed in 171.04s (0:02:51)`.
+- Skip guard, both runs: the same two `OBSERVED-SKIP` lines as the pinned list, `OBSERVED-SKIP-COUNT 2`, `skipped set matches the recorded 2`. No `FAILED` or `ERROR` line in either log.
+- The pull-request run tests GitHub's trial merge of the branch into `main` (`HEAD is now at 078d63b Merge cf0baf491e1861abfd7ce93fcb185651530a60b5 into eb790e4b4a7a23ef3123273314e4633d6e1f6720`), so it also shows the branch passes once combined with current `main`.
+
+Tree identity at the head commit: `git rev-parse cf0baf491e1861abfd7ce93fcb185651530a60b5:plugins` prints `90e0697363ee5c09bb7942a963cf670e16717c4a`, the 2.14.1 plugin tree.
+
+The commit that adds this section starts two more runs (push and pull_request) on the new head. Their rows are not added here (another edit would start more runs); they are named in the plan summary and written under `### Final commit` at the phase's closing step, once the pull request's final commit is known.
