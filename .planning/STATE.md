@@ -1,39 +1,39 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.14
-milestone_name: Decision reliability
-status: "Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1"
-stopped_at: "2.14.1 shipped 2026-10-30 (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release; fixes 999.28); next: /bm:new-milestone for Lean orchestration"
-last_updated: "2026-11-14T03:13:22Z"
-last_activity: 2026-10-30 -- 2.14.1 released (PR #8 merged, tag v2.14.1, GitHub release v2.14.1); 999.28 fixed on all routes except --all
+milestone: v2.15
+milestone_name: Lean orchestration
+status: "planning — v2.15 Lean orchestration started; defining requirements and roadmap"
+stopped_at: "v2.15 activated 2026-11-13 via /bm:new-milestone (research skipped); requirements and roadmap being defined; no code changed"
+last_updated: "2026-11-14T03:17:48.260Z"
+last_activity: 2026-11-13 -- milestone v2.15 Lean orchestration started (branch feat/v2.15-phase-62)
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 27
-  completed_plans: 27
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-30)
+See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Between milestones — Lean orchestration next via /bm:new-milestone
+**Current focus:** v2.15 Lean orchestration — defining requirements and roadmap
 
 ## Current Position
 
-Phase: 61 (release-gate-decision-reliability) — SHIPPED (last phase of v2.14)
-Plan: 5 of 5
-Status: Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1
-Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, flows 5/5); archived to .planning/milestones/v2.14-*; no tag made
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-11-13 — Milestone v2.15 started
 
 ## Operator Next Steps
 
 - Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
-- /bm:new-milestone for Lean orchestration (999.12 feasibility, continuous test run, Finalize-first extraction with the general cross-call variable check)
+- Approve the v2.15 requirements and roadmap, then /bm:discuss-phase 62
 
 ## Deferred Items
 
@@ -64,7 +64,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.14 Decision reliability is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.15 Lean orchestration is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -79,6 +79,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-13: Activated v2.15 Lean orchestration via /bm:new-milestone (research skipped by owner; scope = the owner-approved roadmap section; equivalence baseline 2.14.1 dd8e4ab). Branch feat/v2.15-phase-62 from main 69117d9. Phases continue from 62.
 
 2026-11-13: Planning only, no code or release. Codebase map (`.planning/codebase/`) and intel (`.planning/intel/`) rebuilt at eb790e4; drift scan scored 100 with no findings (Python coverage of that scan unconfirmed). Owner approved three roadmap changes: Lean orchestration gains a continuous test run (new item 2) and a general cross-call variable check inside the Finalize extraction; backlog 999.31 groups the remaining decision-continuity limits as one design question for after Lean orchestration; 999.32 carries C4 out of the shipped 999.28. Three smaller remap observations were recorded in backlog/MAINTENANCE.md (architecture.md "Removed" entry, score.py/score43.py cross-check, unlabelled pinned tests). No milestone activated; next is still /bm:new-milestone.
 

@@ -16,11 +16,20 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Next Milestone Goals: Lean orchestration (not yet activated)
+## Current Milestone: v2.15 Lean orchestration
 
-Reduce model-interpreted mechanical instructions and fragile handoffs, starting with Finalize extraction. The first step is a bounded cost-visibility feasibility check from existing records (999.12). Behaviour delivered by v2.14 must be preserved, and Reviewer efficiency stays conditional. This milestone activates via `/bm:new-milestone` after 2.14.0 ships. Scope: [Roadmap](ROADMAP.md) "Next milestone: Lean orchestration".
+**Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behaviour delivered by v2.14 Decision reliability (released baseline: 2.14.1, `dd8e4ab`).
 
-## Last Milestone: v2.14 Decision reliability (complete 2026-10-30; 2.14.0 release in progress)
+**Target features:**
+- Cost and quality baseline from existing local records only (999.12): a go/no-go note; missing attribution ends accounting work and labelled footprint/operation counts are used instead
+- Continuous test run: one GitHub Actions workflow running the offline suite and the stdlib-only check on every push and pull request to `main` (no secrets, no paid or live model calls)
+- Finalize extraction: input assembly and the gate/report handoff move to stdlib helpers with the same gate decisions and reports as the baseline, plus one general check for shell variables read across Bash calls
+- Optional bounded extension: at most one more family, only if Finalize proves useful and the baseline identifies it (999.32 fix-loop Rerun is a candidate)
+- Release gate: orchestration equivalence against the released baseline and demonstrated loaded-prose or mechanical-step savings, reported separately from tokens or dollars
+
+Activated 2026-11-13 via `/bm:new-milestone` (research skipped; scope is the owner-approved roadmap section). Phases continue from 62. Out of scope: reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Reviewer efficiency stays conditional; 999.31 (decision identity design) waits until this milestone ships.
+
+## Last Milestone: v2.14 Decision reliability (SHIPPED 2026-10-30 as 2.14.0; patched as 2.14.1)
 
 **Goal (met, with owner-accepted known limits):** close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy. The milestone met 16/16 requirements (STALE-01..06, DEFR-01..02, EVID-01..03, FINL-01..02, GATE-01..03). The audit is tech_debt: integration 8/9, flows 5/5. The suite ran 3821 passed with 0 failed. Replay against 2.13 gave 170 runs with 0 differing. This was not B3-measured. Candidate 47978aa was signed off by the owner (Decision 1 = B: README states C1). The release follows `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. Full record: [archive](milestones/v2.14-ROADMAP.md), [MILESTONES.md](MILESTONES.md).
 
@@ -91,9 +100,13 @@ results + README. Backlog effects: 999.12 promoted in, 999.8 absorbed, 999.13 re
 after this milestone; gitleaks (999.2), SARIF (999.3), PR-posting (999.5) unchanged/deferred.
 Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
 
-## Current State: v2.14 complete (2026-10-30), 2.14.0 release in progress
+## Current State: v2.15 Lean orchestration started (2026-11-13)
 
-**v2.14 Decision reliability is complete. Plugin 2.14.0 is signed off on candidate 47978aa, and the release PR, tag `v2.14` on origin/main and GitHub release are pending per the close runbook.** Decided findings are re-asked when their evidence changes, regardless of row order, lead, or grouping. Deferred findings dropped by `min_confidence` stay open. Nearby/in-diff evidence uses only lines actually added or deleted, on every route. Finalize survives fresh shell calls, and a failed attempt writes nothing. Known limits: the 999.23 residuals (WR-01 card wording, WR-02 note after pass 3), 999.26, 999.27, and 999.28/C1, which is the first README known limit (default-route decisions on uncommitted code are re-asked every pass). The last measured efficacy is still v2.11 (5/18 · 15/15).
+**v2.15 Lean orchestration is active and at requirements/roadmap definition; no code has changed.** The installed baseline is plugin 2.14.1 (PR #8, squash `dd8e4ab`, tag `v2.14.1`), which fixed 999.28 on every route except `--all`. The last measured efficacy is still v2.11 (5/18 · 15/15).
+
+### Earlier: v2.14 shipped (2026-10-30)
+
+**v2.14 Decision reliability shipped as plugin 2.14.0 (PR #7, squash `ecc3299`, tag `v2.14`, GitHub release), then 2.14.1.** Decided findings are re-asked when their evidence changes, regardless of row order, lead, or grouping. Deferred findings dropped by `min_confidence` stay open. Nearby/in-diff evidence uses only lines actually added or deleted, on every route. Finalize survives fresh shell calls, and a failed attempt writes nothing. Known limits: the 999.23 residuals (WR-01 card wording, WR-02 note after pass 3), 999.26, 999.27, and 999.28/C1, which is the first README known limit (default-route decisions on uncommitted code are re-asked every pass). The last measured efficacy is still v2.11 (5/18 · 15/15).
 
 ### Earlier: v2.13 shipped (2026-10-28)
 
@@ -347,10 +360,13 @@ crash-proofed and built the test-sufficiency agent on top of.
 
 ### Active
 
-<!-- Next: Lean orchestration. Requirements are defined by /bm:new-milestone. -->
+<!-- v2.15 Lean orchestration. REQ-IDs live in REQUIREMENTS.md. -->
 
-- [ ] Finalize mechanical steps extracted to helpers with equivalent gate decisions and reports (Lean orchestration)
 - [ ] Cost visibility feasibility from existing records, or an explicit no-go (999.12)
+- [ ] Offline suite and stdlib-only check run automatically on every push and pull request to `main`
+- [ ] Finalize mechanical steps extracted to helpers with equivalent gate decisions and reports
+- [ ] One general check fails when a fence reads a shell variable set in an earlier fence without the printed-path rule
+- [ ] Release gate: equivalence against the 2.14.1 baseline and demonstrated loaded-prose or mechanical-step savings
 
 (v2.14 and v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
@@ -471,4 +487,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-30 after v2.14 milestone (archived; 2.14.0 release in progress)*
+*Last updated: 2026-11-13 after v2.15 Lean orchestration milestone start*
