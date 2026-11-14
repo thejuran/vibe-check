@@ -525,6 +525,121 @@ class TestCrossCallReads(LockCase):
 
 
 # --------------------------------------------------------------------------- #
+# The whole tree: every phase file, today's flagged places by name.
+# --------------------------------------------------------------------------- #
+FINALIZE_REL = "phases/shared/90-finalize.md"
+STATE_REL = "phases/review/05-state.md"
+BLOBFILE_PRINT = "printf 'BLOBFILE=%s\\n' \"$BLOBFILE\""
+
+
+def read_rel(relpath):
+    with open(os.path.join(PLUGIN_ROOT, relpath), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def flagged_names(text):
+    return {name for name, _, _ in cross_call_reads(text)}
+
+
+class TestWholeTree(LockCase):
+    def test_flagged_places_are_exactly_the_named_exceptions(self):
+        self.assert_holds(check_exceptions, flagged_pairs(), EXCEPTIONS)
+
+    def test_walk_sees_every_phase_file_and_its_fences(self):
+        # Guards a scan that finds nothing: 27 phase files, >= 70 Bash fences.
+        files = list(phase_files())
+        self.assertEqual(len(files), 27)
+        fences = 0
+        for path in files:
+            with open(path, encoding="utf-8") as fh:
+                fences += len(bash_fences(fh.read()))
+        self.assertGreaterEqual(fences, 70)
+
+    def test_walk_includes_indented_and_four_backtick_fences(self):
+        indented = four = 0
+        for path in phase_files():
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            for line_no, _ in bash_fences("\n".join(lines)):
+                opener = lines[line_no - 1]
+                indented += opener[:1] in (" ", "\t")
+                four += opener.lstrip(" \t").startswith("````")
+        self.assertGreater(indented, 0)
+        self.assertGreater(four, 0)
+
+    def test_fence_rule_equals_step_count_on_finalize(self):
+        text = read_rel(FINALIZE_REL)
+        step_count = load_step_count()
+        self.assertEqual(len(bash_fences(text)), len(step_count.fences(text)))
+        self.assertEqual([b for _, b in bash_fences(text)],
+                         step_count.fences(text))
+
+    def test_exception_ids_are_unique_repro_ids(self):
+        self.assertEqual(len(set(EXCEPTIONS.values())), len(EXCEPTIONS))
+        for key, repro in EXCEPTIONS.items():
+            with self.subTest(key=key):
+                self.assertRegex(repro, r"^X[0-9]+$")
+                relpath, name = key
+                self.assertTrue(relpath.startswith("phases/"))
+                self.assertRegex(name, r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    def test_known_limits_are_written_down(self):
+        self.assertEqual(len(KNOWN_LIMITS), 2)
+        joined = " ".join(KNOWN_LIMITS)
+        for needle in ("command", "agent", "another file"):
+            with self.subTest(needle):
+                self.assertIn(needle, joined)
+
+
+class TestMutants(LockCase):
+    def test_c_blobfile_print_removed_from_finalize_trips(self):
+        text = read_rel(FINALIZE_REL)
+        self.assertNotIn("BLOBFILE", flagged_names(text))
+        mutant = remove(text, BLOBFILE_PRINT)
+        self.assertNotIn(BLOBFILE_PRINT, mutant)
+        self.assertIn("BLOBFILE", flagged_names(mutant))
+
+    def test_d_cross_call_gate_variable_reinserted_trips(self):
+        text = read_rel(FINALIZE_REL)
+        self.assertNotIn("FINALIZE_GATE_INPUT_JSON", flagged_names(text))
+        mutant = text + (
+            "\n```bash\nFINALIZE_GATE_INPUT_JSON='{\"flags\": {}}'\n```\n"
+            "\n```bash\nprintf '%s' \"$FINALIZE_GATE_INPUT_JSON\" | "
+            "python3 \"$VC_ROOT/scripts/finalize_gate.py\"\n```\n")
+        self.assertEqual(len(bash_fences(mutant)), len(bash_fences(text)) + 2)
+        self.assertIn("FINALIZE_GATE_INPUT_JSON", flagged_names(mutant))
+
+    def test_a_setter_and_reader_appended_to_a_real_file(self):
+        text = read_rel(STATE_REL)
+        self.assertNotIn("XVAR_MUTANT", text)
+        base = len(bash_fences(text))
+        mutant = text + ("\n```bash\nXVAR_MUTANT=$(pwd)\n```\n"
+                         "\n```bash\nls \"$XVAR_MUTANT\"\n```\n")
+        self.assertEqual(len(bash_fences(mutant)), base + 2)
+        self.assertIn(("XVAR_MUTANT", base, base + 1), cross_call_reads(mutant))
+        with self.subTest("the same with the value printed holds"):
+            printed = text + (
+                "\n```bash\nXVAR_MUTANT=$(pwd)\n"
+                "printf 'XVAR_MUTANT=%s\\n' \"$XVAR_MUTANT\"\n```\n"
+                "\n```bash\nls \"$XVAR_MUTANT\"\n```\n")
+            self.assertNotIn("XVAR_MUTANT", flagged_names(printed))
+
+    def test_h_new_flag_and_stale_entry_both_trip(self):
+        flagged = flagged_pairs()
+        self.assertTrue(flagged)
+        with self.subTest("an unlisted pair"):
+            fake = ("phases/review/00-scope.md", "XVAR_UNLISTED")
+            self.assertNotIn(fake, EXCEPTIONS)
+            self.assert_trips(check_exceptions, flagged | {fake}, EXCEPTIONS)
+        with self.subTest("a listed pair that no longer flags"):
+            real = sorted(EXCEPTIONS)[0]
+            fewer = {k: v for k, v in EXCEPTIONS.items() if k != real}
+            self.assertEqual(len(fewer), len(EXCEPTIONS) - 1)
+            self.assert_trips(check_exceptions, flagged, fewer)
+            self.assert_trips(check_exceptions, flagged - {real}, EXCEPTIONS)
+
+
+# --------------------------------------------------------------------------- #
 # This module stays stdlib only.
 # --------------------------------------------------------------------------- #
 class TestImportSet(unittest.TestCase):
