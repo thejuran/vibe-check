@@ -4,6 +4,8 @@
 **Domain:** Moving model-run shell steps into a stdlib Python helper (Finalize gate inputs), offline behaviour equivalence, and a static lint over bash fences in Markdown instruction files
 **Confidence:** HIGH for the codebase facts (all read or run in this session); MEDIUM for the projected counts (computed with the real counting rule on a proposed design, not on a written candidate)
 
+> **Superseded in one respect by D-18 (owner, 2026-11-14).** Wherever this file says the helper's stderr is sent to `<BLOBFILE>.err` (Project Constraints, the architecture diagram, Pattern 2, Pitfall 5 "How to avoid", "The candidate fence", Security Domain V7), read instead: the fence does not redirect the helper's stderr. On a counting-stage refusal the helper writes exactly the one line the 2.14.1 counting command printed, so the owner sees the same line above the same sentence; on every other exit it writes nothing. No traceback and no path, hash or title is ever written. Plans 63-02 and 63-06 carry the exact contract.
+
 ## Summary
 
 Everything this phase needs already exists except two things: one new helper module that does the HEAD-fingerprint git calls, the counts, the seven-key flags and the gate in a single call, and one new whole-tree test that finds cross-call shell variables. `carry_state.finalize_counts`, `finalize_gate.run`, `batch_card.decisions_report`, `guard.contained` and the `PATH_RE` pattern are all importable library functions today [VERIFIED: codebase read]. The 2.14.1 gate-input part of `90-finalize.md` is four bash blocks, two Write-tool writes and three hand-copied values (9 counted steps). It also includes up to three git calls and a guard call per fix-verdict file, which the counting rule does not count because they are written in prose rather than in fences. Folding all of it into one fence that mints and prints `BLOBFILE=` and then calls the helper gives 1 counted step. Also folding the `decisions-report` fence into the helper's `write` result (D-02) takes the Finalize path from **92 to 83 steps**. About 5–7 KB of the 10.9 KB gate-input section can go, and D-12 moves the 3.7 KB "What the helper counts" passage out of loaded prose [VERIFIED: step_count.py run on the current tree, which is byte-identical to `dd8e4ab` for `phases/`].
@@ -318,6 +320,7 @@ Under the 999.25 standard (60-REPRO V8: run the fences as written, each in its o
 ## Code Examples
 
 ### The candidate fence (shape; wording of sentences copied byte-for-byte from 2.14.1)
+*D-18: drop `2>"$BLOBFILE.err"` from the helper call below; plan 63-06's interfaces block is the authority.*
 ```bash
 if BLOBFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
   printf 'BLOBFILE=%s\n' "$BLOBFILE"
@@ -421,15 +424,19 @@ The tests below lock the prose being replaced [VERIFIED: grep/AST scan]. Each ne
 | A4 | Projected 83 steps holds for the final prose wording | Projected Counts | Low: recount at the candidate commit is the authority |
 | A5 | `git diff` with or without `--no-optional-locks` gives the same exit codes as the model's 2.14.1 calls | Pattern 1 | Low: pin with gitfixture parity tests (clean, dirty tree, dirty index, absent at HEAD) |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Do XVAR fixes in `00-scope.md` / `05-state.md` / `06-config.md` count toward the Phase 63 pass/fail figure?** (owner, product)
    - What we know: those files are on the Finalize path and in the 92. D-09 says shared-file growth is reported as named growth by Phase 65, "separate from the Finalize saving". Fixing `STATE_FILE` by printing it adds counted pastes.
    - What's unclear: whether "neither grows" is judged on the extraction alone or on the phase-end tree.
    - Recommendation: report both figures, (a) the extraction-only commit and (b) the phase end, with XVAR growth itemised per D-09, and judge pass/fail on (a). Put this on the D-14 page explicitly. Prefer fixes that merge fences or substitute a printed literal, so growth stays minimal.
+   - RESOLVED: D-16 (owner, 2026-11-14). Pass or fail is judged on the extraction-only commit; both figures go on the D-14 page; cross-call growth is itemised per D-09. Planned in 63-09 (figures at the extraction-only commit), 63-10 (phase-end figures and named growth) and 63-11 (the page).
 2. **The fault mappings for `one-rebuild` / `refused-close`** are argued equivalents, not the same faults. Recommendation: the supplementary 2.14.1 run of the new injections (Pattern 3) gives a true like-for-like result. The owner sees both on the D-14 page.
+   - RESOLVED: plan 63-08 runs the stand-ins against the pinned 2.14.1 tree (outcome fields, and under D-18 the screen text of the failed attempt) and records each mapping as proven or argued in `63-EQUIVALENCE.md`; 63-11 puts it on the page.
 3. **Where phase evidence lives.** The ledger, the flagged-file record and the result page could go under `.planning/phases/63-…/` (tracked) or `docs/design/lean-v2.15/`. Recommendation: put the D-12 doc in `docs/design/lean-v2.15/` (shipped design record, not loaded) and the ledger, repro record and result page in the phase dir, mirroring `60-REPRO.md`.
+   - RESOLVED: as recommended. The D-12 document is `docs/design/lean-v2.15/finalize-counts-explained.md` (63-07); `63-REMOVAL-LEDGER.md` (63-05), `63-REPRO.md` (63-04), `63-COUNTS.md` (63-01), `63-EQUIVALENCE.md` (63-08) and `63-RESULT.md` (63-11) live in the phase directory.
 4. **The `next` field vocabulary** is new surface the prose must branch on. Keep it to the seven values above, test it as a pure function, and lock the prose's branch list against `finalize_inputs.NEXT_ACTIONS` with a mutant.
+   - RESOLVED: the seven values are fixed in plan 63-02 (`NEXT_ACTIONS`, `next_action` as a tested pure function) and the prose lock with its two mutants lands in plan 63-06 Task 1.
 
 ## Environment Availability
 
