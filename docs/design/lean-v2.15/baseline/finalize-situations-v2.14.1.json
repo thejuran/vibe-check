@@ -1,0 +1,820 @@
+{
+  "baseline_commit": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "driver": "fence-walk-2.14.1",
+  "normalisation": [
+    "The situation's work directory path (as given and as resolved) becomes <WORK>.",
+    "The pinned plugin tree's path (as given and as resolved) becomes <VC_ROOT>.",
+    "A mktemp suffix after `vc.` (six letters or digits) becomes vc.XXXXXX.",
+    "An ISO date or date-time (YYYY-MM-DD, optionally with a time and zone) becomes <TIME>.",
+    "A ten-digit epoch stamp starting with 1 (optionally with a fraction) becomes <TIME>.",
+    "Standard error is recorded only as present or absent, never as text.",
+    "files_written and files_archived are sorted after normalising, and the mktemp scratch files under <WORK>/scratch are not listed in them."
+  ],
+  "schema": 1,
+  "sha256": "04a453ffa7cdc965964c694dcad9873c9239e4ebd9cb7e136c06516d21203c55",
+  "situations": {
+    "clean-close": {
+      "files_archived": [
+        ".turingmind/state/format-53/capture.json.archived-<TIME>"
+      ],
+      "files_written": [
+        ".turingmind/REVIEW.md"
+      ],
+      "gate": [
+        {
+          "action": "write",
+          "reason": "no outstanding findings; finalization may proceed"
+        }
+      ],
+      "legs": {},
+      "report": {
+        "entries": [
+          {
+            "agent": "architecture",
+            "at_pass": 2,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "plugins/vibe-check/phases/deep-review/01d-coverage.md",
+            "line": 74,
+            "reason": "walk",
+            "stable_hash": "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67",
+            "status": "current",
+            "title": "Two prose files each claim to be the single place that states the coverage gate outcome"
+          },
+          {
+            "agent": "bugs",
+            "at_pass": 2,
+            "band": "medium",
+            "decision": "dismiss",
+            "file": "plugins/vibe-check/phases/deep-review/20-selection.md",
+            "line": 38,
+            "reason": "walk",
+            "stable_hash": "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644",
+            "status": "current",
+            "title": "Coverage gate makes test-sufficiency conditional, but tracecheck's deep-plain expectations still require the dispatch"
+          }
+        ]
+      },
+      "state_closed": true,
+      "steps": [
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"write\", \"reason\": \"no outstanding findings; finalization may proceed\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "decisions-report",
+          "stderr_present": false,
+          "stdout": "{\"entries\": [{\"stable_hash\": \"5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"warning\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/01d-coverage.md\", \"line\": 74, \"title\": \"Two prose files each claim to be the single place that states the coverage gate outcome\", \"agent\": \"architecture\"}, {\"stable_hash\": \"7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"medium\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/20-selection.md\", \"line\": 38, \"title\": \"Coverage gate makes test-sufficiency conditional, but tracecheck's deep-plain expectations still require the dispatch\", \"agent\": \"bugs\"}]}\n"
+        },
+        {
+          "exit": 0,
+          "id": "prior-review-archive",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "archive-state",
+          "stderr_present": false,
+          "stdout": "state archived as <WORK>/.turingmind/state/format-53/capture.json.archived-<TIME>\n"
+        }
+      ],
+      "stop_sentence": null,
+      "tally": {
+        "commands_run": 8,
+        "values_carried": 2,
+        "writes": 3
+      }
+    },
+    "card-first": {
+      "files_archived": [
+        ".turingmind/state/format-53/capture.json.archived-<TIME>"
+      ],
+      "files_written": [
+        ".turingmind/REVIEW.md"
+      ],
+      "gate": [
+        {
+          "action": "outstanding-to-phase-5",
+          "reason": "outstanding critical/warning findings route to the fix loop"
+        },
+        {
+          "action": "write",
+          "reason": "no outstanding findings; finalization may proceed"
+        }
+      ],
+      "legs": {},
+      "report": {
+        "entries": [
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "critical",
+            "decision": "dismiss",
+            "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+            "line": 204,
+            "reason": "walk",
+            "stable_hash": "0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461",
+            "status": "current",
+            "title": "Stop relay failover after an uncertain submission"
+          },
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "critical",
+            "decision": "dismiss",
+            "file": "src/utils/integrationDeadline.ts",
+            "line": 60,
+            "reason": "walk",
+            "stable_hash": "22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449",
+            "status": "current",
+            "title": "Normalize and bound milliseconds before constructing the deadline"
+          },
+          {
+            "agent": "compliance",
+            "at_pass": 3,
+            "band": "critical",
+            "decision": "dismiss",
+            "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+            "line": 201,
+            "reason": "walk",
+            "stable_hash": "2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b",
+            "status": "current",
+            "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call"
+          },
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "frontend/src/views/BrowseProgrammePage.vue",
+            "line": 406,
+            "reason": "walk",
+            "stable_hash": "3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8",
+            "status": "current",
+            "title": "Gate only the option lists required by the selected operation"
+          },
+          {
+            "agent": "test-sufficiency",
+            "at_pass": 3,
+            "band": "medium",
+            "decision": "dismiss",
+            "file": "src/facade/arrFacade.ts",
+            "line": 80,
+            "reason": "walk",
+            "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
+            "status": "current",
+            "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along"
+          },
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "src/service/arr/V3ArrService.ts",
+            "line": 412,
+            "reason": "walk",
+            "stable_hash": "a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7",
+            "status": "current",
+            "title": "Handle search-existing deadline expiry as an uncertain write"
+          }
+        ]
+      },
+      "state_closed": true,
+      "steps": [
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 5, \"unacknowledged_medium\": 1, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [\"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\", \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\"], \"unacknowledged_medium_hashes\": [\"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\"], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"outstanding-to-phase-5\", \"reason\": \"outstanding critical/warning findings route to the fix loop\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "rows",
+          "stderr_present": false,
+          "stdout": "ROWSFILE=<WORK>/scratch/vc.XXXXXX\nCARDROWSFILE=<WORK>/scratch/vc.XXXXXX\nANSWERFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": null,
+          "id": "card",
+          "stderr_present": false,
+          "stdout": "#1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204 — Stop relay failover after an uncertain submission (critical) — unchanged since pass 1, decision pending\n#2 src/service/browse/ArrDiscoveryHandoffService.ts:201 — Classified-timeout errors in Add/Search handoff are caught and discarded without any log call (critical) — unchanged since pass 2, decision pending\n#3 src/utils/integrationDeadline.ts:60 — Normalize and bound milliseconds before constructing the deadline (critical) — unchanged since pass 2, decision pending\n#4 frontend/src/views/BrowseProgrammePage.vue:406 — Gate only the option lists required by the selected operation (warning) — unchanged since pass 2, decision pending\n#5 src/service/arr/V3ArrService.ts:412 — Handle search-existing deadline expiry as an uncertain write (warning) — unchanged since pass 2, decision pending\n#6 src/facade/arrFacade.ts:80 — No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along (medium) — unchanged since pass 1, decision pending"
+        },
+        {
+          "exit": 0,
+          "id": "parse",
+          "stderr_present": false,
+          "stdout": "PARSEFILE=<WORK>/scratch/vc.XXXXXX\n{\"ok\": true, \"need_text\": false, \"look\": null, \"fix\": [], \"dismiss\": [\"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\", \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\"], \"defer\": [], \"undecided\": [], \"echo\": [\"dismiss: #1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204, #2 src/service/browse/ArrDiscoveryHandoffService.ts:201, #3 src/utils/integrationDeadline.ts:60, #4 frontend/src/views/BrowseProgrammePage.vue:406, #5 src/service/arr/V3ArrService.ts:412, #6 src/facade/arrFacade.ts:80\"], \"reason\": \"walk\", \"payload\": {\"at_pass\": 3, \"decisions\": [{\"stable_hash\": \"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\", \"decision\": \"dismiss\", \"reason\": \"walk\"}]}, \"fix_targets\": [], \"echo_text\": \"dismiss: #1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204, #2 src/service/browse/ArrDiscoveryHandoffService.ts:201, #3 src/utils/integrationDeadline.ts:60, #4 frontend/src/views/BrowseProgrammePage.vue:406, #5 src/service/arr/V3ArrService.ts:412, #6 src/facade/arrFacade.ts:80\\nReason: walk\"}"
+        },
+        {
+          "exit": 0,
+          "id": "decfile",
+          "stderr_present": false,
+          "stdout": "DECFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "record-decisions",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"write\", \"reason\": \"no outstanding findings; finalization may proceed\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "decisions-report",
+          "stderr_present": false,
+          "stdout": "{\"entries\": [{\"stable_hash\": \"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"critical\", \"status\": \"current\", \"file\": \"src/endpoints/sabnzbd/AddFileEndpoint.ts\", \"line\": 204, \"title\": \"Stop relay failover after an uncertain submission\", \"agent\": \"codex-adversarial\"}, {\"stable_hash\": \"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"critical\", \"status\": \"current\", \"file\": \"src/utils/integrationDeadline.ts\", \"line\": 60, \"title\": \"Normalize and bound milliseconds before constructing the deadline\", \"agent\": \"codex-adversarial\"}, {\"stable_hash\": \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"critical\", \"status\": \"current\", \"file\": \"src/service/browse/ArrDiscoveryHandoffService.ts\", \"line\": 201, \"title\": \"Classified-timeout errors in Add/Search handoff are caught and discarded without any log call\", \"agent\": \"compliance\"}, {\"stable_hash\": \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"warning\", \"status\": \"current\", \"file\": \"frontend/src/views/BrowseProgrammePage.vue\", \"line\": 406, \"title\": \"Gate only the option lists required by the selected operation\", \"agent\": \"codex-adversarial\"}, {\"stable_hash\": \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"medium\", \"status\": \"current\", \"file\": \"src/facade/arrFacade.ts\", \"line\": 80, \"title\": \"No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along\", \"agent\": \"test-sufficiency\"}, {\"stable_hash\": \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"warning\", \"status\": \"current\", \"file\": \"src/service/arr/V3ArrService.ts\", \"line\": 412, \"title\": \"Handle search-existing deadline expiry as an uncertain write\", \"agent\": \"codex-adversarial\"}]}\n"
+        },
+        {
+          "exit": 0,
+          "id": "prior-review-archive",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "archive-state",
+          "stderr_present": false,
+          "stdout": "state archived as <WORK>/.turingmind/state/format-53/capture.json.archived-<TIME>\n"
+        }
+      ],
+      "stop_sentence": null,
+      "tally": {
+        "commands_run": 17,
+        "values_carried": 9,
+        "writes": 6
+      }
+    },
+    "one-rebuild": {
+      "files_archived": [
+        ".turingmind/state/format-53/capture.json.archived-<TIME>"
+      ],
+      "files_written": [
+        ".turingmind/REVIEW.md"
+      ],
+      "gate": [
+        {
+          "action": "write",
+          "reason": "no outstanding findings; finalization may proceed"
+        }
+      ],
+      "legs": {
+        "second-failure": {
+          "files_archived": [],
+          "files_written": [],
+          "gate": [],
+          "report": null,
+          "state_closed": false,
+          "steps": [
+            {
+              "exit": 0,
+              "id": "blobfile",
+              "stderr_present": false,
+              "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+            },
+            {
+              "exit": 1,
+              "id": "counts",
+              "stderr_present": true,
+              "stdout": ""
+            },
+            {
+              "exit": 0,
+              "id": "blobfile",
+              "stderr_present": false,
+              "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+            },
+            {
+              "exit": 1,
+              "id": "counts",
+              "stderr_present": true,
+              "stdout": ""
+            }
+          ],
+          "stop_sentence": "Finalize stopped — nothing was written or archived; run `--finalize` again.",
+          "tally": {
+            "commands_run": 4,
+            "values_carried": 2,
+            "writes": 0
+          }
+        }
+      },
+      "report": {
+        "entries": [
+          {
+            "agent": "architecture",
+            "at_pass": 2,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "plugins/vibe-check/phases/deep-review/01d-coverage.md",
+            "line": 74,
+            "reason": "walk",
+            "stable_hash": "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67",
+            "status": "current",
+            "title": "Two prose files each claim to be the single place that states the coverage gate outcome"
+          },
+          {
+            "agent": "bugs",
+            "at_pass": 2,
+            "band": "medium",
+            "decision": "dismiss",
+            "file": "plugins/vibe-check/phases/deep-review/20-selection.md",
+            "line": 38,
+            "reason": "walk",
+            "stable_hash": "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644",
+            "status": "current",
+            "title": "Coverage gate makes test-sufficiency conditional, but tracecheck's deep-plain expectations still require the dispatch"
+          }
+        ]
+      },
+      "state_closed": true,
+      "steps": [
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 1,
+          "id": "counts",
+          "stderr_present": true,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"write\", \"reason\": \"no outstanding findings; finalization may proceed\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "decisions-report",
+          "stderr_present": false,
+          "stdout": "{\"entries\": [{\"stable_hash\": \"5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"warning\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/01d-coverage.md\", \"line\": 74, \"title\": \"Two prose files each claim to be the single place that states the coverage gate outcome\", \"agent\": \"architecture\"}, {\"stable_hash\": \"7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"medium\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/20-selection.md\", \"line\": 38, \"title\": \"Coverage gate makes test-sufficiency conditional, but tracecheck's deep-plain expectations still require the dispatch\", \"agent\": \"bugs\"}]}\n"
+        },
+        {
+          "exit": 0,
+          "id": "prior-review-archive",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "archive-state",
+          "stderr_present": false,
+          "stdout": "state archived as <WORK>/.turingmind/state/format-53/capture.json.archived-<TIME>\n"
+        }
+      ],
+      "stop_sentence": null,
+      "tally": {
+        "commands_run": 10,
+        "values_carried": 3,
+        "writes": 3
+      }
+    },
+    "refused-close": {
+      "files_archived": [],
+      "files_written": [],
+      "gate": [],
+      "legs": {
+        "unarchivable-report": {
+          "files_archived": [],
+          "files_written": [],
+          "gate": [
+            {
+              "action": "write",
+              "reason": "no outstanding findings; finalization may proceed"
+            }
+          ],
+          "report": null,
+          "state_closed": false,
+          "steps": [
+            {
+              "exit": 0,
+              "id": "blobfile",
+              "stderr_present": false,
+              "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+            },
+            {
+              "exit": 0,
+              "id": "counts",
+              "stderr_present": false,
+              "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+            },
+            {
+              "exit": 0,
+              "id": "state-present",
+              "stderr_present": false,
+              "stdout": ""
+            },
+            {
+              "exit": 0,
+              "id": "gatefile",
+              "stderr_present": false,
+              "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+            },
+            {
+              "exit": 0,
+              "id": "gate",
+              "stderr_present": false,
+              "stdout": "{\"action\": \"write\", \"reason\": \"no outstanding findings; finalization may proceed\"}\n"
+            },
+            {
+              "exit": 0,
+              "id": "decisions-report",
+              "stderr_present": false,
+              "stdout": "{\"entries\": [{\"stable_hash\": \"5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"warning\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/01d-coverage.md\", \"line\": 74, \"title\": \"Two prose files each claim to be the single place that states the coverage gate outcome\", \"agent\": \"architecture\"}, {\"stable_hash\": \"7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 2, \"band\": \"medium\", \"status\": \"current\", \"file\": \"plugins/vibe-check/phases/deep-review/20-selection.md\", \"line\": 38, \"title\": \"Coverage gate makes test-sufficiency conditional, but tracecheck's deep-plain expectations still require the dispatch\", \"agent\": \"bugs\"}]}\n"
+            },
+            {
+              "exit": 1,
+              "id": "prior-review-archive",
+              "stderr_present": true,
+              "stdout": ""
+            }
+          ],
+          "stop_sentence": "Finalize stopped — the earlier REVIEW.md could not be archived (the line above says why). Nothing was written and the review state was not archived: the earlier report and the live state are both kept.",
+          "tally": {
+            "commands_run": 7,
+            "values_carried": 2,
+            "writes": 2
+          }
+        }
+      },
+      "report": null,
+      "state_closed": false,
+      "steps": [
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 1,
+          "id": "gate",
+          "stderr_present": true,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 1,
+          "id": "gate",
+          "stderr_present": true,
+          "stdout": ""
+        }
+      ],
+      "stop_sentence": "Finalize stopped — nothing was written or archived; run `--finalize` again.",
+      "tally": {
+        "commands_run": 10,
+        "values_carried": 4,
+        "writes": 4
+      }
+    },
+    "fresh-shell-restart": {
+      "files_archived": [
+        ".turingmind/state/format-53/capture.json.archived-<TIME>"
+      ],
+      "files_written": [
+        ".turingmind/REVIEW.md"
+      ],
+      "gate": [
+        {
+          "action": "outstanding-to-phase-5",
+          "reason": "outstanding critical/warning findings route to the fix loop"
+        },
+        {
+          "action": "write",
+          "reason": "no outstanding findings; finalization may proceed"
+        }
+      ],
+      "legs": {},
+      "report": {
+        "entries": [
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "critical",
+            "decision": "dismiss",
+            "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+            "line": 204,
+            "reason": "walk",
+            "stable_hash": "0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461",
+            "status": "current",
+            "title": "Stop relay failover after an uncertain submission"
+          },
+          {
+            "agent": "compliance",
+            "at_pass": 3,
+            "band": "critical",
+            "decision": "dismiss",
+            "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+            "line": 201,
+            "reason": "walk",
+            "stable_hash": "2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b",
+            "status": "current",
+            "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call"
+          },
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "frontend/src/views/BrowseProgrammePage.vue",
+            "line": 406,
+            "reason": "walk",
+            "stable_hash": "3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8",
+            "status": "current",
+            "title": "Gate only the option lists required by the selected operation"
+          },
+          {
+            "agent": "test-sufficiency",
+            "at_pass": 3,
+            "band": "medium",
+            "decision": "dismiss",
+            "file": "src/facade/arrFacade.ts",
+            "line": 80,
+            "reason": "walk",
+            "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
+            "status": "current",
+            "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along"
+          },
+          {
+            "agent": "codex-adversarial",
+            "at_pass": 3,
+            "band": "warning",
+            "decision": "dismiss",
+            "file": "src/service/arr/V3ArrService.ts",
+            "line": 412,
+            "reason": "walk",
+            "stable_hash": "a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7",
+            "status": "current",
+            "title": "Handle search-existing deadline expiry as an uncertain write"
+          }
+        ]
+      },
+      "state_closed": true,
+      "steps": [
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 4, \"unacknowledged_medium\": 1, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [\"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\"], \"unacknowledged_medium_hashes\": [\"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\"], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [\"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\"], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"outstanding-to-phase-5\", \"reason\": \"outstanding critical/warning findings route to the fix loop\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "rows",
+          "stderr_present": false,
+          "stdout": "ROWSFILE=<WORK>/scratch/vc.XXXXXX\nCARDROWSFILE=<WORK>/scratch/vc.XXXXXX\nANSWERFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": null,
+          "id": "card",
+          "stderr_present": false,
+          "stdout": "#1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204 — Stop relay failover after an uncertain submission (critical) — unchanged since pass 1, decision pending\n#2 src/service/browse/ArrDiscoveryHandoffService.ts:201 — Classified-timeout errors in Add/Search handoff are caught and discarded without any log call (critical) — unchanged since pass 2, decision pending\n#3 frontend/src/views/BrowseProgrammePage.vue:406 — Gate only the option lists required by the selected operation (warning) — unchanged since pass 2, decision pending\n#4 src/service/arr/V3ArrService.ts:412 — Handle search-existing deadline expiry as an uncertain write (warning) — unchanged since pass 2, decision pending\n#5 src/facade/arrFacade.ts:80 — No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along (medium) — unchanged since pass 1, decision pending"
+        },
+        {
+          "exit": 0,
+          "id": "parse",
+          "stderr_present": false,
+          "stdout": "PARSEFILE=<WORK>/scratch/vc.XXXXXX\n{\"ok\": true, \"need_text\": false, \"look\": null, \"fix\": [], \"dismiss\": [\"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\"], \"defer\": [], \"undecided\": [], \"echo\": [\"dismiss: #1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204, #2 src/service/browse/ArrDiscoveryHandoffService.ts:201, #3 frontend/src/views/BrowseProgrammePage.vue:406, #4 src/service/arr/V3ArrService.ts:412, #5 src/facade/arrFacade.ts:80\"], \"reason\": \"walk\", \"payload\": {\"at_pass\": 3, \"decisions\": [{\"stable_hash\": \"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"decision\": \"dismiss\", \"reason\": \"walk\"}, {\"stable_hash\": \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\", \"decision\": \"dismiss\", \"reason\": \"walk\"}]}, \"fix_targets\": [], \"echo_text\": \"dismiss: #1 src/endpoints/sabnzbd/AddFileEndpoint.ts:204, #2 src/service/browse/ArrDiscoveryHandoffService.ts:201, #3 frontend/src/views/BrowseProgrammePage.vue:406, #4 src/service/arr/V3ArrService.ts:412, #5 src/facade/arrFacade.ts:80\\nReason: walk\"}"
+        },
+        {
+          "exit": 0,
+          "id": "decfile",
+          "stderr_present": false,
+          "stdout": "DECFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "record-decisions",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "blobfile",
+          "stderr_present": false,
+          "stdout": "BLOBFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "counts",
+          "stderr_present": false,
+          "stdout": "{\"outstanding_cw\": 0, \"unacknowledged_medium\": 0, \"undecided_nv\": 0, \"outstanding_cw_hashes\": [], \"unacknowledged_medium_hashes\": [], \"undecided_nv_hashes\": [], \"verified_obsolete_hashes\": [\"22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449\"], \"confirmed_fix_awaiting_recheck_hashes\": []}\n"
+        },
+        {
+          "exit": 0,
+          "id": "state-present",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "gatefile",
+          "stderr_present": false,
+          "stdout": "GATEFILE=<WORK>/scratch/vc.XXXXXX\n"
+        },
+        {
+          "exit": 0,
+          "id": "gate",
+          "stderr_present": false,
+          "stdout": "{\"action\": \"write\", \"reason\": \"no outstanding findings; finalization may proceed\"}\n"
+        },
+        {
+          "exit": 0,
+          "id": "decisions-report",
+          "stderr_present": false,
+          "stdout": "{\"entries\": [{\"stable_hash\": \"0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"critical\", \"status\": \"current\", \"file\": \"src/endpoints/sabnzbd/AddFileEndpoint.ts\", \"line\": 204, \"title\": \"Stop relay failover after an uncertain submission\", \"agent\": \"codex-adversarial\"}, {\"stable_hash\": \"2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"critical\", \"status\": \"current\", \"file\": \"src/service/browse/ArrDiscoveryHandoffService.ts\", \"line\": 201, \"title\": \"Classified-timeout errors in Add/Search handoff are caught and discarded without any log call\", \"agent\": \"compliance\"}, {\"stable_hash\": \"3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"warning\", \"status\": \"current\", \"file\": \"frontend/src/views/BrowseProgrammePage.vue\", \"line\": 406, \"title\": \"Gate only the option lists required by the selected operation\", \"agent\": \"codex-adversarial\"}, {\"stable_hash\": \"7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"medium\", \"status\": \"current\", \"file\": \"src/facade/arrFacade.ts\", \"line\": 80, \"title\": \"No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along\", \"agent\": \"test-sufficiency\"}, {\"stable_hash\": \"a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7\", \"decision\": \"dismiss\", \"reason\": \"walk\", \"at_pass\": 3, \"band\": \"warning\", \"status\": \"current\", \"file\": \"src/service/arr/V3ArrService.ts\", \"line\": 412, \"title\": \"Handle search-existing deadline expiry as an uncertain write\", \"agent\": \"codex-adversarial\"}]}\n"
+        },
+        {
+          "exit": 0,
+          "id": "prior-review-archive",
+          "stderr_present": false,
+          "stdout": ""
+        },
+        {
+          "exit": 0,
+          "id": "archive-state",
+          "stderr_present": false,
+          "stdout": "state archived as <WORK>/.turingmind/state/format-53/capture.json.archived-<TIME>\n"
+        }
+      ],
+      "stop_sentence": null,
+      "tally": {
+        "commands_run": 17,
+        "values_carried": 9,
+        "writes": 6
+      }
+    }
+  }
+}
