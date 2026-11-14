@@ -4,7 +4,7 @@ milestone: v2.15
 milestone_name: Lean orchestration
 status: "planning — Phase 63 plans revised after the first plan check (11 plans in 9 waves); re-check pending, not executed"
 stopped_at: "Phase 63 plans revised on feat/v2.15-phase-63 after the first plan check (63-01..63-11, D-01..D-18 traced; D-18 added and then extended to the report step by the owner 2026-11-14); no code changed, nothing pushed; next is the plan re-check, then /bm:execute-phase 63"
-last_updated: "2026-11-14T20:13:43Z"
+last_updated: "2026-11-14T20:25:45Z"
 last_activity: 2026-11-14 -- Phase 63 plans revised after the first plan check (D-18 added); re-check pending
 progress:
   total_phases: 4
@@ -32,7 +32,7 @@ Last activity: 2026-11-14 -- Phase 63 plans revised on feat/v2.15-phase-63 (11 p
 
 ## Operator Next Steps
 
-- Plan re-check for Phase 63 (first check: 2 blockers and 7 warnings, all addressed in the revision), then `/bm:execute-phase 63` on branch `feat/v2.15-phase-63`; plans are `63-01`..`63-11` in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/`
+- Plan re-check for Phase 63 (two checks so far; every issue raised is addressed in the revisions), then `/bm:execute-phase 63` on branch `feat/v2.15-phase-63`; plans are `63-01`..`63-11` in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/`
 - Two owner pauses are planned: 63-09 (which flagged cross-call places are fixed, which pinned) and 63-11 (result page and the go to merge)
 
 ## Deferred Items
@@ -84,6 +84,8 @@ Carried from earlier:
 2026-11-14: Phase 63 plans revised after the first plan check (2 blockers, 7 warnings) and the new owner decision D-18 (the counting step's own one-line refusal stays on screen above the stop sentence, as in 2.14.1; not redirected to a side file). Still 11 plans in 9 waves. 63-06 now has three tasks (Finalize walks and locks; the other test modules; the instruction file and ledger) and its check is one chained command; the helper (63-02) writes only the 2.14.1 counting line to stderr and nothing otherwise; 63-08 compares the failed attempt's screen text like for like and keeps the restart situation's git data outside the walked folder; 63-09 lists the exact revert set and checks the six shared files at the extraction-only commit; 63-11 stops and reports if a revert is not clean; 63-05 takes its red list against a control run; 63-01 names the git calls' working directory and adds a subdirectory parity case. Research open questions marked resolved. No code changed, nothing pushed. Next: plan re-check.
 
 2026-11-14: D-18 extended by the owner to the report-data step ("Yes, same as 2.14.1"): batch_card.py's own one-line refusal stays on screen above the report sentence too, so nothing on screen differs from 2.14.1 on the Finalize path. Plans 63-02, 63-05, 63-06, 63-07, 63-08 and 63-11 revised to match (the helper reads the state again for the report, as 2.14.1 did; walk and mutant in 63-07). Still 11 plans in 9 waves; no code changed, nothing pushed.
+
+2026-11-14: Third plan revision after the second plan check (1 blocker, 2 warnings). An unreadable state file is the one screen difference that cannot be removed (2.14.1 shows the shell's own "Permission denied" line; the candidate shows the sentence alone): it is now a named difference with a test id, entered in the ledger by 63-06 and put to the owner for acceptance on the 63-11 page, which no longer says nothing on screen differs. Non-UTF-8 state files and read errors on the report read are specified in 63-02; the exit-5 walk in 63-06 uses a stand-in helper. Still 11 plans in 9 waves; no code changed, nothing pushed. Next: plan re-check.
 
 2026-11-14: Phase 63 planned on feat/v2.15-phase-63: 11 plans in 9 waves (63-01 starting figures + HEAD fingerprints helper; 63-02 the one helper call; 63-03 cross-call check; 63-04 fresh-shell reproductions; 63-05 removal ledger with replacements first; 63-06 Finalize gate inputs become one helper call; 63-07 counts explanation moved to a design document + report bundle; 63-08 second capture driver and compare; 63-09 figures at the extraction-only commit + owner fix/pin decision; 63-10 fixes, named growth, phase-end figures; 63-11 result page, PR, owner go, merge, close). Owner decisions D-16 (pass/fail judged on the extraction alone) and D-17 (fresh-shell reproduction standard) recorded the same day. Planning files only; no code changed; nothing pushed. Plan check pending.
 

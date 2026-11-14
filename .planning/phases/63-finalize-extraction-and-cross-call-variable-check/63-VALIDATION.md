@@ -93,11 +93,11 @@ No framework install is needed. There is no separate Wave 0 plan: each new test 
 | omit on dirty tree / dirty index | drop either `git diff` check → a dirty-file fix-obsolete closes |
 | no git without candidates | an unconditional `--show-toplevel` → the non-git work dir fails |
 | required switches | default `--noninteractive` to false → a missing arg returns 0 |
-| exit 5 no-rebuild | map 5 to the carry_state sentence → the walk rebuilds |
+| exit 5 no-rebuild (walked through a stand-in helper that exits 5, 63-06 T1) | map 5 to the carry_state sentence, or drop the `5)` arm → the walk's last line and exit code change |
 | exceptions set exact | add a fake pair / remove a real pair → the check trips |
 | `next` vocabulary in prose == `NEXT_ACTIONS` | add or drop a value on either side → the prose lock trips |
 | counting line on stderr == the 2.14.1 counting command's line (D-18) | write a different line, or none, on a counting-stage refusal → the parity test trips; write anything on a usage or gate-stage exit → the empty-stderr test trips |
-| report line on stderr == the 2.14.1 report command's line (D-18) | write a different line, or none, on a report-stage refusal → the report parity test trips; take the report from the first read → the swapped-file test trips; redirect the helper call in the fence → the 63-07 report-line walk trips |
+| report line on stderr == the 2.14.1 report command's line (D-18) | write a different line, or none, on a report-stage refusal → the report parity test trips; take the report from the first read → the swapped-file test trips; let a decode error or an unreadable file on either read reach the catch-all → the non-UTF-8 parity case and `test_named_difference_unreadable_state` trip; redirect the helper call in the fence → the 63-07 report-line walk trips |
 | helper call in the fence is not redirected (D-18) | append `2>"$BLOBFILE.err"` to the call line → the text lock and the counting-line walk trip |
 
 ---
