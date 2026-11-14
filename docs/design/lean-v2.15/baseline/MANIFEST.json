@@ -1,0 +1,32 @@
+{
+  "baseline_commit": "dd8e4ab42fd0e8bbdaa445df7db2d58621ab18a4",
+  "facts": {
+    "captured": "2026-11-14",
+    "replay_diff": "runs compared: 170, runs differing: 0",
+    "replay_files": {
+      "0": "replay-baseline-v2.14.1.no-private.md",
+      "12": "replay-baseline-v2.14.1.md"
+    },
+    "replay_normalisation": "drop every line matching `^- (HEAD|head|generated( \\(UTC\\))?): ` (the commit the report was run at and the time it was written), then sha256 the remaining bytes",
+    "suite_platform": "Darwin 27.2.0",
+    "suite_python": "3.12.12",
+    "suite_runner": "pytest 9.0.3",
+    "suite_summary_line": "3886 passed, 5060 subtests passed in 187.57s (0:03:07)",
+    "transcripts_with_private": 12,
+    "transcripts_without_private": 0
+  },
+  "files": {
+    "finalize-situations-v2.14.1.json": "e9ba95e813adcad5512ad9a3f7ac9a21a2c67f98c87ccd98ae54e058804a0050",
+    "finalize-situations-v2.14.1.json.sha256": "02d1b079f41e01d47f8c3c66988275adc10fdedafd297f9f512828b561963583",
+    "footprint-v2.14.1.json": "424c47b964d4b3d1f553e654c325d5f4b4880cec05d163754b2a3911b159432f",
+    "replay-baseline-v2.14.1.md": "3e3966c9ec9d35ff72b2b8d5beee5260c986be694dfab0c48cab00ac36d84012",
+    "replay-baseline-v2.14.1.md.sha256": "495c81c4056ecbbdbb1252f50c1d034139d5c12912c50f032a272fd39217aaef",
+    "replay-baseline-v2.14.1.no-private.md": "62dce657fd6d3a801212dc0b85e348645cae5311c46b990282771c6f908fce31",
+    "replay-baseline-v2.14.1.no-private.md.sha256": "f965ebd37b11117805ca110462941f55d8fb413a0db67d6a2f867da02bca54b3",
+    "steps-v2.14.1.json": "0b6971fe7815a61fd08419bed27db5b950c579893206289f91c4ab2eeff910ac",
+    "suite-v2.14.1.json": "153cb9ab05c5296f8301f861a2ef81a4351db1d2003861cfeba118fbbd822bfb",
+    "traces-v2.14.1.json": "c2db03612a038f4c76a42f4613bb785360072ef23f54adaae278904f0989907d"
+  },
+  "plugins_tree": "90e0697363ee5c09bb7942a963cf670e16717c4a",
+  "schema": 1
+}

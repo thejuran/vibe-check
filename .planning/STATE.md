@@ -1,39 +1,40 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.14
-milestone_name: Decision reliability
-status: "Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1"
-stopped_at: "2.14.1 shipped 2026-10-30 (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release; fixes 999.28); next: /bm:new-milestone for Lean orchestration"
-last_updated: "2026-10-31T03:30:00Z"
-last_activity: 2026-10-30 -- 2.14.1 released (PR #8 merged, tag v2.14.1, GitHub release v2.14.1); 999.28 fixed on all routes except --all
+milestone: v2.15
+milestone_name: Lean orchestration
+status: "Phase 62 in review — PR #9 open, waiting on the owner's go/no-go on cost visibility and merge (not merged)"
+stopped_at: "Phase 62 at the 62-09 owner checkpoint: PR #9 open (feat/v2.15-phase-62 into main), green on cf0baf4 (push 43569640988, pull_request 43569757945); waiting on the owner's go/no-go on cost visibility and the merge; main's first run and the phase close follow after the merge"
+last_updated: "2026-11-14T07:13:34Z"
+last_activity: 2026-11-14 -- Phase 62 pull request #9 opened, CI green on its head commit; owner checkpoint reached
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 27
-  completed_plans: 27
-  percent: 100
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 11
+  completed_plans: 10
+  percent: 91
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-30)
+See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Between milestones — Lean orchestration next via /bm:new-milestone
+**Current focus:** PR #9 (Phase 62) owner checkpoint: cost-visibility go/no-go and merge; then main's first CI run closes the phase
 
 ## Current Position
 
-Phase: 61 (release-gate-decision-reliability) — SHIPPED (last phase of v2.14)
-Plan: 5 of 5
-Status: Awaiting next milestone — v2.14 shipped as 2.14.0, patched as 2.14.1
-Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, flows 5/5); archived to .planning/milestones/v2.14-*; no tag made
+Phase: 62 (baseline-and-continuous-test-run) — WAITING ON OWNER CHECKPOINT
+Plan: 10 of 11 complete (62-09 Task 1 done; Task 2 is the owner checkpoint; Task 3 records main's first run after the merge)
+Status: Phase 62 in review — waiting on the owner: go/no-go on cost visibility and merge of PR #9 (https://github.com/thejuran/vibe-check/pull/9)
+Last activity: 2026-11-14 -- PR #9 opened; push run 43569640988 and pull_request run 43569757945 on cf0baf4 both success (5 deselected, skipped set matches the recorded 2)
 
 ## Operator Next Steps
 
-- Update the installed vibe-check to 2.14.1 (`/plugin` update, then relaunch Claude Code fully) and confirm the installed version matches origin/main
-- /bm:new-milestone for Lean orchestration (999.12 feasibility, Finalize-first extraction)
+- Record GO or NO-GO on cost visibility (`.planning/phases/62-baseline-and-continuous-test-run/62-COST-NOTE.md`; the note recommends NO-GO and may be overruled)
+- Merge PR #9 (https://github.com/thejuran/vibe-check/pull/9) when satisfied; phase code review and verification can run on the branch first
+- After the merge: the 62-09 continuation records main's first CI run and closes Phase 62 only if it is green; then delete the phase branch (local + GitHub)
 
 ## Deferred Items
 
@@ -52,8 +53,10 @@ Carried from earlier:
 |------|------|--------|
 | Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
+| Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
+| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
-| Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
+| Scheduled | 999.12 cost visibility feasibility | v2.15 Phase 62 (BASE-01..04); bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
@@ -62,7 +65,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.14 Decision reliability is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.15 Lean orchestration is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -70,13 +73,25 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.14 Decision reliability active, Phases 59–61 (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration active, Phases 62–65 (62 baseline 999.12 + continuous test run, 63 Finalize extraction + cross-call variable check, 64 optional extension, 65 release gate) → conditional Reviewer efficiency; 999.31 waits until v2.15 ships; 999.26 deferred. v2.14 archived: [roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: 62-09 Task 1 done. Phase branch pushed 4231836 -> cf0baf4 (no force). PR #9 https://github.com/thejuran/vibe-check/pull/9 opened (feat/v2.15-phase-62 into main). Runs on cf0baf4: push https://github.com/thejuran/vibe-check/actions/runs/43569640988 success and pull_request https://github.com/thejuran/vibe-check/actions/runs/43569757945 success, each `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed` and `skipped set matches the recorded 2`. Plugin tree at cf0baf4 still 90e0697. Recorded under `## Pull request` in 62-CI-RECORD.md (4a86f9e). Stopped at the blocking owner checkpoint (62-09 Task 2): go/no-go on cost visibility and the merge are the owner's; nothing merged, cost-note owner section untouched, Phase 62 not ticked.
+
+2026-11-14: 62-08 complete (385cbab, 4231836, 1295b8a, ada0935, 0e8fd0b). Phase branch pushed for the first time. Recording run https://github.com/thejuran/vibe-check/actions/runs/43566043041 on 385cbab: red at Skip guard only, by design, `4319 passed, 2 skipped, 5 deselected`. Pinned RECORDED_SKIPS = the 2 skips it printed (lane-archive sandbox-root test, replay linked-worktree test; skip_list_problems []). Green run https://github.com/thejuran/vibe-check/actions/runs/43567045328 on the pinned commit 4231836: every step success, `4324 passed, 2 skipped, 5 deselected`, `skipped set matches the recorded 2`. Red proof https://github.com/thejuran/vibe-check/actions/runs/43568391505 on ci-red-proof 29f9acd: failure in Offline suite on test_footprint.py::TestPinnedRev::test_deep_review_pinned_numbers only; branch deleted locally and on GitHub, no PR, main untouched (eb790e4). No runner findings beyond the five and the two skips; Linux re-derivation of the committed baseline records agreed. Plugin tree still 90e0697. CI-02 stays open for 62-09 (main's first run). Remote phase branch at 4231836; 1295b8a, ada0935, 0e8fd0b and the tracking commit are local only (62-09 pushes them with the PR).
+
+2026-11-14: Phase 62 planned via /bm:plan-phase: research, validation strategy, pattern map, 11 plans in 6 waves; plan check passed on the third pass (4 blockers and 5 warnings closed over two revisions). Owner rulings recorded after research: D-18 (CI leaves out exactly five named Linux-impossible tests, guarded), D-19 (smoke-test sessions count as existing records), D-20 (Linux self-skips allowed only as an exact pinned list from the first real run). Planning files only; no code changed; nothing pushed.
+
+2026-11-13: v2.15 roadmap written: Phase 62 Baseline and continuous test run (BASE-01..04, CI-01..02), Phase 63 Finalize extraction and cross-call variable check (FINX-01..05, XVAR-01..02), Phase 64 Optional bounded extension, conditional (EXT-01; a recorded skip satisfies it; activates only after Finalize passes equivalence), Phase 65 Release gate (GATE-04..06). 17/17 mapped. Planning files only; no code changed. Awaiting owner approval; uncommitted. Update: owner approved the roadmap the same day; committed on feat/v2.15-phase-62.
+
+2026-11-13: Activated v2.15 Lean orchestration via /bm:new-milestone (research skipped by owner; scope = the owner-approved roadmap section; equivalence baseline 2.14.1 dd8e4ab). Branch feat/v2.15-phase-62 from main 69117d9. Phases continue from 62.
+
+2026-11-13: Planning only, no code or release. Codebase map (`.planning/codebase/`) and intel (`.planning/intel/`) rebuilt at eb790e4; drift scan scored 100 with no findings (Python coverage of that scan unconfirmed). Owner approved three roadmap changes: Lean orchestration gains a continuous test run (new item 2) and a general cross-call variable check inside the Finalize extraction; backlog 999.31 groups the remaining decision-continuity limits as one design question for after Lean orchestration; 999.32 carries C4 out of the shipped 999.28. Three smaller remap observations were recorded in backlog/MAINTENANCE.md (architecture.md "Removed" entry, score.py/score43.py cross-check, unlabelled pinned tests). No milestone activated; next is still /bm:new-milestone.
 
 2026-10-30: 2.14.1 shipped (PR #8 squash dd8e4ab, tag v2.14.1, GitHub release). Fixes 999.28 via /bm:debug (session .planning/debug/999-28-uncommitted-reask.md): per-pass snapshot (scripts/worktree_snap.py) feeds score.py `nearby_line_ranges`; snapshot taken in Phase 0 before the reviewers' diff and confirmed at Phase 3; PR/range routes fixed too (owner chose B). Deep review (1 Warning, snapshot timing) + 3 Codex/Opus re-review rounds, final Codex approve. Gates on the release commit: suite 3886, replay 170/0, guardrail 25/26 (amendment 008), validate, stdlib-only. Live check default route only (owner approved; PR live skipped by owner): unchanged tree kept the deferral, edit 3 lines above re-asked with the true reason; C4 reproduced again. New backlog 999.29 (reworded re-report shows as new), 999.30 (pruning). Plugin cache restored to 2.14.0 after the check; installed plugin not yet updated to 2.14.1.
 
