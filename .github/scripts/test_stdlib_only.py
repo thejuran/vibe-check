@@ -78,7 +78,7 @@ class TestRealTree(unittest.TestCase):
 
     def test_real_tree_is_clean_with_independent_count(self):
         expected = self._independent_count()
-        self.assertEqual(expected, 33)
+        self.assertEqual(expected, 34)
         files, bad = stdlib_only.scan(PLUGIN_ROOT)
         self.assertEqual(bad, {})
         self.assertEqual(len(files), expected)
@@ -92,7 +92,7 @@ class TestRealTree(unittest.TestCase):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout.strip(), "33 shipped .py files; third-party imports: none")
+        self.assertEqual(proc.stdout.strip(), "34 shipped .py files; third-party imports: none")
 
 
 class TestTempTrees(TreeCase):
