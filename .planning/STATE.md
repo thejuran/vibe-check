@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "ready_to_plan — Phase 63 context gathered; planning not started"
-stopped_at: "Phase 63 context gathered on feat/v2.15-phase-63 (63-CONTEXT.md, D-01..D-15); no code changed, nothing pushed; next is /bm:plan-phase 63"
-last_updated: "2026-11-14T16:30:39Z"
-last_activity: 2026-11-14 -- Phase 63 context gathered (discussion, four areas); branch feat/v2.15-phase-63 cut from main ff8ab99
+status: "planning — Phase 63 plans written (11 plans in 9 waves); plan check pending, not executed"
+stopped_at: "Phase 63 plans written on feat/v2.15-phase-63 (63-01..63-11, D-01..D-17 traced); no code changed, nothing pushed; next is the plan check, then /bm:execute-phase 63"
+last_updated: "2026-11-14T17:13:15Z"
+last_activity: 2026-11-14 -- Phase 63 planned (11 plans, 9 waves); plan check pending
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 11
+  total_plans: 22
   completed_plans: 11
   percent: 25
 ---
@@ -26,13 +26,14 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 63
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-14 -- Phase 63 context gathered on feat/v2.15-phase-63; planning not started
+Plan: 0 of 11 (planned, not executed)
+Status: Planning — plans written, plan check pending
+Last activity: 2026-11-14 -- Phase 63 plans written on feat/v2.15-phase-63 (11 plans in 9 waves)
 
 ## Operator Next Steps
 
-- Phase 63 planning (`/bm:plan-phase 63`) on branch `feat/v2.15-phase-63`; context is in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/63-CONTEXT.md`
+- Plan check for Phase 63, then `/bm:execute-phase 63` on branch `feat/v2.15-phase-63`; plans are `63-01`..`63-11` in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/`
+- Two owner pauses are planned: 63-09 (which flagged cross-call places are fixed, which pinned) and 63-11 (result page and the go to merge)
 
 ## Deferred Items
 
@@ -79,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: Phase 63 planned on feat/v2.15-phase-63: 11 plans in 9 waves (63-01 starting figures + HEAD fingerprints helper; 63-02 the one helper call; 63-03 cross-call check; 63-04 fresh-shell reproductions; 63-05 removal ledger with replacements first; 63-06 Finalize gate inputs become one helper call; 63-07 counts explanation moved to a design document + report bundle; 63-08 second capture driver and compare; 63-09 figures at the extraction-only commit + owner fix/pin decision; 63-10 fixes, named growth, phase-end figures; 63-11 result page, PR, owner go, merge, close). Owner decisions D-16 (pass/fail judged on the extraction alone) and D-17 (fresh-shell reproduction standard) recorded the same day. Planning files only; no code changed; nothing pushed. Plan check pending.
 
 2026-11-14: Phase 63 context gathered on feat/v2.15-phase-63 (cut from main ff8ab99). Owner decisions: only the gate inputs and gate handoff move into helpers; the card and record-decisions stay as in 2.14.1 (D-01); the model still writes REVIEW.md from a helper-supplied data bundle (D-02); files ordinary reviews load are not changed by the extraction (D-03); card-plumbing extraction goes to backlog at phase close, not scheduled (D-04); stop sentences byte-identical to 2.14.1 (D-05); the helper matches 2.14.1 on inputs it could have caught, each gap recorded and carried (D-06); flagged places get a reproduction first, real four-class failures are fixed, the rest go on a shrink-only named list (D-08), and a fix's added bytes in shared files are reported as named growth (D-09); removal ledger with replacements landing first (D-11); the open/closed explanation moves to a design document (D-12); 999.34 WR-02/WR-03 stay carried, counts taken straight from the commits (D-13); one plain result page either way and the merge waits for the owner (D-14). Planning files only; no code changed; nothing pushed. Next: /bm:plan-phase 63.
 
