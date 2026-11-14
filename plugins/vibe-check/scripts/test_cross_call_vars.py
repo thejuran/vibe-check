@@ -11,9 +11,17 @@ earlier fence of the same file set without printing it.
 """
 import ast
 import importlib.util
+import json
 import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gitfixture  # noqa: E402  (shared temp-repo helper)
 
 # --------------------------------------------------------------------------- #
 # The fence rule, transcribed from docs/design/lean-v2.15/tools/step_count.py:
@@ -709,10 +717,467 @@ class TestMutants(LockCase):
 
 
 # --------------------------------------------------------------------------- #
+# Fresh-shell reproductions of the flagged places.
+#
+# The standard, the same for every flagged (file, NAME) pair:
+#   1. Fresh run: the real setter block and each real reader block, found in
+#      the live file by a needle, each run as its own `bash -s` process with
+#      only PATH, VC_ROOT, TMPDIR and the bootstrap names GUARD_PY / CONFIG_PY
+#      (plus the null git config every fixture repo uses), in a temp git repo,
+#      with the literals the instruction says to substitute substituted and
+#      NAME not supplied.
+#   2. Control run: the same blocks, same environment, in ONE `bash -s`.
+#   3. Outcome class: "stop" (a fresh block exits non-zero where the control
+#      does not), "wrong-file" (the files on disk differ from the control's),
+#      "ignored-setting" (both exit 0, the files agree, the printed result
+#      differs: the setting had no effect), "harmless" (same exit codes,
+#      output and files).
+#   4. Reproduced means any class other than "harmless".
+# --------------------------------------------------------------------------- #
+OUTCOMES = ("stop", "wrong-file", "ignored-setting", "harmless")
+
+
+def fence_holding(relpath, needle):
+    """The body of the one Bash fence of `relpath` that holds `needle`."""
+    bodies = [b for _, b in bash_fences(read_rel(relpath)) if needle in b]
+    if len(bodies) != 1:
+        raise AssertionError("%s: %d Bash fences hold %r (want 1)"
+                             % (relpath, len(bodies), needle))
+    return bodies[0]
+
+
+def substitute(body, literals):
+    """`body` with each token the instruction says to substitute replaced by
+    its literal; every token must be present."""
+    for token, literal in literals:
+        if token not in body:
+            raise AssertionError("token %r absent from the fence" % token)
+        body = body.replace(token, literal)
+    return body
+
+
+def tree_files(root):
+    """{path relative to root: bytes} for every file outside .git."""
+    found = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            with open(path, "rb") as fh:
+                found[os.path.relpath(path, root)] = fh.read()
+    return found
+
+
+class ShellRun:
+    """One fixture repo, copied twice: run once fresh, once as the control."""
+
+    def __init__(self, work, build):
+        """`build(repo)` prepares the repo the instruction expects."""
+        self.work = work
+        base = gitfixture.make_repo(os.path.join(work, "base"))
+        build(base)
+        # Both copies are named `repo`, like the base, so a key built from
+        # the repo's directory name is the same in both runs.
+        self.fresh_repo = os.path.join(work, "fresh", "repo")
+        self.control_repo = os.path.join(work, "control", "repo")
+        shutil.copytree(base, self.fresh_repo, symlinks=True)
+        shutil.copytree(base, self.control_repo, symlinks=True)
+
+    def _bash(self, script, repo):
+        tmpdir = tempfile.mkdtemp(dir=self.work)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "VC_ROOT": PLUGIN_ROOT, "TMPDIR": tmpdir,
+               "GUARD_PY": os.path.join(PLUGIN_ROOT, "scripts", "guard.py"),
+               "CONFIG_PY": os.path.join(PLUGIN_ROOT, "scripts", "config.py"),
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        proc = subprocess.run(["bash", "-s"], input=script, cwd=repo, env=env,
+                              capture_output=True, text=True, timeout=60)
+        return (proc.returncode, proc.stdout.replace(repo, "<repo>"),
+                proc.stderr.replace(repo, "<repo>"))
+
+    def fresh(self, fences):
+        """[(rc, stdout, stderr)], one fresh process per fence, in order."""
+        return [self._bash(body + "\n", self.fresh_repo) for body in fences]
+
+    def control(self, fences):
+        """(rc, stdout, stderr) of the same fences in one process."""
+        return self._bash("\n".join(fences) + "\n", self.control_repo)
+
+
+def classify(fresh, control, fresh_files, control_files):
+    """The outcome class of a fresh run against its control."""
+    if control[0] != 0:
+        raise AssertionError("the control did not complete: %r" % (control,))
+    if any(rc != 0 for rc, _, _ in fresh):
+        return "stop"
+    if fresh_files != control_files:
+        return "wrong-file"
+    if "".join(out for _, out, _ in fresh) != control[1]:
+        return "ignored-setting"
+    return "harmless"
+
+
+class TestClassify(unittest.TestCase):
+    """The outcome rule itself, on hand-made results."""
+    OK = (0, "x\n", "")
+
+    def test_each_class(self):
+        files = {"a": b"1"}
+        self.assertEqual(classify([(0, "", ""), (1, "", "e")], self.OK,
+                                  files, files), "stop")
+        self.assertEqual(classify([(0, "x\n", "")], self.OK,
+                                  files, {"a": b"2"}), "wrong-file")
+        self.assertEqual(classify([(0, "y\n", "")], self.OK,
+                                  files, files), "ignored-setting")
+        self.assertEqual(classify([(0, "", ""), (0, "x\n", "")], self.OK,
+                                  files, files), "harmless")
+
+    def test_a_failed_control_is_a_broken_fixture(self):
+        with self.assertRaises(AssertionError):
+            classify([(0, "", "")], (1, "", "e"), {}, {})
+
+    def test_a_missing_needle_fails(self):
+        with self.assertRaises(AssertionError):
+            fence_holding(STATE_REL, "XVAR_NO_SUCH_NEEDLE")
+        with self.assertRaises(AssertionError):
+            substitute("echo hi", [("<arg>", "02")])
+
+
+# --------------------------------------------------------------------------- #
+# The record: one row per flagged pair, what the fresh run showed, what the
+# owner would see and the proposed disposition (the owner confirms it before
+# anything is changed). `fixture` names the TestRepro63 test that reproduces it.
+# --------------------------------------------------------------------------- #
+SCOPE_REL = "phases/review/00-scope.md"
+CONFIG_REL = "phases/review/06-config.md"
+
+REPRO_63 = [
+    {"id": "X1", "file": SCOPE_REL, "name": "PHASE_DIR",
+     "outcome": "stop",
+     "owner_sees": "A review of a GSD phase stops at the safety check with "
+                   "'Phase resolution escaped .planning/ — refusing.' even "
+                   "though the phase exists.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x1_phase_dir"},
+    {"id": "X2", "file": STATE_REL, "name": "LEGACY_STATE_FILE",
+     "outcome": "wrong-file",
+     "owner_sees": "A review whose saved progress is still in the old "
+                   "location is not moved forward, so it starts again at "
+                   "pass 1 instead of carrying on.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x2_legacy_state_file"},
+    {"id": "X3", "file": STATE_REL, "name": "STATE_FILE",
+     "outcome": "stop",
+     "owner_sees": "A second pass of a review stops with 'the state file's "
+                   "last-pass head_sha is not a commit sha' although the "
+                   "saved progress is fine.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x3_state_file"},
+    {"id": "X4", "file": CONFIG_REL, "name": "CODEX_FLAG_VAL",
+     "outcome": "ignored-setting",
+     "owner_sees": "Asking for '--codex off' has no effect: the review "
+                   "runs with the Codex setting on its default instead.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x4_codex_flag_val"},
+    {"id": "X5", "file": CONFIG_REL, "name": "CONFIG_REPO_ROOT",
+     "outcome": "ignored-setting",
+     "owner_sees": "The repo's settings file is not read at all, so every "
+                   "setting in it is silently replaced by the defaults.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x5_config_repo_root"},
+    {"id": "X6", "file": CONFIG_REL, "name": "MIN_CONFIDENCE_FLAG_VAL",
+     "outcome": "ignored-setting",
+     "owner_sees": "Asking for '--min-confidence 45' has no effect: no "
+                   "low-confidence finding is filtered out.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x6_min_confidence_flag_val"},
+]
+
+PROPOSED_FOR = {"stop": "fix", "wrong-file": "fix",
+                "ignored-setting": "owner decides", "harmless": "pin"}
+ROW_KEYS = {"id", "file", "name", "outcome", "owner_sees", "proposed",
+            "fixture"}
+
+
+def record_problems(rows, exceptions):
+    """Problems with the record against the exceptions list."""
+    problems = []
+    want = {repro: key for key, repro in exceptions.items()}
+    ids = [r.get("id") for r in rows]
+    for rid in sorted(set(want) - set(ids)):
+        problems.append("no record row for %s" % rid)
+    for rid in sorted({i for i in ids if ids.count(i) > 1}):
+        problems.append("more than one row for %s" % rid)
+    for row in rows:
+        rid = row.get("id")
+        if set(row) != ROW_KEYS:
+            problems.append("%s: keys %s" % (rid, sorted(row)))
+            continue
+        if rid not in want:
+            problems.append("%s: not an exception id" % rid)
+        elif (row["file"], row["name"]) != want[rid]:
+            problems.append("%s: file/name differ from the exception" % rid)
+        if row["outcome"] not in OUTCOMES:
+            problems.append("%s: unknown outcome %r" % (rid, row["outcome"]))
+        elif row["proposed"] != PROPOSED_FOR[row["outcome"]]:
+            problems.append("%s: proposed %r does not follow the rule"
+                            % (rid, row["proposed"]))
+        cls, _, method = row["fixture"].partition(".")
+        target = globals().get(cls)
+        if not (isinstance(target, type) and method.startswith("test_")
+                and callable(getattr(target, method, None))):
+            problems.append("%s: no fixture %s" % (rid, row["fixture"]))
+        if not row["owner_sees"].strip():
+            problems.append("%s: empty owner sentence" % rid)
+    return problems
+
+
+class TestRepro63(unittest.TestCase):
+    """Each flagged pair run fresh (one process per Bash block) next to a
+    control (the same blocks in one process). Each test asserts what is
+    observed today, not what should be."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def run_pair(self, label, build, fences):
+        """(fresh, control, outcome, fresh files, control files)."""
+        work = os.path.join(self.tmp, label)
+        os.makedirs(work)
+        run = ShellRun(work, build)
+        fresh = run.fresh(fences)
+        control = run.control(fences)
+        fresh_files = tree_files(run.fresh_repo)
+        control_files = tree_files(run.control_repo)
+        self.assertEqual(control[0], 0, control)
+        return (fresh, control,
+                classify(fresh, control, fresh_files, control_files),
+                fresh_files, control_files)
+
+    # -- 00-scope.md ------------------------------------------------------- #
+    @staticmethod
+    def build_gsd_phase(repo):
+        gitfixture.write(repo, "src/a.txt", "a\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+        gitfixture.write(repo, ".planning/phases/02-code-review/02-01-PLAN.md",
+                         "plan\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "phase")
+
+    def test_x1_phase_dir(self):
+        fences = [
+            substitute(fence_holding(SCOPE_REL, "PHASE_DIR=$(find"),
+                       [("<arg>", "02")]),
+            fence_holding(SCOPE_REL,
+                          'python3 "$GUARD_PY" --root "$PWD/.planning"'),
+            fence_holding(SCOPE_REL, "PHASE_START=$(git log"),
+        ]
+        fresh, control, outcome, _, _ = self.run_pair(
+            "x1", self.build_gsd_phase, fences)
+        phase_sha = gitfixture.git(
+            os.path.join(self.tmp, "x1", "control", "repo"),
+            "log", "--format=%H", "-1", "--", ".planning").stdout.strip()
+        # The control resolves the phase, passes the guard and prints the
+        # commit that started the phase.
+        self.assertIn("contained", control[1])
+        self.assertIn("PHASE_START=%s\n" % phase_sha, control[1])
+        # Fresh: the guard sees an empty phase dir and refuses.
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 1, 0])
+        self.assertIn("Phase resolution escaped .planning/ — refusing.",
+                      fresh[1][1])
+        # Were the third block reached, git refuses the empty path and the
+        # phase is reviewed as uncommitted changes only.
+        self.assertIn("empty string is not a valid pathspec", fresh[2][2])
+        self.assertIn("PHASE_START=\n", fresh[2][1])
+        self.assertEqual(outcome, "stop")
+
+    # -- 05-state.md ------------------------------------------------------- #
+    STATE_SETTERS = (
+        ("gsd", 'STATE_FILE=".turingmind/state/format-53/${PHASE_ID}',
+         [("${PHASE_ID}", "02-code-review")], "02-code-review"),
+        ("branch", "BRANCH_SLUG=$(git branch", [], "repo-main"),
+    )
+
+    @staticmethod
+    def build_state(key):
+        """A repo with one commit and a pass-1 state file in the old place."""
+        def build(repo):
+            gitfixture.write(repo, "src/a.txt", "a\n")
+            gitfixture.git(repo, "add", "-A")
+            gitfixture.git(repo, "commit", "-qm", "base")
+            sha = gitfixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+            gitfixture.write(repo, ".turingmind/state/%s.json" % key,
+                             json.dumps({"passes": [{"pass_number": 1,
+                                                     "head_sha": sha,
+                                                     "findings": []}]}))
+        return build
+
+    def state_setter(self, needle, literals):
+        body = fence_holding(STATE_REL, needle)
+        return substitute(body, literals) if literals else body
+
+    def test_x2_legacy_state_file(self):
+        migrate = fence_holding(STATE_REL, 'review_archive.py" migrate')
+        for mode, needle, literals, key in self.STATE_SETTERS:
+            with self.subTest(mode=mode):
+                fences = [self.state_setter(needle, literals), migrate]
+                fresh, control, outcome, fresh_files, control_files = (
+                    self.run_pair("x2-" + mode, self.build_state(key), fences))
+                old = ".turingmind/state/%s.json" % key
+                new = ".turingmind/state/format-53/%s.json" % key
+                # The control moves the old file forward and archives it.
+                self.assertIn("state migrated forward to " + new, control[1])
+                self.assertIn(new, control_files)
+                self.assertNotIn(old, control_files)
+                # Fresh: both blocks exit 0, nothing is moved, nothing said.
+                self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
+                self.assertEqual(fresh[1][1], "")
+                self.assertIn(old, fresh_files)
+                self.assertNotIn(new, fresh_files)
+                self.assertEqual(outcome, "wrong-file")
+
+    def test_x3_state_file(self):
+        readers = [
+            fence_holding(STATE_REL, 'review_archive.py" migrate'),
+            substitute(fence_holding(STATE_REL, "last-head-sha"),
+                       [('"$FINALIZE_MODE"', '"0"')]),
+            fence_holding(STATE_REL, 'carry_state.py" decided'),
+            fence_holding(STATE_REL, 'carry_state.py" deferred'),
+        ]
+        for mode, needle, literals, key in self.STATE_SETTERS:
+            with self.subTest(mode=mode):
+                fences = [self.state_setter(needle, literals)] + readers
+                fresh, control, outcome, _, _ = self.run_pair(
+                    "x3-" + mode, self.build_state(key), fences)
+                sha = gitfixture.git(
+                    os.path.join(self.tmp, "x3-" + mode, "control", "repo"),
+                    "rev-parse", "HEAD").stdout.strip()
+                # The control carries the review: it reads the last pass and
+                # the decided and deferred lists.
+                self.assertIn("LAST_REVIEWED_SHA=%s\n[]\n[]\n" % sha,
+                              control[1])
+                # Fresh: each block that reads the state file halts.
+                self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 1, 1, 1])
+                self.assertIn("last-pass head_sha is not a commit sha",
+                              fresh[2][2])
+                self.assertIn("carry_state.py decided failed", fresh[3][2])
+                self.assertIn("carry_state.py deferred failed", fresh[4][2])
+                self.assertEqual(outcome, "stop")
+        with self.subTest(mode="gsd, --finalize"):
+            # On a Close-out run the head_sha block binds nothing, but the
+            # decided and deferred blocks still halt.
+            mode, needle, literals, key = self.STATE_SETTERS[0]
+            fences = [self.state_setter(needle, literals), readers[0],
+                      substitute(fence_holding(STATE_REL, "last-head-sha"),
+                                 [('"$FINALIZE_MODE"', '"1"')]),
+                      readers[2], readers[3]]
+            fresh, control, outcome, _, _ = self.run_pair(
+                "x3-finalize", self.build_state(key), fences)
+            self.assertNotIn("LAST_REVIEWED_SHA=", control[1])
+            self.assertIn("[]\n[]\n", control[1])
+            self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 1, 1])
+            self.assertEqual(outcome, "stop")
+
+    # -- 06-config.md ------------------------------------------------------ #
+    # The owner's invocation, substituted for "$ARGUMENTS", and a repo config
+    # that disables one agent. The invoke block prints nothing, so the same
+    # one observation line is appended to it in both runs.
+    CONFIG_ARGS = '"--min-confidence 45 --codex off"'
+    CONFIG_PROBE = "printf 'CONFIG_JSON=%s\\n' \"$CONFIG_JSON\""
+
+    @staticmethod
+    def build_config(repo):
+        gitfixture.write(repo, ".vibe-check.toml",
+                         '[agents]\ndisabled = ["style"]\n')
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+
+    def config_pair(self, label, setter):
+        fences = [setter,
+                  fence_holding(CONFIG_REL, "CONFIG_JSON=$(REPO_ROOT=")
+                  + "\n" + self.CONFIG_PROBE]
+        fresh, control, outcome, _, _ = self.run_pair(
+            label, self.build_config, fences)
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
+        self.assertEqual(fresh[0][1], "")
+        return (self.config_values(fresh[1][1]), self.config_values(control[1]),
+                outcome)
+
+    def config_values(self, out):
+        line = [l for l in out.splitlines() if l.startswith("CONFIG_JSON=")]
+        self.assertEqual(len(line), 1, out)
+        return json.loads(line[0][len("CONFIG_JSON="):])["values"]
+
+    def flag_setter(self, needle):
+        return substitute(fence_holding(CONFIG_REL, needle),
+                          [('"$ARGUMENTS"', self.CONFIG_ARGS)])
+
+    def test_x4_codex_flag_val(self):
+        fresh, control, outcome = self.config_pair(
+            "x4", self.flag_setter("CODEX_FLAG_VAL=$(printf"))
+        self.assertEqual(control["codex"], "off")
+        self.assertEqual(fresh["codex"], "auto")
+        self.assertEqual(outcome, "ignored-setting")
+
+    def test_x5_config_repo_root(self):
+        fresh, control, outcome = self.config_pair(
+            "x5", fence_holding(CONFIG_REL, "CONFIG_REPO_ROOT=$(git rev-parse"))
+        # An empty repo root does not make the helper refuse: it reads no
+        # config file at all and returns the defaults.
+        self.assertEqual(control["disabled"], ["style"])
+        self.assertEqual(fresh["disabled"], [])
+        self.assertEqual(outcome, "ignored-setting")
+
+    def test_x6_min_confidence_flag_val(self):
+        fresh, control, outcome = self.config_pair(
+            "x6", self.flag_setter("MIN_CONFIDENCE_FLAG_VAL=$(printf"))
+        self.assertEqual(control["min_confidence"], 45)
+        self.assertIsNone(fresh["min_confidence"])
+        self.assertEqual(outcome, "ignored-setting")
+
+
+class TestRepro63Record(LockCase):
+    """Every exception has exactly one record row, with a fixture that
+    exists, an allowed outcome and the disposition the rule gives it."""
+
+    def test_record_holds(self):
+        self.assert_holds(record_problems, REPRO_63, EXCEPTIONS)
+
+    def test_mutant_row_removed_trips(self):
+        fewer = [r for r in REPRO_63 if r["id"] != "X1"]
+        self.assertEqual(len(fewer), len(REPRO_63) - 1)
+        self.assertEqual(record_problems(fewer, EXCEPTIONS),
+                         ["no record row for X1"])
+
+    def test_mutant_fixture_misspelled_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["fixture"] = rows[0]["fixture"] + "_typo"
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: no fixture %s" % rows[0]["fixture"]])
+
+    def test_mutant_unknown_outcome_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["outcome"] = "flaky"
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: unknown outcome 'flaky'"])
+
+    def test_mutant_proposed_off_rule_trips(self):
+        rows = [dict(r) for r in REPRO_63]
+        rows[0]["proposed"] = "pin" if rows[0]["proposed"] != "pin" else "fix"
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: proposed %r does not follow the rule"
+                          % rows[0]["proposed"]])
+
+
+# --------------------------------------------------------------------------- #
 # This module stays stdlib only.
 # --------------------------------------------------------------------------- #
 class TestImportSet(unittest.TestCase):
-    ALLOWED = {"ast", "importlib", "os", "re", "unittest"}
+    # gitfixture is the repo's own stdlib-only temp-repo helper.
+    ALLOWED = {"ast", "importlib", "json", "os", "re", "shutil",
+               "subprocess", "sys", "tempfile", "unittest", "gitfixture"}
 
     def test_imports_are_stdlib_only(self):
         with open(os.path.abspath(__file__), encoding="utf-8") as fh:
