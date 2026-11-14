@@ -114,3 +114,12 @@ Elapsed time per run, first to last record, including the owner's waiting time: 
 - **Lanes:** taken only from each subagent file's meta file `agentType`; 0 subagent files were unattributed.
 - **No price:** the reader refuses to print output holding a dollar sign or a cost, price or usd key or table heading; this note was checked with the reader's `check-note` mode before commit.
 - **Date:** 2026-11-14.
+
+## Owner decision
+
+- **Date:** 2026-11-14.
+- **Decision:** NO-GO. The owner's words: "no go then you merge".
+- **Against the recommendation:** follows it. The note recommended NO-GO and the owner agreed.
+- **Conditions:** none stated.
+- **Consequence:** accounting work stops for v2.15. The milestone uses the labelled byte and step counts as its evidence (D-13). No backlog item 999.33 is filed (D-12 applies only to a GO).
+- **Merge:** in the same answer the owner told the main session to merge the phase pull request.
