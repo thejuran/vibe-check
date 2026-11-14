@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "ready to execute — Phase 62 planned (11 plans in 6 waves, plan check passed); no code changed"
-stopped_at: "Phase 62 planned 2026-11-14 (62-01..62-11, D-01..D-20); execution not started; nothing pushed"
-last_updated: "2026-11-14T05:13:09Z"
-last_activity: 2026-11-14 — Phase 62 planned (11 plans in 6 waves; plan check passed)
+status: executing
+stopped_at: "Phase 62 executing: wave 1 of 6 complete (6/11 plans); wave 2 (62-10) next; nothing pushed"
+last_updated: "2026-11-14T05:29:25Z"
+last_activity: 2026-11-14 -- Phase 62 wave 1 of 6 complete (62-01..62-06 merged; post-merge suite green)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 11
-  completed_plans: 0
-  percent: 0
+  completed_plans: 6
+  percent: 55
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.15 Lean orchestration — Phase 62 (baseline and continuous test run): planned, execution next
+**Current focus:** Phase 62: baseline-and-continuous-test-run
 
 ## Current Position
 
-Phase: 62 (baseline-and-continuous-test-run) — PLANNED
-Plan: 0 of 11 complete
-Status: Ready to execute — Phase 62 planned; execution not started
-Last activity: 2026-11-14 — Phase 62 planned (11 plans in 6 waves; plan check passed)
+Phase: 62 (baseline-and-continuous-test-run) — EXECUTING
+Plan: 6 of 11 complete (wave 1 of 6 done; wave 2 = 62-10 next)
+Status: Executing Phase 62
+Last activity: 2026-11-14 -- Phase 62 wave 1 complete (62-01..62-06 merged; post-merge suite green)
 
 ## Operator Next Steps
 

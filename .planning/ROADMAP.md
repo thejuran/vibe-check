@@ -46,7 +46,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 0/11 | Planned | - |
+| 62. Baseline and continuous test run | 6/11 | In Progress|  |
 | 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
@@ -67,17 +67,17 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
   4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
   5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
 
-**Plans:** 11 plans in 6 waves
+**Plans:** 6/11 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 62-01-PLAN.md — stdlib-only check, the left-out list guard and the skip-set guard for CI, each with mutants (CI-01)
-- [ ] 62-02-PLAN.md — the one GitHub Actions workflow and its shape locks, one break test per rule (CI-01)
-- [ ] 62-03-PLAN.md — step-counting rule as a script, 2.14.1 step counts, improvement criterion and comparison workload (BASE-04)
-- [ ] 62-04-PLAN.md — Finalize capture harness pinned to 2.14.1 and the two close routes (BASE-03)
-- [ ] 62-05-PLAN.md — mode-path bytes and labelled loaded-file traces for plain review, deep review and Finalize (BASE-02)
-- [ ] 62-06-PLAN.md — usage-field reader and the cost visibility go/no-go note (BASE-01)
+- [x] 62-01-PLAN.md — stdlib-only check, the left-out list guard and the skip-set guard for CI, each with mutants (CI-01)
+- [x] 62-02-PLAN.md — the one GitHub Actions workflow and its shape locks, one break test per rule (CI-01)
+- [x] 62-03-PLAN.md — step-counting rule as a script, 2.14.1 step counts, improvement criterion and comparison workload (BASE-04)
+- [x] 62-04-PLAN.md — Finalize capture harness pinned to 2.14.1 and the two close routes (BASE-03)
+- [x] 62-05-PLAN.md — mode-path bytes and labelled loaded-file traces for plain review, deep review and Finalize (BASE-02)
+- [x] 62-06-PLAN.md — usage-field reader and the cost visibility go/no-go note (BASE-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
