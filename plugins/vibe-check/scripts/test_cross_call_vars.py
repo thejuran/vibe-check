@@ -873,7 +873,63 @@ REPRO_63 = [
                    "saved progress is fine.",
      "proposed": "fix",
      "fixture": "TestRepro63.test_x3_state_file"},
+    {"id": "X4", "file": CONFIG_REL, "name": "CODEX_FLAG_VAL",
+     "outcome": "ignored-setting",
+     "owner_sees": "Asking for '--codex off' has no effect: the review "
+                   "runs with the Codex setting on its default instead.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x4_codex_flag_val"},
+    {"id": "X5", "file": CONFIG_REL, "name": "CONFIG_REPO_ROOT",
+     "outcome": "ignored-setting",
+     "owner_sees": "The repo's settings file is not read at all, so every "
+                   "setting in it is silently replaced by the defaults.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x5_config_repo_root"},
+    {"id": "X6", "file": CONFIG_REL, "name": "MIN_CONFIDENCE_FLAG_VAL",
+     "outcome": "ignored-setting",
+     "owner_sees": "Asking for '--min-confidence 45' has no effect: no "
+                   "low-confidence finding is filtered out.",
+     "proposed": "owner decides",
+     "fixture": "TestRepro63.test_x6_min_confidence_flag_val"},
 ]
+
+PROPOSED_FOR = {"stop": "fix", "wrong-file": "fix",
+                "ignored-setting": "owner decides", "harmless": "pin"}
+ROW_KEYS = {"id", "file", "name", "outcome", "owner_sees", "proposed",
+            "fixture"}
+
+
+def record_problems(rows, exceptions):
+    """Problems with the record against the exceptions list."""
+    problems = []
+    want = {repro: key for key, repro in exceptions.items()}
+    ids = [r.get("id") for r in rows]
+    for rid in sorted(set(want) - set(ids)):
+        problems.append("no record row for %s" % rid)
+    for rid in sorted({i for i in ids if ids.count(i) > 1}):
+        problems.append("more than one row for %s" % rid)
+    for row in rows:
+        rid = row.get("id")
+        if set(row) != ROW_KEYS:
+            problems.append("%s: keys %s" % (rid, sorted(row)))
+            continue
+        if rid not in want:
+            problems.append("%s: not an exception id" % rid)
+        elif (row["file"], row["name"]) != want[rid]:
+            problems.append("%s: file/name differ from the exception" % rid)
+        if row["outcome"] not in OUTCOMES:
+            problems.append("%s: unknown outcome %r" % (rid, row["outcome"]))
+        elif row["proposed"] != PROPOSED_FOR[row["outcome"]]:
+            problems.append("%s: proposed %r does not follow the rule"
+                            % (rid, row["proposed"]))
+        cls, _, method = row["fixture"].partition(".")
+        target = globals().get(cls)
+        if not (isinstance(target, type) and method.startswith("test_")
+                and callable(getattr(target, method, None))):
+            problems.append("%s: no fixture %s" % (rid, row["fixture"]))
+        if not row["owner_sees"].strip():
+            problems.append("%s: empty owner sentence" % rid)
+    return problems
 
 
 class TestRepro63(unittest.TestCase):
@@ -1092,22 +1148,27 @@ class TestRepro63Record(LockCase):
     def test_mutant_row_removed_trips(self):
         fewer = [r for r in REPRO_63 if r["id"] != "X1"]
         self.assertEqual(len(fewer), len(REPRO_63) - 1)
-        self.assert_trips(record_problems, fewer, EXCEPTIONS)
+        self.assertEqual(record_problems(fewer, EXCEPTIONS),
+                         ["no record row for X1"])
 
     def test_mutant_fixture_misspelled_trips(self):
         rows = [dict(r) for r in REPRO_63]
         rows[0]["fixture"] = rows[0]["fixture"] + "_typo"
-        self.assert_trips(record_problems, rows, EXCEPTIONS)
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: no fixture %s" % rows[0]["fixture"]])
 
     def test_mutant_unknown_outcome_trips(self):
         rows = [dict(r) for r in REPRO_63]
         rows[0]["outcome"] = "flaky"
-        self.assert_trips(record_problems, rows, EXCEPTIONS)
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: unknown outcome 'flaky'"])
 
     def test_mutant_proposed_off_rule_trips(self):
         rows = [dict(r) for r in REPRO_63]
         rows[0]["proposed"] = "pin" if rows[0]["proposed"] != "pin" else "fix"
-        self.assert_trips(record_problems, rows, EXCEPTIONS)
+        self.assertEqual(record_problems(rows, EXCEPTIONS),
+                         ["X1: proposed %r does not follow the rule"
+                          % rows[0]["proposed"]])
 
 
 # --------------------------------------------------------------------------- #
