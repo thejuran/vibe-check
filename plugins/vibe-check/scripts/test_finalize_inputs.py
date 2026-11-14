@@ -1418,13 +1418,23 @@ class TestCliMutants(CliCase):
                                               drop="--pr-mode"),
                                      module=usage)[2], "usage\n")
         gate = self.multi_mutant((
-            '        return EXIT_GATE, ""',
+            "(any gate failure is the gate stop)\n"
+            "        return EXIT_GATE, None",
+            "(any gate failure is the gate stop)\n"
             '        sys.stderr.write("gate\\n")\n'
-            '        return EXIT_GATE, ""'))
+            "        return EXIT_GATE, None"))
         with mock.patch.object(gate.finalize_gate, "run",
                                side_effect=RuntimeError("x")):
             self.assertEqual(self.inproc(argv_for(sp, self.empty()),
                                          module=gate)[2], "gate\n")
+        catch_all = self.multi_mutant((
+            '        return EXIT_GATE, ""',
+            '        sys.stderr.write("boom\\n")\n'
+            '        return EXIT_GATE, ""'))
+        with mock.patch.object(catch_all, "head_blobs",
+                               side_effect=RuntimeError("x")):
+            self.assertEqual(self.inproc(argv_for(sp, self.empty()),
+                                         module=catch_all)[2], "boom\n")
 
     def test_mutant_counting_line_changed_or_dropped_trips(self):
         sp = self.new_path("not json")

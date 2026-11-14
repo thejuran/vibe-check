@@ -1,5 +1,41 @@
 """finalize_inputs.py — the Finalize gate inputs, worked out by a tested helper.
 
+USAGE.
+
+    python3 finalize_inputs.py --state-file PATH --blob-out PATH \
+        --noninteractive true|false --pr-mode true|false --range-mode true|false
+
+All five arguments are required; a switch is exactly `true` or `false`.
+`--blob-out` must be an existing EMPTY regular file (a fresh mktemp per
+attempt): the fingerprint map is always rebuilt from the current HEAD, index
+and working tree and written there, never read back from an earlier attempt.
+
+stdout (exit 0), one JSON object:
+    {"action": <gate action>, "reason": <gate reason>, "next": <NEXT_ACTIONS>,
+     "counts": {the 8 finalize-counts keys}, "report": {"entries": [...]} | null}
+
+    exit 0  result printed
+         2  usage error, or a bad --blob-out
+         3  state file unreadable or malformed
+         4  gate stage or internal failure
+         5  report failed on `write`
+
+stderr: on a counting-stage refusal (state not JSON or malformed; bad
+--blob-out) exactly the one line `carry_state.py finalize-counts` prints at
+2.14.1 for that input; on a report-stage refusal (exit 5) exactly the line
+`batch_card.py decisions-report` prints for the state file it reads again;
+on every other exit nothing. The helper prints no owner sentence: the
+instructions map each exit code to the existing sentence. It never echoes a
+path, hash or title. It writes only `--blob-out`; the state file is never
+written.
+
+The counts come from `carry_state.finalize_counts`, the decision from
+`finalize_gate.run` on the seven flags, and on `write` the report bundle from
+`batch_card.decisions_report`; no counting or branching rule is re-derived
+here. A missing state file (`[ -f "$STATE_FILE" ]` false, including an empty
+path) gives the gate's `error` result without reading `--blob-out` or running
+git, as at 2.14.1.
+
 WHAT IT TRANSCRIBES. Step 1 ("HEAD fingerprints") of Finalize mode in
 `phases/shared/90-finalize.md` (lines 13-22 at 2.14.1, dd8e4ab):
 
@@ -36,16 +72,17 @@ instructions ran the checks in the session's folder and had that gap; this
 helper deliberately does not.
 
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
-module decides, the prose renders. It does not count or gate.
+module decides, the prose renders.
 
 I/O: stdlib imports exactly {json, os, subprocess, sys}, plus the siblings
-`guard` (containment) and `fixcommit` (the PATH_RE constant only; never
+`batch_card`, `carry_state` and `finalize_gate` (called in-process), `guard`
+(containment) and `fixcommit` (the PATH_RE constant only; never
 validate_paths). Every `subprocess.run` is an argv list with
 `timeout=GIT_TIMEOUT` and no shell. git's stderr is captured and discarded,
 never returned or printed.
 """
 
-import json  # noqa: F401  (part of the declared import set)
+import json
 import os
 import subprocess
 import sys
@@ -225,3 +262,130 @@ def build_result(state, blobs, switches, report_source=None):
                      "next": next_action(action, counts),
                      "counts": {k: counts[k] for k in COUNT_KEYS},
                      "report": report}
+
+
+# --------------------------------------------------------------------------- #
+# CLI.
+# --------------------------------------------------------------------------- #
+ARGV_FLAGS = ("--state-file", "--blob-out", "--noninteractive", "--pr-mode",
+              "--range-mode")
+_SWITCH_FLAGS = (("--noninteractive", "noninteractive"),
+                 ("--pr-mode", "pr_mode"), ("--range-mode", "range_mode"))
+_BOOL_VALUES = {"true": True, "false": False}
+
+
+def parse_argv(argv):
+    """(state file, blob-out, switches) or None on any usage error. Every flag
+    is required and has no default; an unknown, repeated or valueless flag is
+    an error; a switch is exactly `true` or `false`. The state file may be
+    an empty string (read as no state file, as `[ -f "" ]` is)."""
+    values = {}
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token not in ARGV_FLAGS or token in values or i + 1 >= len(argv):
+            return None
+        values[token] = argv[i + 1]
+        i += 2
+    if set(values) != set(ARGV_FLAGS):
+        return None
+    switches = {}
+    for flag, name in _SWITCH_FLAGS:
+        if values[flag] not in _BOOL_VALUES:
+            return None
+        switches[name] = _BOOL_VALUES[values[flag]]
+    return values["--state-file"], values["--blob-out"], switches
+
+
+def _read_text(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _load_state(path):
+    """(state, None), or (None, the refusal line) where the line is the one the
+    2.14.1 command prints for this file, or "" when none is shown."""
+    try:
+        text = _read_text(path)
+    except UnicodeDecodeError:
+        return None, carry_state.REASON_STATE_JSON
+    except OSError:
+        return None, ""
+    try:
+        state = carry_state.load_json_text(text)
+    except ValueError:
+        return None, carry_state.REASON_STATE_JSON
+    reason = carry_state.state_reason(state)
+    if reason is not None:
+        return None, reason
+    return state, None
+
+
+def _blob_out_ok(path):
+    """True only for an existing, empty regular file."""
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) == 0
+    except OSError:
+        return False
+
+
+def _refuse(code, line):
+    if line:
+        sys.stderr.write(line)
+    return code, ""
+
+
+def _run(state_file, blob_out, switches, cwd):
+    if not os.path.isfile(state_file):
+        code, result = build_result(None, {}, switches)
+        if code != EXIT_OK:
+            return code, ""
+        return code, json.dumps(result, allow_nan=False)
+    state, line = _load_state(state_file)
+    if state is None:
+        return _refuse(EXIT_STATE, line)
+    if not _blob_out_ok(blob_out):
+        return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)
+    blobs = head_blobs(state, cwd)
+    try:
+        with open(blob_out, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(blobs, sort_keys=True))
+    except OSError:
+        return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)
+    report_line = []
+
+    def reread():
+        again, again_line = _load_state(state_file)
+        if again is None:
+            report_line.append(again_line)
+        return again
+
+    code, result = build_result(state, blobs, switches, report_source=reread)
+    if code == EXIT_REPORT:
+        return _refuse(code, report_line[0] if report_line else "")
+    if code != EXIT_OK:
+        return code, ""
+    return code, json.dumps(result, allow_nan=False)
+
+
+def run(argv, cwd=None):
+    """CLI body. Returns (exit code, stdout text). git runs in `cwd` (None =
+    this process's working directory)."""
+    parsed = parse_argv(argv)
+    if parsed is None:
+        return EXIT_USAGE, ""
+    state_file, blob_out, switches = parsed
+    try:
+        return _run(state_file, blob_out, switches, cwd)
+    except Exception:  # noqa: BLE001  (the exit code is the diagnostic)
+        return EXIT_GATE, ""
+
+
+# --------------------------------------------------------------------------- #
+# Process shim: the only stdout write and the exit.
+# --------------------------------------------------------------------------- #
+if __name__ == "__main__":
+    _code, _out = run(sys.argv[1:])
+    if _out:
+        sys.stdout.write(_out)
+    sys.exit(_code)
