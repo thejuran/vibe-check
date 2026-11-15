@@ -13,6 +13,8 @@ Proposed split: 3 fix (X1, X2, X3), 3 for the owner to decide (X4, X5, X6), 0 pi
 
 **All six fixed in plan 63-10** (owner decision below: fix all six). Before 63-10 nothing had been changed and the three files were byte-identical to `dd8e4ab`. The cross-call exceptions list in `test_cross_call_vars.py` is now empty. Each `TestRepro63` fixture now asserts the repaired behaviour (fresh calls, with each printed literal substituted, match the one-shell control) and fails on the pre-fix files (see "Reverse run" at the end). One cross-file read that the same-file check cannot see does reproduce and awaits an owner decision (see "Open item" at the end).
 
+**Follow-up (D-20, D-21), 2026-11-15.** The open item is fixed (X7), the fix loop reproduced the same gap and is fixed (X8), a cross-file companion check now flags a read of a name only another file sets (two places flagged and not decided: C1, C2), and the printed names are guarded against shell-live characters (D-21). See the four sections at the end.
+
 - **Date:** 2026-11-14
 - **HEAD when recorded:** `9efb67d` (the commit that completed `REPRO_63` and its fixtures; added in `7a520bb` / `2aa59df` for X1 to X3 and `c34bad8` / `9efb67d` for X4 to X6).
 - **Scope of evidence:** local pytest runs only. No live review, no paid run, no network. Each Bash block was taken from the live instruction file and run in throwaway git repos built with `gitfixture` (null global and system git config).
@@ -38,7 +40,7 @@ Two notes on the setup. The settings block (06-config.md) prints nothing, so the
 ## Known limits
 
 - The check covers plugins/vibe-check/phases/ only; command and agent files are not scanned.
-- The check is same-file: a read whose setter is in another file is not checked.
+- The check is same-file: a read whose setter is in another file is not checked. **Since the D-20 follow-up** a companion check covers that case in part: it requires the reading file to name the printed literal (`NAME=`) and the setting file to print it, but it does not check the order in which the files run (`test_cross_call_vars.py::TestCrossFile`).
 
 ---
 
@@ -399,7 +401,7 @@ FAILED TestRepro63::test_x6_min_confidence_flag_val         (None != 45)
 
 ## Open item: `$STATE_FILE` read in `phases/shared/90-finalize.md` (needs an owner decision)
 
-**Verdict:** REPRODUCED at `936d29e` (the last 63-10 fix commit). Not fixed: the owner's decision covered X1 to X6 only, and `90-finalize.md` is not edited in 63-10.
+**Verdict:** REPRODUCED at `936d29e` (the last 63-10 fix commit). → **Fixed by the 63-10 follow-up (owner decision D-20), recorded as X7** — see "X7 — Close out (D-20)" below. The text of this section is kept as first written.
 
 **What the owner would see.** `--finalize` (Close out) on a review with saved progress says there are no prior review passes and stops without writing `REVIEW.md`, although the state file is there.
 
@@ -428,3 +430,73 @@ Outcome class by the rule above: the fresh exit codes are 0, the files agree and
 **Related, not run:** `phases/review/50-fix-loop.md` also reads `"$STATE_FILE"` in its own blocks (rows, record-decisions, payload, record-fix-verdicts) with no substitution sentence; `phases/review/30-collect-score.md` already says to substitute the literal state path. The same cross-file gap likely applies to the fix loop.
 
 **What a fix would look like (for the owner's decision).** `05-state.md` now prints `STATE_FILE=` (63-10, X3), so a fix is one substitution sentence in `90-finalize.md` (and likewise in `50-fix-loop.md`). Because the name ends in `FILE`, counting rule v1 would count every `"$STATE_FILE"` use in those files as a paste step. That raises the Finalize step count above the extraction-only figure and changes bytes the equivalence record covers. Options: fix it in a follow-up plan (recommended, because Close out is a required workflow), or carry it to the backlog.
+
+---
+
+## X7 — phases/shared/90-finalize.md: STATE_FILE (Close out, D-20)
+
+**Verdict:** REPRODUCED at `25dcb9d` (the open item above, now in the suite) → fixed at `9a01055` (wrong-file).
+
+- **Fixture:** `TestRepro63.test_x7_finalize_state_file`. The 05-state GSD-key block (`02-code-review` typed in) runs fresh and prints `STATE_FILE=`; the Finalize-inputs block (its three slots typed in as `"false"`) runs fresh with the printed literal substituted **only if `90-finalize.md` names `STATE_FILE=`**; when the gate says `write` the harness writes `.turingmind/REVIEW.md` in the model's place and runs the archive block fresh the same way. Control: the same blocks in one shell, with one line standing in for the Write-tool step. The repo holds a pass-1 state file with no findings.
+- **RED at `25dcb9d`:** `AssertionError: 'stop-no-state' != 'write-review-md'` — the Finalize JSON was `{"action": "error", "reason": "no prior review passes", "next": "stop-no-state", ...}`; no REVIEW.md, state not archived, while the control wrote REVIEW.md and archived the state (outcome class wrong-file: exit codes 0, files differ).
+- **Fix:** one sentence added to the first bullet of `## Finalize mode`, mirroring the 63-10 sentence in `05-state.md`: "In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` — substitute it; a shell variable does not survive into a separate Bash call." (+185 bytes, 0 counted steps.) Nothing else in `90-finalize.md` changed: stop sentences, report text and fill rules are byte-identical; `test_finalize_card.py` (fill-rules checksum, moved-passage pin) passes.
+- **GREEN at `9a01055`:** the fresh run returns `write-review-md`, exit codes `[0, 0, 0]`, REVIEW.md written, state archived, files identical to the control.
+- **Five situations re-run:** `finalize_capture.py compare … --driver helper --commit 9a01055`: `finalize outcome fields match (5 situations, 7 walks)`. The driver supplies the state path itself, so the sentence changes no walk; `finalize_capture.py` and its tests needed no change.
+
+## X8 — phases/review/50-fix-loop.md: STATE_FILE (fix loop, D-20)
+
+**Verdict:** REPRODUCED at `25dcb9d` → fixed at `9a01055` (stop).
+
+**What the owner would see.** The fix-loop card is never shown: the fix loop stops with "batch_card.py refused — fix loop cannot render its card; nothing was changed" although the saved progress is fine.
+
+- **Fixture:** `TestRepro63.test_x8_fix_loop_state_file`. The same 05-state block, then the ordinary fix-loop rows block (with one observation line printing the rows file as `ROWS=`), fresh, substituting the printed literal only where `50-fix-loop.md` names `STATE_FILE=`; control in one shell.
+- **RED at `25dcb9d`:** fresh exit codes `[0, 1]`; stderr `bash: line 6: : No such file or directory` then `batch_card.py refused — fix loop cannot render its card; nothing was changed`. Control exit 0.
+- **Fix:** one sentence appended to the "Temp paths are literals" paragraph: "In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` — substitute it." (+124 bytes, 0 counted steps.) The same sentence covers the record-decisions, payload and record-fix-verdicts blocks of that file, which read the same name; only the rows block was run.
+- **GREEN at `9a01055`:** fresh exit codes `[0, 0]`, the same `ROWS=` line as the control, the same files.
+
+| Id | Disposition |
+|----|-------------|
+| X7 | reproduced; fixed by 63-10 (follow-up, D-20) |
+| X8 | reproduced; fixed by 63-10 (follow-up, D-20) |
+
+## Cross-file check (D-20)
+
+`test_cross_call_vars.py::TestCrossFile` (`cross_file_flags`). Rule: a read in a phase file of a name that neither an earlier block of that file nor the same block before it sets, and that another phase file sets, is flagged unless the reading file names the printed literal (`` `NAME=` ``); a file that sets such a name and never prints it is flagged too. The four bootstrap names (`VC_ROOT`, `GUARD_PY`, `CONFIG_PY`, `SCORE_PY`) are left out: `01-bootstrap.md` prints them and tells every later phase to substitute the resolved paths. The flagged set must equal `CROSS_FILE_EXCEPTIONS`; a new flag and a stale entry both fail, so the list can only shrink. Mutants: the D-20 sentence removed from either file trips; an unlisted pair and a stale entry trip; synthetic files cover each rule.
+
+Before the fix it flagged four places: X7, X8 and the two below. After it, the two below remain on the list.
+
+| Id | File | Name | Why flagged | Status |
+|----|------|------|-------------|--------|
+| C1 | phases/review/05-state-all.md | STATE_FILE | sets `STATE_FILE` for `--all` (from `statepath.py`, a 12-hex key) and never prints it, while three other files read it | flagged, not reproduced / not decided |
+| C2 | phases/review/30-collect-score.md | STATE_FILE | reads `"$STATE_FILE"` in the since-review fences; its prose says to substitute "the literal state path bound in Phase 0.5" but does not name `STATE_FILE=` | flagged, not reproduced / not decided |
+
+Notes for the decision, not run: C1 means a `--all` review's Close out and fix loop have no printed `STATE_FILE=` to substitute, so the D-20 sentences point at a line `--all` does not print; the value itself is hex and cannot carry a shell-live character. C2 already tells the model to substitute the state path, so it is likely harmless; it is listed because it does not name the printed line.
+
+## Pasted-name guard (D-21)
+
+**What changed.** The `PHASE_DIR` block in `00-scope.md` and both state-file key blocks in `05-state.md` now refuse, before printing, a value holding `$`, a backtick, `"`, `\`, a newline or a carriage return: one `case` line per block (bash 3.2 safe, no `eval`, every expansion quoted) prints one line to stderr and exits 1, and no `NAME=` line is printed. Messages:
+
+- `Review halted — the phase folder path holds $, `, ", \ or a line break; nothing was scored.`
+- `Review halted — the state-file name (repo folder, branch or phase) holds $, `, ", \ or a line break; nothing was scored.`
+
+**Tests** (`plugins/vibe-check/scripts/test_pasted_name_guard.py`, RED `dd9db3e`, GREEN `d168b85`). Real blocks, each in a fresh `/bin/bash -s` (3.2.57) inside a temp repo. A harness pastes whatever the setter printed into the later blocks and the test looks for a marker file the payload would `touch`.
+
+- `00-scope.md`: phase folders `02-x$(touch${IFS}PWNED)`, ``02-x`touch PWNED` ``, `02-x";touch${IFS}PWNED;"`, `02-a\b`, `02-a<CR>b`, and a milestone folder `v1x$(touch${IFS}PWNED)-phases`. Each: exit 1, no `PHASE_DIR=` line, no marker after the guard and phase-range blocks run. Good names `02-code-review`, `02-my phase` (space) and `v1.2_(a)-phases/02-x+y,z` print and round-trip (guard `contained`, the right `PHASE_START=`).
+- `05-state.md`, GSD key (`${PHASE_ID}` supplied raw from the environment): `$(…)`, backtick, `"`, `\`, newline, carriage return — each refused, no marker after the migrate, last-commit, decided and deferred blocks. Repo-and-branch key: branches `x$(touch${IFS}PWNED)`, ``x`touch${IFS}PWNED` ``, `x";touch${IFS}PWNED;"`, and repo folders holding `$(…)` or a backtick — each refused, no marker. (git refuses `\`, newline and carriage return in a branch name; `xargs basename` strips or splits them in a folder name, so they cannot reach that key.) Good names (`02-code-review`, `02-my phase`, branch `feat/x-1.2_(y)` in folder `repo.v2_(a)`) print, migrate and carry the last reviewed commit.
+- **Mutation:** with the guard line removed, every bad case prints its `NAME=` line or creates the marker, and every `$(…)` / backtick case creates the marker (`test_without_the_guard_the_cases_fail`, passing on the guarded files).
+
+**Paste sites of these names, and whether the print-site guard covers them:**
+
+| Where the literal is pasted | Name | Covered |
+|-----------------------------|------|---------|
+| `00-scope.md` containment-guard and phase-range blocks | `PHASE_DIR` | yes (guard in the `PHASE_DIR` block) |
+| `05-state.md` GSD key block, `${PHASE_ID}` typed in by the model | `PHASE_ID` (basename of `PHASE_DIR`) | yes, upstream: `PHASE_ID` is part of the guarded `PHASE_DIR`, so a bad name stops in `00-scope.md` first. The `05-state.md` guard runs after the assignment, so on its own it would not stop a `$(…)` typed into that block. |
+| `05-state.md` migrate, last-commit, decided and deferred blocks | `LEGACY_STATE_FILE`, `STATE_FILE` | yes |
+| `30-collect-score.md` since-review blocks (`--state "$STATE_FILE"`) — the scoring step's state-path paste | `STATE_FILE` | yes (the printed value is guarded) |
+| `90-finalize.md` Finalize-inputs, rows, record-decisions and archive blocks | `STATE_FILE` | yes |
+| `50-fix-loop.md` rows, record-decisions, payload and record-fix-verdicts blocks | `STATE_FILE` | yes |
+| `05-state-all.md` (`--all`) | `STATE_FILE` | not needed: not printed (C1), and the value is a 12-hex key from `statepath.py`, which refuses unsafe components |
+| `10-triage.md` `{{$PHASE_DIR}}`, `15-intent.md` `$PHASE_DIR/<doc>` | `PHASE_DIR` | not shell pastes (prompt text and a Read-tool path); they only ever see a value the guard let through |
+| `00-scope.md` / `30-collect-score.md` `<ref>`, `<range>` | owner-typed arguments | not covered: they come from the owner's own command line, not from repo, branch or PR names; outside D-21 |
+
+Names derived from a PR (`PR_HEAD`) were already filtered to hex where bound (`00-scope.md`); no other block tells the model to paste a literal derived from repo, branch or PR names.
