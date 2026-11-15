@@ -55,8 +55,16 @@ fingerprinted.
 CLI:
   python3 docs/design/lean-v2.15/tools/finalize_capture.py capture --repo <root> --out <json>
   python3 docs/design/lean-v2.15/tools/finalize_capture.py verify --repo <root> --record <json>
+  python3 docs/design/lean-v2.15/tools/finalize_capture.py compare --repo <root> --record <json> --driver helper (--commit <sha> | --root <plugin dir>)
 `capture` walks the situations at the pinned commit (or `--commit`) and writes
 the record; `verify` re-captures and compares against a committed record.
+`compare` walks the same situations on a later version with `HelperWalk`
+(one Finalize-inputs fence per attempt, each recorded fault replaced by a
+named stand-in) and compares only the outcome fields (`OUTCOME_KEYS`) with
+the record; the `steps` and `tally` differences are printed field by field as
+the intended ones. It also walks the 2.14.1 tree with the stand-in for the
+malformed input, and compares the refusal lines the owner reads on both
+versions; a difference in any of these exits 1.
 Exit codes: 0 ok; 1 the re-capture differs from the record; 2 unusable input
 (unknown commit, unknown situation or leg, unreadable record, a walk that
 cannot run as documented, e.g. as root).
@@ -1068,6 +1076,169 @@ def report_stand_in_root(vc_root, dest):
 
 
 # --------------------------------------------------------------------------- #
+# Like for like: the candidate's stand-ins given to the 2.14.1 tree
+# --------------------------------------------------------------------------- #
+class _NotJsonBlob2141Steps(_Walk):
+    """The 2.14.1 walk, plus one fault kind it did not record: the printed
+    BLOBFILE written as `not json` before the counts step reads it."""
+
+    def __init__(self, vc_root, workdir):
+        super().__init__(vc_root, workdir)
+        self.attempt_stderr = []
+
+    def counts_and_gate(self, inputs, fault=None):
+        if (fault or {}).get("blobfile") != "not json":
+            return super().counts_and_gate(inputs, fault)
+        blob = self.mint("BLOBFILE", "blobfile")["BLOBFILE"]
+        self.write(blob, "not json")
+        rc, _, err = self.step("counts", self.fence(COUNTS_CALL),
+                               {"BLOBFILE": blob})
+        self.attempt_stderr.append((rc, err))
+        if rc == 0:
+            raise CaptureError("the 2.14.1 counts step took a fingerprint "
+                               "file holding 'not json'")
+        return blob, None
+
+
+class LikeForLike2141(FenceWalk2141):
+    """The 2.14.1 walk of a write-route situation with every attempt given
+    the candidate's stand-in for the malformed gate input. Used only to check
+    that the stand-in ends where the recorded fault ended."""
+
+    NAME = "fence-walk-2.14.1-not-json-in-blobfile"
+    STAND_IN = {"blobfile": "not json"}
+
+    def __init__(self):
+        self.last_walk = None
+
+    def run(self, situation_id, vc_root, workdir, leg=None):
+        inputs = situation_inputs(situation_id, leg)
+        inputs["attempt_faults"] = [dict(self.STAND_IN)
+                                    for _ in range(self.REBUILDS + 1)]
+        walk = _NotJsonBlob2141Steps(vc_root, workdir)
+        self.last_walk = walk
+        prepare_state(vc_root, situation_id, walk.state_file, inputs)
+        walk.before = _files(workdir)
+        self._write_route(walk, inputs)
+        return walk.outputs()
+
+
+def _short(value, limit=300):
+    text = canonical_json(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def like_for_like(repo, record, tmp_root=None):
+    """Problems with the 2.14.1 tree's refused-close walked with the `not
+    json`-in-BLOBFILE stand-in, against the recorded refused-close outcome
+    fields. [] when they match."""
+    got = capture_one(repo, "refused-close", BASELINE_COMMIT,
+                      LikeForLike2141(), tmp_root)
+    want = record["situations"]["refused-close"]
+    return ["like for like: %s differs: recorded %s, now %s"
+            % (key, _short(want[key]), _short(got[key]))
+            for key in OUTCOME_KEYS if want[key] != got[key]]
+
+
+# --------------------------------------------------------------------------- #
+# The refusal lines the owner reads (D-18), on both versions
+# --------------------------------------------------------------------------- #
+def _old_counting_screen(vc_root, workdir, fault):
+    walk = _Walk(vc_root, workdir)
+    prepare_state(vc_root, "clean-close", walk.state_file)
+    blob = walk.mint("BLOBFILE", "blobfile")["BLOBFILE"]
+    if fault == "missing":
+        os.remove(blob)
+    else:
+        walk.write(blob, fault)
+    rc, _, err = walk.step("counts", walk.fence(COUNTS_CALL),
+                           {"BLOBFILE": blob})
+    if rc == 0:
+        raise CaptureError("the 2.14.1 counts step did not refuse %r" % fault)
+    return normalise(err, workdir, vc_root)
+
+
+def _new_counting_screen(vc_root, workdir, fault):
+    walk = _HelperSteps(vc_root, workdir)
+    inputs = situation_inputs("clean-close")
+    prepare_state(vc_root, "clean-close", walk.state_file, inputs)
+    _, decision, rc = walk.attempt(inputs, {"blobfile": fault})
+    if decision is not None or rc == 0:
+        raise CaptureError("the Finalize-inputs fence did not refuse %r"
+                           % fault)
+    return normalise(walk.attempt_stderr[-1][1], workdir, vc_root)
+
+
+def _old_report_screen(vc_root, workdir):
+    """The 2.14.1 report fence's stderr when the state file goes bad after
+    the gate returned `write`."""
+    walk = _Walk(vc_root, workdir)
+    inputs = situation_inputs("clean-close")
+    prepare_state(vc_root, "clean-close", walk.state_file, inputs)
+    _, decision = FenceWalk2141().gated(walk, inputs)
+    if (decision or {}).get("action") != "write":
+        raise CaptureError("the 2.14.1 gate returned %r, not write"
+                           % (decision,))
+    with open(walk.state_file, "w", encoding="utf-8") as fh:
+        fh.write("not json")
+    rc, _, err = walk.step("decisions-report", walk.fence(REPORT_CALL))
+    if rc == 0:
+        raise CaptureError("the 2.14.1 report fence did not refuse")
+    return normalise(err, workdir, vc_root)
+
+
+def _new_report_screen(vc_root, workdir, tree_dir):
+    tree = report_stand_in_root(vc_root, tree_dir)
+    walk = _HelperSteps(tree, workdir)
+    inputs = situation_inputs("clean-close")
+    prepare_state(tree, "clean-close", walk.state_file, inputs)
+    _, _, rc = walk.attempt(inputs)
+    if rc != 5:
+        raise CaptureError("the stand-in helper exited %d, not 5" % rc)
+    return normalise(walk.attempt_stderr[-1][1], workdir, tree)
+
+
+def screen_texts(repo, candidate_root, tmp_root=None):
+    """{case: (2.14.1 stderr, candidate stderr)}, normalised, for the two
+    counting faults both versions can take (`missing`, `not json`) and for
+    the report step (`report`)."""
+    scratch = tempfile.mkdtemp(prefix="fc-screen-", dir=tmp_root)
+    try:
+        def fresh(name):
+            path = os.path.join(scratch, name)
+            os.mkdir(path)
+            return path
+        old_root = materialize(repo, BASELINE_COMMIT, fresh("pinned"))
+        new_root = copy_tree(candidate_root, fresh("candidate"))
+        out = {}
+        for n, fault in enumerate(sorted(FAULT_LINES)):
+            out[fault] = (
+                _old_counting_screen(old_root, fresh("old-%d" % n), fault),
+                _new_counting_screen(new_root, fresh("new-%d" % n), fault))
+        out["report"] = (_old_report_screen(old_root, fresh("old-report")),
+                         _new_report_screen(new_root, fresh("new-report"),
+                                            fresh("stand-in")))
+        return out
+    finally:
+        shutil.rmtree(scratch, True)
+
+
+def counting_screens(repo, candidate_root, tmp_root=None):
+    texts = screen_texts(repo, candidate_root, tmp_root)
+    return {k: v for k, v in texts.items() if k in FAULT_LINES}
+
+
+def report_screens(repo, candidate_root, tmp_root=None):
+    return screen_texts(repo, candidate_root, tmp_root)["report"]
+
+
+def screen_matches(old, new):
+    """True when the owner reads the same text: byte for byte after
+    normalisation."""
+    return old == new
+
+
+# --------------------------------------------------------------------------- #
 # Capture
 # --------------------------------------------------------------------------- #
 DRIVERS = {BASELINE_COMMIT: FenceWalk2141}
@@ -1278,6 +1449,87 @@ def verify(repo, record_path, driver=None, fresh=None):
 
 
 # --------------------------------------------------------------------------- #
+# Compare a later version with the 2.14.1 record (Phase 63 D-15)
+# --------------------------------------------------------------------------- #
+def capture_candidate(repo, commit=None, root=None, tmp_root=None):
+    """{situation: record} for the five situations walked by HelperWalk on
+    the tree at `commit` or in the plugin directory `root` (exactly one)."""
+    if (commit is None) == (root is None):
+        raise UsageError("give exactly one of --commit or --root")
+    driver = HelperWalk()
+    return {sid: capture_situation(repo, sid, commit, driver, tmp_root,
+                                   root=root)
+            for sid in SITUATIONS}
+
+
+def _read_record(record_path):
+    try:
+        with open(record_path, encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise UsageError("cannot read the record %s: %s" % (record_path, exc))
+    if not isinstance(record, dict) or not isinstance(
+            record.get("situations"), dict):
+        raise UsageError("%s holds no situations object" % record_path)
+    return record
+
+
+def _walk_labels(situations):
+    """[(label, outputs)] for every main walk and leg, in situation order."""
+    out = []
+    for sid in SITUATIONS:
+        if sid not in situations:
+            continue
+        out.append((sid, situations[sid]))
+        for leg in sorted(situations[sid].get("legs", {})):
+            out.append(("%s/%s" % (sid, leg), situations[sid]["legs"][leg]))
+    return out
+
+
+def compare(repo, record_path, commit=None, root=None, fresh=None):
+    """(outcome problems, intended differences) of a HelperWalk capture
+    against the record. Only OUTCOME_KEYS decide: each differing field is one
+    problem naming the walk, the field and both values. `steps` and `tally`
+    differences are listed field by field as the intended ones. `fresh`, when
+    given, is used instead of capturing again."""
+    record = _read_record(record_path)
+    if fresh is None:
+        fresh = capture_candidate(repo, commit, root)
+    recorded = dict(_walk_labels(record["situations"]))
+    walked = _walk_labels(fresh)
+    problems, intended = [], []
+    for label, got in walked:
+        want = recorded.get(label)
+        if want is None:
+            problems.append("%s: missing from the record" % label)
+            continue
+        for key in OUTCOME_KEYS:
+            if key not in want:
+                problems.append("%s: %s missing from the record"
+                                % (label, key))
+            elif _differences(want[key], got[key]):
+                problems.append("%s: %s differs: recorded %s, now %s"
+                                % (label, key, _short(want[key]),
+                                   _short(got[key])))
+        old_steps, new_steps = want.get("steps", []), got["steps"]
+        if old_steps != new_steps:
+            intended.append("%s: steps: before %d (%s), after %d (%s)" % (
+                label, len(old_steps),
+                ", ".join(s["id"] for s in old_steps), len(new_steps),
+                ", ".join(s["id"] for s in new_steps)))
+        old_tally = want.get("tally", {})
+        for key in TALLY_KEYS:
+            if old_tally.get(key) != got["tally"][key]:
+                intended.append("%s: tally.%s: before %s, after %s"
+                                % (label, key, old_tally.get(key),
+                                   got["tally"][key]))
+    names = {label for label, _ in walked}
+    problems += ["%s: in the record but not walked" % label
+                 for label in recorded if label not in names]
+    return problems, intended
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def _parse(argv):
@@ -1290,6 +1542,13 @@ def _parse(argv):
     ver = sub.add_parser("verify")
     ver.add_argument("--repo", required=True)
     ver.add_argument("--record", required=True)
+    cmp_ = sub.add_parser("compare")
+    cmp_.add_argument("--repo", required=True)
+    cmp_.add_argument("--record", required=True)
+    cmp_.add_argument("--driver", required=True, choices=sorted(DRIVER_NAMES))
+    tree = cmp_.add_mutually_exclusive_group(required=True)
+    tree.add_argument("--commit")
+    tree.add_argument("--root")
     return ap.parse_args(argv)
 
 
@@ -1322,6 +1581,66 @@ def _verify_cmd(args):
     return 0
 
 
+def _compare_cmd(args):
+    record = _read_record(args.record)
+    problems, intended = compare(args.repo, args.record, commit=args.commit,
+                                 root=args.root)
+    scratch = tempfile.mkdtemp(prefix="fc-cmp-")
+    try:
+        if args.commit is not None:
+            os.mkdir(os.path.join(scratch, "tree"))
+            candidate = materialize(args.repo, args.commit,
+                                    os.path.join(scratch, "tree"))
+        else:
+            candidate = args.root
+        stand_in = like_for_like(args.repo, record)
+        screens = screen_texts(args.repo, candidate)
+    finally:
+        shutil.rmtree(scratch, True)
+    walked = {p.split(": ", 1)[0] for p in problems}
+    labels = [label for label, _ in _walk_labels(record["situations"])]
+    print("compared with %s; driver %s; tree: %s" % (
+        os.path.basename(args.record), HelperWalk.NAME,
+        "commit %s" % args.commit if args.commit else "the directory given"))
+    for label in labels:
+        print("%s: %s" % (label, "OUTCOME FIELDS DIFFER" if label in walked
+                          else "outcome fields match"))
+    print("intended differences (the lists of commands run, D-15):")
+    for line in intended:
+        print("  " + line)
+    print("fault stand-ins and refusal lines:")
+    print("  like for like: the 2.14.1 tree's refused-close with `not json` "
+          "in the printed BLOBFILE on both attempts: %s"
+          % ("outcome fields match the record" if not stand_in
+             else "DIFFERS"))
+    names = {"missing": "counting refused, printed BLOBFILE removed",
+             "not json": "counting refused, `not json` in the printed "
+                         "BLOBFILE",
+             "report": "report data refused (state file made `not json` "
+                       "after the count)"}
+    bad_screens = []
+    for case in ("missing", "not json", "report"):
+        old, new = screens[case]
+        same = screen_matches(old, new)
+        if not same:
+            bad_screens.append(case)
+        print("  refusal line, %s: %s" % (
+            names[case], "2.14.1 and now identical: " + " / ".join(
+                json.dumps(line, ensure_ascii=False)
+                for line in new.splitlines()) if same
+            else "DIFFERS: 2.14.1 %r, now %r" % (old, new)))
+    if problems or stand_in or bad_screens:
+        print("FINALIZE OUTCOME DIFFERS — STOPPING")
+        for line in problems + stand_in:
+            print("  " + line)
+        for case in bad_screens:
+            print("  refusal line differs: %s" % names[case])
+        return 1
+    print("finalize outcome fields match (%d situations, %d walks)"
+          % (len(SITUATIONS), len(labels)))
+    return 0
+
+
 def main(argv=None):
     try:
         args = _parse(argv)
@@ -1330,6 +1649,8 @@ def main(argv=None):
     try:
         if args.cmd == "capture":
             return _capture_cmd(args)
+        if args.cmd == "compare":
+            return _compare_cmd(args)
         return _verify_cmd(args)
     except UsageError as exc:
         print("finalize_capture: %s — STOPPING" % exc, file=sys.stderr)
