@@ -527,3 +527,23 @@ The sections above stay as recorded. This section supersedes the C1 row of "Cros
 | Where the literal is pasted | Name | Covered |
 |-----------------------------|------|---------|
 | `90-finalize.md`, `50-fix-loop.md` blocks on `--all` | `STATE_FILE` | yes (guard in the `05-state-all.md` key block, added by `d56232b`) |
+
+## CI run on the pull request: locale-dependent tests
+
+**What failed.** The offline suite (ubuntu-24.04, Python 3.14, locale C.UTF-8) failed two subtests that pass on macOS (en_US.UTF-8): `test_finalize_inputs.py::TestCliStderrParity::test_parity_counting_stage_stderr` (subtest `state not utf-8`, line 1183) and `test_parity_report_stage_stderr` (subtest `not utf-8`, line 1220), each `b'refused: state is not valid JSON\n' != b'refused: malformed state: passes\n'`. Reproduced locally with `LC_ALL=C LANG=C pytest … -k parity` (2 failed); without the override all pass.
+
+**Why.** The 2.14.1 commands (`carry_state.py finalize-counts`, `batch_card.py decisions-report`) read the state from stdin as text, and Python picks stdin's error handler from the locale. Checked directly with Python 3.14.5 on the state `{"passes": "\xff\xfe"}`:
+
+| Locale | `sys.stdin.errors` | 2.14.1 counting and report line |
+|--------|--------------------|---------------------------------|
+| C, POSIX (UTF-8 mode on) | `surrogateescape` | `refused: malformed state: passes` |
+| C.UTF-8 | `surrogateescape` | `refused: malformed state: passes` |
+| en_US.UTF-8 | `strict` | `refused: state is not valid JSON` |
+
+The helper reads the file itself as strict UTF-8 and prints `refused: state is not valid JSON` on every locale. The tests were comparing against 2.14.1 on whatever locale the machine had.
+
+**Fix (`dd69542`, test-only; no shipped file changed).** The shared runner for the 2.14.1 commands (`CliCase.old`) now sets `PYTHONIOENCODING=utf-8:strict` in the subprocess environment. That gives strict UTF-8 stdin on every locale and in UTF-8 mode (checked on Python 3.9, 3.12, 3.13 and 3.14 under C, C.UTF-8 and en_US.UTF-8). Every other input passed to that runner is valid UTF-8, so no other comparison changes. Removing the pin brings the failures back under `LC_ALL=C`. The new `test_named_difference_non_utf8_state_under_c_locale` pins both sides. Under C and C.UTF-8 (each checked to be in force with `surrogateescape` stdin, so a missing locale fails rather than skips) both 2.14.1 commands print the malformed line, and the helper as a subprocess exits 3 with empty stdout and the not-JSON line. With strict input both 2.14.1 commands print the not-JSON line. The report stage, run in-process as the parity test runs it, exits 5 with the not-JSON line. Named difference 10 in 63-REMOVAL-LEDGER.md and 63-EQUIVALENCE.md.
+
+**Checks.** `test_finalize_inputs.py`: 109 passed, 191 subtests, under the default locale, `LC_ALL=C LANG=C`, `LC_ALL=C.UTF-8` and `LC_ALL=en_US.UTF-8`. Mutation: making the helper print `refused: state is not UTF-8` for a non-UTF-8 state fails both parity subtests and both locale subtests of the new test, under the default locale and under C (restored). The other phase test files (`test_finalize_card.py`, `test_cross_call_vars.py`, `test_pasted_name_guard.py`, `test_inline_python_isolated.py`, `docs/design/lean-v2.15/tools/test_finalize_capture.py`): 298 passed, 424 subtests, under `LC_ALL=C LANG=C` and under `LC_ALL=C.UTF-8`. None feeds bytes that are not valid UTF-8 to a 2.14.1 command, so no other locale-only failure.
+
+**`test_codex_collect.py::test_abnormal_exit_is_a_timeout_skip` (`'124' != '3'` once in CI).** Five runs in a row locally: 12 passed each time, 16.9–17.0 s each. The `-I` change did not cause it. The test runs only two fences: the launch fence in `2c-codex-kickoff.md` (the one holding the `ARGS=` line) and the wait fence in `30-codex-collect.md` (the one holding the `REMAIN=` line). Neither runs Python. `-I` was added at `30-codex-collect.md` line 41, in the next fence (the payload translation), and at lines 37 and 80 of `2c-codex-kickoff.md`, in the step-2/3 fences. The test runs none of them. The launch fence writes the rc file as the exit status of `timeout -k 1 2 node <stub>`. In `fail` mode the stub writes one line and exits 3 at once (about 0.05 s here). An rc of `124` means `timeout` hit the test's 2-second cap before node exited, which can only mean the runner was slow to start node. It is a wall-clock race in the test's shortened cap, not a code change. The test and the fence were left unchanged.
