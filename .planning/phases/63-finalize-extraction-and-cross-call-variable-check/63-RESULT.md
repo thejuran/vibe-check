@@ -325,3 +325,21 @@ The CI suite is narrower than the main-checkout run (6,510 passed, 0 failed, at 
 
 The checkpoint named the five things a "go" accepts (listed under `## Your decision`) and showed the verdict (PASS), the two counts, and the pull request with both runs green on its head commit `7cf8e22`. No condition was added. Nothing was merged before this section was written.
 
+
+## Correction after the merge (D-24)
+
+**What this page got wrong.** Under "Input gaps carried", the row for a finding's file name starting with `-` said the new helper behaves as 2.14.1 does. It did not. For a file at the top of the repo named like `-x.ts`, with a "fix made this obsolete" verdict on unchanged code, 2.14.1 kept the finding open and did not approve the review. The new helper closed the finding and approved the review (Finalize would have written REVIEW.md). Your "go" was given on a page that called this "no difference", so it did not cover it.
+
+**How it was found.** Phase verification, after pull request #10 had merged. The verifier reproduced it on a temporary repo: 2.14.1 left the finding open (`outstanding-to-phase-5`); the new helper approved (`write`). The cause: 2.14.1 ran its file-name safety check as a command, and that command fails on a name starting with `-` because it reads the name as an option, so the file was left out. The new helper ran the same check as a function, which does not read names that way. The test cited for the row only checked the new helper's own output and never ran the 2.14.1 command.
+
+**Your decision.** 2026-11-15, in your words: "Match 2.14.1 (Recommended)".
+
+**What changed.** The helper now runs the 2.14.1 check exactly as the command did, including how it reads the name, and leaves out the same files the command left out. Such a finding now stays open as at 2.14.1. Nothing else changed: the five Finalize situations still match 2.14.1 (`finalize outcome fields match (5 situations, 7 walks)`), and the Finalize path is still 85 steps and 130,886 bytes (the helper is not an instruction file the model loads). The "Input gaps carried" row is corrected in `63-REMOVAL-LEDGER.md`; the text above is left as approved.
+
+**The test.** `test_finalize_inputs.py::TestGuardCommandParity`. It runs the real 2.14.1 check command next to the new helper on a temporary repo for 22 file names, and runs `-x.ts` end to end through the 2.14.1 counting and gate commands. It failed before the fix and passes after it. It also fails if its 2.14.1 side is swapped for the helper's own check, so it really compares against 2.14.1.
+
+**The wider check.** 51 file names compared between the 2.14.1 steps and the helper, on Python 3.14.5 and 3.9.6 (102 comparisons): names starting with `-` at the top or in a folder name, `--`, `-` alone, option-like names (`--root`, `--path`, `-h`, `--help`), number-like names, spaces, `=`, quotes, `$`, backtick, backslash, line breaks, `:`, `*`, `?`, `[`, absolute paths, `..`, a folder, a missing file and symlinks. Before the fix 28 comparisons disagreed, all from this one cause. After the fix none do. No other difference was found. One detail: which names starting with `-` the command refuses depends on the Python version (for example `-1.ts` is accepted on 3.14 and refused on 3.9). The fix follows the Python that runs the review, as 2.14.1 did.
+
+**Carried to backlog.** Honouring a "fix made this obsolete" verdict for such a file (closing the finding, which 2.14.1 never did) as a possible later improvement.
+
+Follow-up pull request: (added by the main session)

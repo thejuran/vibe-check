@@ -552,3 +552,96 @@ The helper reads the file itself as strict UTF-8 and prints `refused: state is n
 
 `test_codex_collect.py::TestCodexCollectExecutable::test_abnormal_exit_is_a_timeout_skip` failed with `'124' != '3'` in 3 of the first 6 runs on this branch's pull request (runs 43765243417, 43766691154 attempts 1 and 2). It is the suite's first launch of node, under a 2-second test cap. To see whether the branch caused it, five green runs of code from before the phase were re-run on the same day: 43614339306, 43613884499 and 43611870373 (`main`) and 43611421379 passed; 43611416017 (`1659a99`, the Phase 62 branch) failed with the identical error. So the flake exists in pre-phase code and shows on that day's runners. Fix, test-only: the class starts node once, untimed, before its timed runs, so the cap measures the stub and not node's cold start. No shipped file and no timing constant changed. That the cause is a cold start is the best-supported explanation (always the first node launch), not a proven one; the pull request's runs after the fix are the check.
 
+
+## Leading-dash file names (D-24), 2026-11-15
+
+Found by phase verification after PR #10 merged (63-VERIFICATION.md, gap 1). Owner decision D-24: match 2.14.1.
+
+**Mechanism, confirmed on the real `guard.py`** (byte-identical to `dd8e4ab`). The 2.14.1 step 1 text (`dd8e4ab:plugins/vibe-check/phases/shared/90-finalize.md` line 13) validates each finding's file with `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` and requires exit 0. For `-x.ts`:
+
+```
+$ python3 guard.py --root <dir> --path "-x.ts"
+usage: guard.py [-h] --root ROOT --path PATH
+guard.py: error: argument --path: expected one argument
+exit 2
+$ python3 guard.py --root <dir> --path "x.ts"
+contained
+exit 0
+```
+
+argparse reads the value as an option, so the file was left out of `$BLOBFILE`. The merged helper called `guard.contained()` in-process, which skips the argument parsing.
+
+**End to end, before the fix** (temp repo; state = the phase-45 loop fixture with the medium dismissed and the warning row's file set to the name, carrying a last-pass fix-obsolete verdict whose `verified_blob` is the file's HEAD blob, code unchanged; 2.14.1 side = the literal per-file procedure, then the `dd8e4ab` `carry_state.py finalize-counts` and `finalize_gate.py` commands; helper side = `finalize_inputs.py` at `c1541b1`; same output on Python 3.14.5 and 3.9.6):
+
+| File | guard exit | 2.14.1 counts | 2.14.1 gate | 2.14.1 fingerprints | helper counts | helper gate | helper fingerprints |
+|---|---|---|---|---|---|---|---|
+| `x.ts` | 0 | [0,0,0] | `write` | `x.ts` | [0,0,0] | `write` | `x.ts` |
+| `-x.ts` | 2 | [1,0,0] | `outstanding-to-phase-5` | none | [0,0,0] | `write` | `-x.ts` |
+
+After the fix (`72a2f94`) the `-x.ts` row on the helper side is [1,0,0], `outstanding-to-phase-5`, no fingerprints, on both interpreters; `x.ts` is unchanged.
+
+**Name matrix.** 51 names, each compared under Python 3.14.5 and 3.9.6 (102 comparisons), from the repo root (so the D-19 subfolder difference does not apply). 2.14.1 side: the PATH_RE pre-filter (`^[A-Za-z0-9._/-]+$`), then the guard command and the three git commands run through `bash -c` with the name pasted into the command text as the fence writes it; a file counts as fingerprinted only when all exit 0. Helper side: `finalize_inputs.head_blobs` on a one-finding state, same interpreter. Names are shown JSON-escaped; "yes" means fingerprinted.
+
+| # | Name | 2.14.1 procedure, Python 3.14.5 | 2.14.1, Python 3.9.6 | Helper before fix (3.14 / 3.9) | Helper after fix (3.14 / 3.9) |
+|---|---|---|---|---|---|
+| 1 | control `x.ts` | yes | yes | yes / yes | yes / yes |
+| 2 | leading - top `-x.ts` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 3 | leading - in subfolder file `sub/-x.ts` | yes | yes | yes / yes | yes / yes |
+| 4 | folder starts with - `-d/x.ts` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 5 | -- `--` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 6 | - alone `-` | yes | yes | yes / yes | yes / yes |
+| 7 | -x single `-x` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 8 | --root `--root` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 9 | --path `--path` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 10 | -h `-h` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 11 | --help `--help` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 12 | --ro (abbrev of --root) `--ro` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 13 | --pa (abbrev of --path) `--pa` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 14 | --pathx `--pathx` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 15 | -1 (negative int) `-1` | yes | yes | yes / yes | yes / yes |
+| 16 | -1.5 (negative float) `-1.5` | yes | yes | yes / yes | yes / yes |
+| 17 | -.5 (negative float) `-.5` | yes | yes | yes / yes | yes / yes |
+| 18 | -1.ts `-1.ts` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 19 | -1_0 `-1_0` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 20 | -1e5 `-1e5` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 21 | -2/x.ts (folder -2) `-2/x.ts` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 22 | -hx `-hx` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 23 | --= `--=x` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 24 | space `a b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 25 | leading space dash ` -x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 26 | equals `a=b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 27 | --root=x `--root=x` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 28 | double quote `a\"b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 29 | single quote `a'b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 30 | dollar `$x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 31 | backtick ``a`b.ts`` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 32 | backslash `a\\b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 33 | newline inside `a\nb.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 34 | trailing newline `t.ts\n` | yes | yes | yes / yes | yes / yes |
+| 35 | leading colon `:x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 36 | HEAD: like `HEAD:x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 37 | star `*.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 38 | question `a?.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 39 | bracket `[a].ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 40 | abs inside repo `<ROOT>/x.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 41 | abs outside repo `/etc/hosts` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 42 | dotdot inside `sub/../x.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 43 | dotdot outside `../x.ts` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 44 | ./ prefix `./x.ts` | yes | yes | yes / yes | yes / yes |
+| 45 | directory `sub` | yes | yes | yes / yes | yes / yes |
+| 46 | missing at HEAD `missing.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 47 | symlink in repo `link.ts` | yes | yes | yes / yes | yes / yes |
+| 48 | symlink out of repo `outlink` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 49 | .git/config `.git/config` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 50 | double slash `sub//c.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 51 | trailing slash `sub/` | yes | yes | yes / yes | yes / yes |
+
+**Result.** Before the fix: 28 disagreements (12 under 3.14.5, 16 under 3.9.6). Every one has the same mechanism: the 2.14.1 guard command exits 2 while parsing its arguments, and the helper fingerprints the file. After the fix: 0 of 102. No disagreement with a different mechanism was found in either direction.
+
+**The rule is not "starts with `-`".** `-` alone and negative-number-like names (`-1`, `-1.5`, `-.5`) are accepted by the command. Names such as `-1.ts`, `-1_0`, `-1e5` and `-2/x.ts` are accepted under Python 3.14.5 and refused under 3.9.6, because newer argparse treats more names as negative numbers. So the fix uses the command's own parser under the interpreter that runs the helper (the same `python3` the 2.14.1 fence called), rather than a hand-written prefix test.
+
+**Same on both sides, noted only.** A directory name (`sub`, `sub/`) is fingerprinted with its tree id by both. A name ending in a newline (`t.ts\n`) passes PATH_RE on both sides because Python's `$` matches before a final newline; whether a model checking the prose regex would have accepted it cannot be determined from the text. Neither is a disagreement and neither was changed.
+
+**Fix (`72a2f94`).** The per-file check calls `guard.main(["--root", root, "--path", f])` in-process, with its stdout and stderr captured and dropped, and keeps the file only on exit 0. This is the command's own code path, including argparse, so the two cannot drift. No subprocess was added per finding. Test first at `c1541b1`: `test_finalize_inputs.py::TestGuardCommandParity` (22 names compared with the real guard command run as a subprocess, plus the `-x.ts` end-to-end run against the 2.14.1 counting and gate commands). Both tests failed on the unfixed helper and pass after the fix.
+
+**Mutation checks** (scratch copy). Putting the old `guard.contained(root, f)[0]` line back fails both new tests. Replacing the test's 2.14.1-side subprocess with the helper's in-process `guard.contained` check fails both tests, with the unfixed helper and with the fixed one: the 2.14.1 side really runs the command.

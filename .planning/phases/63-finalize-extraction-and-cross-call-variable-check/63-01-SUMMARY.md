@@ -61,6 +61,8 @@ Each is a named parity test; the helper behaves as 2.14.1 and could be stricter.
 - `test_gap_at_pass_true_matches_pass_one` — a verdict with `at_pass: true` matches pass number 1 (JSON `true == 1` under Python equality, as a model reading the rule would also treat it loosely).
 - `test_gap_subdirectory_cwd` — **reproduces as a wrong close; owner checkpoint raised.** With the session cwd in a subdirectory (`<repo>/sub`) and a root-relative file name (`sub/c.ts`), the three 2.14.1 calls run as plain git from that subdirectory give exit codes `[0, 0, 0]` both for the clean file and for the same file with an uncommitted edit. `git rev-parse HEAD:sub/c.ts` reads root-relative, but the pathspec after `--` in the two `git diff` calls is read relative to the cwd (`sub/sub/c.ts`), matches nothing and exits 0. So 2.14.1 fingerprints a dirty file, and a fix-obsolete verdict whose `verified_blob` equals the HEAD blob is honoured while the working tree has changed. The helper matches this exactly (reproduction: `{'sub/c.ts': 'ae93045…'}` for both cases). Not changed, per D-06: the owner decides under the four-class rule.
 
+- **Correction, 2026-11-15 (D-24):** the leading-`-` entry above is wrong. 2.14.1 ran containment as the `guard.py` command, which exits 2 on such a name, so 2.14.1 left the file out; the helper fingerprinted it. Fixed to match 2.14.1 at 72a2f94 (test first at c1541b1, `TestGuardCommandParity`); see 63-REMOVAL-LEDGER.md "Input gaps carried (D-06)" and 63-CONTEXT.md D-24.
+
 ## Deviations from Plan
 
 ### Auto-fixed Issues
