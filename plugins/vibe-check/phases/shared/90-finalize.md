@@ -270,16 +270,7 @@ What the helper writes: root `decisions[<hash>] = {decision, reason, at_pass, ba
 
 ### Writing REVIEW.md
 
-Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`. First read the owner-decision entries once, under bash — this runs before the Write, so a failure writes nothing and archives nothing:
-
-```bash
-if DECISIONS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" decisions-report < "$STATE_FILE"); then
-  printf '%s\n' "$DECISIONS_JSON"   # {"entries": [{"stable_hash", "decision", "reason", "at_pass", "band", "status", "file", "line", "title", "agent"}]}
-else
-  echo "I'm uncertain about Finalize mode — batch_card.py decisions-report failed; nothing was written or archived." >&2
-  exit 1
-fi
-```
+Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`. The result of the Finalize-inputs fence that returned `write-review-md` already holds the report data — `$COUNTS_JSON` below is its `counts` object and `$DECISIONS_JSON` is its `report` object — and the helper worked them out before this Write, so a failure there wrote nothing and archived nothing.
 
 Fill from state:
 
