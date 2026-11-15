@@ -1778,5 +1778,64 @@ class TestImportSet(unittest.TestCase):
         self.assertNotIn("--no-optional-locks", self.src)
 
 
+# --------------------------------------------------------------------------- #
+# D-01: the instructions branch on the result's `next`, one bullet per value.
+# --------------------------------------------------------------------------- #
+FINALIZE_MD_PATH = os.path.join(SCRIPTS_DIR, "..", "phases", "shared",
+                                "90-finalize.md")
+_BRANCH_BULLET_RE = re.compile(r"^- `([a-z][a-z0-9-]*)`", re.M)
+
+
+def branch_next_values(text):
+    """The `next` values heading the top-level branch bullets of the Finalize
+    mode section (up to the finalize card), in order."""
+    start = text.index("## Finalize mode")
+    end = text.index("### The finalize card", start)
+    return _BRANCH_BULLET_RE.findall(text[start:end])
+
+
+def next_vocabulary_problems(text):
+    values = branch_next_values(text)
+    problems = []
+    if len(values) != len(set(values)):
+        problems.append("a next value heads two bullets: %r" % values)
+    missing = set(finalize_inputs.NEXT_ACTIONS) - set(values)
+    unknown = set(values) - set(finalize_inputs.NEXT_ACTIONS)
+    if missing:
+        problems.append("no bullet for: %r" % sorted(missing))
+    if unknown:
+        problems.append("bullet for an unknown value: %r" % sorted(unknown))
+    return problems
+
+
+class TestNextVocabularyProse(unittest.TestCase):
+    """The instruction file's branch bullets are exactly NEXT_ACTIONS."""
+
+    def setUp(self):
+        with open(FINALIZE_MD_PATH, "r", encoding="utf-8") as fh:
+            self.text = fh.read()
+
+    def test_branch_bullets_equal_next_actions(self):
+        self.assertEqual(next_vocabulary_problems(self.text), [])
+        self.assertEqual(len(branch_next_values(self.text)),
+                         len(finalize_inputs.NEXT_ACTIONS))
+
+    def test_mutant_bullet_removed_trips(self):
+        values = branch_next_values(self.text)
+        self.assertIn("stop-no-state", values)
+        lines = [ln for ln in self.text.split("\n")
+                 if not ln.startswith("- `stop-no-state`")]
+        mutant = "\n".join(lines)
+        self.assertNotEqual(mutant, self.text)
+        self.assertNotEqual(next_vocabulary_problems(mutant), [])
+
+    def test_mutant_unknown_value_trips(self):
+        anchor = "- `stop-refused`"
+        self.assertIn(anchor, self.text)
+        mutant = self.text.replace(
+            anchor, "- `stop-unknown` — stop.\n" + anchor, 1)
+        self.assertNotEqual(next_vocabulary_problems(mutant), [])
+
+
 if __name__ == "__main__":
     unittest.main()

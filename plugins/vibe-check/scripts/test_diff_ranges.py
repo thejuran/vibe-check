@@ -1608,7 +1608,11 @@ HEAD_SHA_HALT = (HEAD_SHA_HALT_OLD
 HEAD_SHA_OLD = "`$LAST_REVIEWED_SHA = state.passes[-1].head_sha`"
 FINALIZE_MODE_REF = '"$FINALIZE_MODE"'
 FINALIZE_SKIP_SENTENCE = "A `FINALIZE_MODE=1` run skips this binding"
-COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
+INPUTS_CALL = ('finalize_inputs.py" --state-file "$STATE_FILE" '
+               '--blob-out "$BLOBFILE"')
+INPUTS_SWITCH_SLOTS = ('--noninteractive "<true|false>"',
+                       '--pr-mode "<true|false>"',
+                       '--range-mode "<true|false>"')
 HEAD_SHA_NEEDLES = (
     "ONLY the literal printed after `LAST_REVIEWED_SHA=`",
     "never a value copied from the state JSON by hand",
@@ -1798,19 +1802,20 @@ class TestStateHeadShaFence(_Repo):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self._printed(proc), [])
         self.assertEqual(proc.stderr, "")
-        # Finalize's own counts step, read from 90-finalize.md and run fresh
-        # (`finalize-counts --head-blobs`), works on this very state file.
+        # Finalize's own inputs step, read from 90-finalize.md and run fresh
+        # with its switch slots substituted (the fence mints its own
+        # fingerprint file), works on this very state file.
         with open(FINALIZE_MD, encoding="utf-8") as fh:
-            counts = _fence_holding(fh.read(), COUNTS_CALL)
-        self.assertIsNotNone(counts)
-        blob = os.path.join(self._tmp.name, "blob.json")
-        with open(blob, "w", encoding="utf-8") as fh:
-            fh.write("{}")
-        self.assertIn('"$BLOBFILE"', counts)
-        counts = counts.replace('"$BLOBFILE"', '"%s"' % blob)
-        cproc = run_bind_fence(counts, self.repo, state)
+            inputs = _fence_holding(fh.read(), INPUTS_CALL)
+        self.assertIsNotNone(inputs)
+        for slot in INPUTS_SWITCH_SLOTS:
+            self.assertIn(slot, inputs)
+            inputs = inputs.replace(slot, slot.replace("<true|false>",
+                                                       "false"))
+        cproc = run_bind_fence(inputs, self.repo, state)
         self.assertEqual(cproc.returncode, 0, cproc.stderr)
-        got = json.loads(cproc.stdout.splitlines()[0])
+        self.assertEqual(cproc.stderr, "")
+        got = json.loads(cproc.stdout.splitlines()[-1])["counts"]
         self.assertEqual(got["outstanding_cw"], 5)
         self.assertEqual(got["unacknowledged_medium"], 1)
         self.assertEqual(got["undecided_nv"], 0)
