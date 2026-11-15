@@ -281,11 +281,7 @@ STEP_COUNT_PY = os.path.join(
 # Today's flagged places, by file and variable name, each with the id of its
 # fresh-shell reproduction record. The check fails on a flag not listed here
 # AND on a listed pair that no longer flags, so the list can only shrink.
-EXCEPTIONS = {
-    ("phases/review/06-config.md", "CODEX_FLAG_VAL"): "X4",
-    ("phases/review/06-config.md", "CONFIG_REPO_ROOT"): "X5",
-    ("phases/review/06-config.md", "MIN_CONFIDENCE_FLAG_VAL"): "X6",
-}
+EXCEPTIONS = {}
 
 KNOWN_LIMITS = (
     "The check covers plugins/vibe-check/phases/ only; command and agent "
@@ -713,6 +709,18 @@ class TestMutants(LockCase):
                               "  printf 'STATE_FILE=%s\\n' \"$STATE_FILE\"\n")
         self.assertEqual(names & flagged_names(mutant), names)
 
+    def test_x4_x6_settings_reads_split_back_out_trip(self):
+        text = read_rel(CONFIG_REL)
+        names = {"CONFIG_REPO_ROOT", "MIN_CONFIDENCE_FLAG_VAL",
+                 "CODEX_FLAG_VAL"}
+        self.assertFalse(names & flagged_names(text))
+        head = "```bash\nCONFIG_REPO_ROOT="
+        start = text.index(head)
+        split_at = text.index("\nif [ -n \"$CONFIG_PY\" ]", start)
+        mutant = text[:split_at] + "\n```\n\n```bash" + text[split_at:]
+        self.assertEqual(len(bash_fences(mutant)), len(bash_fences(text)) + 1)
+        self.assertEqual(names & flagged_names(mutant), names)
+
     def test_h_new_flag_and_stale_entry_both_trip(self):
         flagged = flagged_pairs()
         with self.subTest("an unlisted pair"):
@@ -909,21 +917,21 @@ REPRO_63 = [
                    "runs with the Codex setting on its default instead.",
      "proposed": "owner decides",
      "fixture": "TestRepro63.test_x4_codex_flag_val",
-     "disposition": PINNED},
+     "disposition": FIXED},
     {"id": "X5", "file": CONFIG_REL, "name": "CONFIG_REPO_ROOT",
      "outcome": "ignored-setting",
      "owner_sees": "The repo's settings file is not read at all, so every "
                    "setting in it is silently replaced by the defaults.",
      "proposed": "owner decides",
      "fixture": "TestRepro63.test_x5_config_repo_root",
-     "disposition": PINNED},
+     "disposition": FIXED},
     {"id": "X6", "file": CONFIG_REL, "name": "MIN_CONFIDENCE_FLAG_VAL",
      "outcome": "ignored-setting",
      "owner_sees": "Asking for '--min-confidence 45' has no effect: no "
                    "low-confidence finding is filtered out.",
      "proposed": "owner decides",
      "fixture": "TestRepro63.test_x6_min_confidence_flag_val",
-     "disposition": PINNED},
+     "disposition": FIXED},
 ]
 
 PROPOSED_FOR = {"stop": "fix", "wrong-file": "fix",
@@ -972,9 +980,11 @@ def record_problems(rows, exceptions):
 
 
 class TestRepro63(unittest.TestCase):
-    """Each flagged pair run fresh (one process per Bash block) next to a
-    control (the same blocks in one process). Each test asserts what is
-    observed today, not what should be."""
+    """Each reproduced pair run fresh (one process per Bash block, each
+    printed literal substituted as the instruction says) next to a control
+    (the same blocks in one process). All six were fixed in 63-10, so each
+    test asserts the fresh run matches the control; on the pre-fix files
+    each fails (63-REPRO.md records that reverse run)."""
 
     def setUp(self):
         self.tmp = os.path.realpath(tempfile.mkdtemp())
