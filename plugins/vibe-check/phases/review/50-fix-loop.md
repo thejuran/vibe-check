@@ -15,7 +15,7 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 
 **Bind the rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Run EXACTLY ONE of the two fences below under bash — never an optional-flag expansion that adds `--subset` only when a variable is set: zsh does not word-split such an expansion (it reaches the helper as one argument, which it refuses), and a variable bound in Finalize's fence does not survive into this separate Bash call, so the flag would silently vanish and the card would list rows the owner never chose.
 
-**Temp paths are literals.** Every file this section creates prints its path when it is made: a path printed after `NAME=` is reused in a later fence only as that literal, substituted for `"$NAME"` — a shell variable does not survive into a separate Bash call (the `SUBSETFILE=` convention applies to every file this section creates). In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` — substitute it.
+**Temp paths are literals.** Every file this section creates prints its path when it is made: a path printed after `NAME=` is reused in a later fence only as that literal, substituted for `"$NAME"` — a shell variable does not survive into a separate Bash call (the `SUBSETFILE=` convention applies to every file this section creates). In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) — substitute it.
 
 - **Finalize routed a fix set here (D-10)** → the subset fence. Substitute `<subset path>` with the literal path Finalize's subset step printed after `SUBSETFILE=` — the path itself, not `$SUBSETFILE`. If Finalize routed here but printed no subset path, refuse: print "No fix set from Finalize — the fix loop will not fall back to every open row; nothing was changed", then the Abandon line below, and stop. Never run the ordinary fence in its place.
 
@@ -139,7 +139,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      printf 'DECFILE=%s\n' "$DECFILE"
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
        echo "the card's decisions could not be copied — nothing was recorded; the rows stay open" >&2
@@ -148,7 +148,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
   2. `fix_targets` non-empty → copy them file-to-file into a subset file (the same shape Finalize's subset step produces):
      ```bash
      SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
        printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else
        echo "the fix set could not be copied — no fixes dispatched" >&2
@@ -186,7 +186,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
   `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
   - `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
     ```bash
-    if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
+    if python3 -I -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
       :
     else
       echo "the translated answer could not be copied — nothing was recorded" >&2

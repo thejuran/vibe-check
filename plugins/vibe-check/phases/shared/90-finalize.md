@@ -8,7 +8,7 @@
 ## Finalize mode
 
 If Phase 0 printed `FINALIZE_MODE=1`:
-- Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the Phase-53 location `statepath.py`'s `current_path` resolves — `.turingmind/state/format-53/` + the mode's key (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch-slug>.json`, `--all` `by-mode/all/<scope-hash>.json`) — a path no 2.11.x plugin reads or writes; Finalize consumes that one variable and never re-derives a path of its own. In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` — substitute it; a shell variable does not survive into a separate Bash call.
+- Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the Phase-53 location `statepath.py`'s `current_path` resolves — `.turingmind/state/format-53/` + the mode's key (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch-slug>.json`, `--all` `by-mode/all/<scope-hash>.json`) — a path no 2.11.x plugin reads or writes; Finalize consumes that one variable and never re-derives a path of its own. In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) — substitute it; a shell variable does not survive into a separate Bash call.
 - Work out the gate's inputs and its decision with `scripts/finalize_inputs.py` — never by hand: this file runs no git command for the fingerprints, writes no fingerprint or flags file and does not run the gate itself.
   1. **HEAD fingerprints, counts and the gate decision (the Finalize-inputs fence).** Run under bash:
      ```bash
@@ -185,7 +185,7 @@ fi
 `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
 - `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
   ```bash
-  if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
+  if python3 -I -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
     :
   else
     echo "the translated answer could not be copied — nothing was recorded" >&2
@@ -223,7 +223,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      printf 'DECFILE=%s\n' "$DECFILE"
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
        echo "I'm uncertain about Finalize mode — the card's decisions could not be copied; nothing was written or archived." >&2
@@ -233,7 +233,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
   2. `fix` non-empty (D-10) → copy the helper's ready-made subset file-to-file:
      ```bash
      SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
        printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else
        echo "I'm uncertain about Finalize mode — the fix set could not be copied; nothing was written or archived." >&2

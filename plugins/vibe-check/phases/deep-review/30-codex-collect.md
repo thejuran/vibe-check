@@ -38,7 +38,7 @@ This override **AUGMENTS the INPUT** to the unchanged shared Phase 3 in `$VC_ROO
    DIFF_LIST=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
    git diff --name-only -z <the Phase-0 range arguments> > "$DIFF_LIST"   # plus untracked files where Phase 0 includes them
    ROOT=$(git rev-parse --show-toplevel)
-   if CODEX_AGENT_JSON=$(python3 -c '
+   if CODEX_AGENT_JSON=$(python3 -I -c '
    import json, sys
    try:
        with open(sys.argv[1]) as fh:

@@ -43,6 +43,37 @@ def unguarded(body):
     return "\n".join(kept)
 
 
+# The guard's character class, and the same class with one member taken out
+# (the per-character mutants).
+BRACKET = "[\\$\\`\\\"\\\\$'\\n\\r']"
+assert GUARD_NEEDLE == "in *" + BRACKET + "*)"
+BLOCKED = [("dollar", "$"), ("backtick", "`"), ("quote", '"'),
+           ("backslash", "\\"), ("newline", "\n"), ("carriage return", "\r")]
+WITHOUT = {
+    "$": "[\\`\\\"\\\\$'\\n\\r']",
+    "`": "[\\$\\\"\\\\$'\\n\\r']",
+    '"': "[\\$\\`\\\\$'\\n\\r']",
+    "\\": "[\\$\\`\\\"$'\\n\\r']",
+    "\n": "[\\$\\`\\\"\\\\$'\\r']",
+    "\r": "[\\$\\`\\\"\\\\$'\\n']",
+}
+
+
+def drop_member(body, char):
+    """`body` with only `char` taken out of its one guard pattern."""
+    if body.count(GUARD_NEEDLE) != 1:
+        raise AssertionError("want exactly one guard line in %r" % body)
+    return body.replace(GUARD_NEEDLE, "in *" + WITHOUT[char] + "*)")
+
+
+def mutant_tripped(first, name, value):
+    """True only when the setter exited 0 and printed exactly
+    `NAME=<value>` on its own line(s) -- the bad value got through."""
+    rc, out, _ = first
+    line = "%s=%s\n" % (name, value)
+    return rc == 0 and (out.startswith(line) or ("\n" + line) in out)
+
+
 def run_bash(script, cwd, extra_env=None):
     tmpdir = tempfile.mkdtemp(dir=os.path.dirname(os.path.dirname(cwd)))
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -50,9 +81,12 @@ def run_bash(script, cwd, extra_env=None):
            "GUARD_PY": os.path.join(PLUGIN_ROOT, "scripts", "guard.py"),
            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
     env.update(extra_env or {})
-    proc = subprocess.run([BASH, "-s"], input=script + "\n", cwd=cwd, env=env,
-                          capture_output=True, text=True, timeout=60)
-    return proc.returncode, proc.stdout, proc.stderr
+    # Bytes in and out, decoded without newline translation, so a carriage
+    # return in a printed value reaches the checks as itself.
+    proc = subprocess.run([BASH, "-s"], input=(script + "\n").encode(),
+                          cwd=cwd, env=env, capture_output=True, timeout=60)
+    return (proc.returncode, proc.stdout.decode("utf-8", "replace"),
+            proc.stderr.decode("utf-8", "replace"))
 
 
 def printed(out, name):
@@ -126,11 +160,12 @@ class GuardCase(unittest.TestCase):
         self.assertIn("Review halted", err, label)
         self.assertEqual(found, [], label)
 
-    def assert_mutant_trips(self, first, names, found, label):
-        """Without the guard the case would fail: a NAME= line is printed or
-        the pasted value ran the marker command."""
-        tripped = bool(found) or any(printed(first[1], n) for n in names)
-        self.assertTrue(tripped, label)
+    def assert_mutant_trips(self, first, name, value, label):
+        """Without (part of) the guard the case would fail: the setter
+        completed and printed exactly `NAME=<the bad value>`. A refused run,
+        or a printed line whose value lacks the bad character, does not
+        count (`mutant_tripped`)."""
+        self.assertTrue(mutant_tripped(first, name, value), label)
 
 
 class TestPhaseDirGuard(GuardCase):
@@ -203,7 +238,7 @@ class TestPhaseDirGuard(GuardCase):
                 first, _, found = self.run_case(
                     repo, self.setter(arg, mutant=True), self.readers(),
                     self.NAMES)
-                self.assert_mutant_trips(first, self.NAMES, found, label)
+                self.assert_mutant_trips(first, "PHASE_DIR", rel, label)
                 if "dollar" in label or label == "backtick":
                     self.assertTrue(found, label)
 
@@ -253,17 +288,20 @@ class TestStateFileGuard(GuardCase):
                    ("punctuation", "repo.v2_(a)", "feat/x-1.2_(y)")]
 
     def bad_cases(self, mutant=False):
+        """(label, repo, setter, env, the STATE_FILE value it would print)."""
         for label, phase_id in self.GSD_BAD:
             repo = self.repo()
             yield ("gsd " + label, repo, self.setter(self.GSD_NEEDLE, mutant),
-                   {"PHASE_ID": phase_id})
+                   {"PHASE_ID": phase_id},
+                   ".turingmind/state/format-53/%s.json" % phase_id)
         for label, folder, branch in self.BRANCH_BAD:
             repo = self.repo(folder, None if branch == "main" else branch)
             yield ("branch " + label, repo,
-                   self.setter(self.BRANCH_NEEDLE, mutant), None)
+                   self.setter(self.BRANCH_NEEDLE, mutant), None,
+                   ".turingmind/state/format-53/%s-%s.json" % (folder, branch))
 
     def test_bad_names_are_refused_and_nothing_runs(self):
-        for label, repo, setter, env in self.bad_cases():
+        for label, repo, setter, env, _ in self.bad_cases():
             with self.subTest(label):
                 first, _, found = self.run_case(
                     repo, setter, self.readers(), self.NAMES, env)
@@ -293,13 +331,137 @@ class TestStateFileGuard(GuardCase):
                 self.assertEqual(found, [])
 
     def test_without_the_guard_the_cases_fail(self):
-        for label, repo, setter, env in self.bad_cases(mutant=True):
+        for label, repo, setter, env, value in self.bad_cases(mutant=True):
             with self.subTest(label):
                 first, _, found = self.run_case(
                     repo, setter, self.readers(), self.NAMES, env)
-                self.assert_mutant_trips(first, self.NAMES, found, label)
+                self.assert_mutant_trips(first, "STATE_FILE", value, label)
                 if "dollar" in label or "backtick" in label:
                     self.assertTrue(found, label)
+
+
+ALL_STATE_REL = "phases/review/05-state-all.md"
+ALL_NEEDLE = "ALL_STATE_FILE=$(set -o pipefail"
+
+# Shell functions put in front of a real block to hand it a value that the
+# filesystem or git cannot carry. The block itself is unchanged.
+FAKE_HEAD = "head() { printf '%s\\n' \"$INJECT\"; }\n"
+FAKE_GIT_BRANCH = ('git() { if [ "$1" = branch ]; then printf \'%s\\n\' '
+                   '"$INJECT"; else command git "$@"; fi; }\n')
+STUB_STATEPATH = ("import json, os, sys\nsys.stdin.read()\n"
+                  "print(json.dumps({'current_path': os.environ['INJECT'], "
+                  "'reason': ''}))\n")
+
+
+class TestEachCharacterAtEachSite(GuardCase):
+    """Each blocked character on its own, at each guarded print site: a name
+    holding only that one bad character is refused, and taking only that
+    character out of the guard pattern lets it through. Where the filesystem
+    or git cannot carry the character, the real block is handed the value
+    (`how` says which)."""
+
+    SITES = ("00-scope.md PHASE_DIR", "05-state.md GSD key",
+             "05-state.md repo-and-branch key", "05-state-all.md --all key")
+
+    def site_case(self, site, char, mutant):
+        """(first result, NAME, the value it would print, how carried)."""
+        bad = "x%sy" % char
+        if site == "00-scope.md PHASE_DIR":
+            body = fence_holding(SCOPE_REL, "PHASE_DIR=$(find")
+            body = substitute(drop_member(body, char) if mutant else body,
+                              [("<arg>", "02")])
+            rel = ".planning/phases/02-" + bad
+            if char == "\n":
+                # find's output is read a line at a time (`head -1`, and
+                # `grep -c .` for a unique prefix), so a folder name cannot
+                # carry a newline into PHASE_DIR; `head` hands it over.
+                repo = self.repo()
+                first = run_bash(FAKE_HEAD + body, repo, {"INJECT": rel})
+                return first, "PHASE_DIR", rel, "injected (head)"
+            repo = TestPhaseDirGuard.phase_repo(self, rel)
+            return run_bash(body, repo), "PHASE_DIR", rel, "real folder"
+        if site == "05-state.md GSD key":
+            body = fence_holding(STATE_REL, TestStateFileGuard.GSD_NEEDLE)
+            body = drop_member(body, char) if mutant else body
+            value = ".turingmind/state/format-53/02-%s.json" % bad
+            first = run_bash(body, self.repo(), {"PHASE_ID": "02-" + bad})
+            return first, "STATE_FILE", value, "injected (PHASE_ID)"
+        if site == "05-state.md repo-and-branch key":
+            body = fence_holding(STATE_REL, TestStateFileGuard.BRANCH_NEEDLE)
+            body = drop_member(body, char) if mutant else body
+            if char in "$`\"":
+                value = ".turingmind/state/format-53/repo-%s.json" % bad
+                return (run_bash(body, self.repo("repo", bad)), "STATE_FILE",
+                        value, "real branch")
+            if char == "\r":
+                value = ".turingmind/state/format-53/%s-main.json" % bad
+                return (run_bash(body, self.repo(bad)), "STATE_FILE", value,
+                        "real folder")
+            # git refuses a backslash or a newline in a branch name, and
+            # `xargs basename` drops a backslash and splits on a newline in
+            # the folder name; `git branch` hands the value over.
+            value = ".turingmind/state/format-53/repo-%s.json" % bad
+            first = run_bash(FAKE_GIT_BRANCH + body, self.repo(),
+                             {"INJECT": bad})
+            return first, "STATE_FILE", value, "injected (git branch)"
+        if site == "05-state-all.md --all key":
+            # The --all key is a 12-hex digest from statepath.py, so no repo
+            # or branch name can carry a character into it; a stub
+            # statepath.py under a stand-in VC_ROOT hands the value over.
+            body = fence_holding(ALL_STATE_REL, ALL_NEEDLE)
+            body = drop_member(body, char) if mutant else body
+            root = os.path.join(self.tmp, "vc%d" % self.n)
+            os.makedirs(os.path.join(root, "scripts"), exist_ok=True)
+            with open(os.path.join(root, "scripts", "statepath.py"), "w") as fh:
+                fh.write(STUB_STATEPATH)
+            value = ".turingmind/state/format-53/by-mode/all/%s.json" % bad
+            first = run_bash(body, self.repo(),
+                             {"VC_ROOT": root, "INJECT": value})
+            return first, "STATE_FILE", value, "injected (statepath.py)"
+        raise AssertionError(site)
+
+    def test_each_character_alone_is_refused_at_each_site(self):
+        for site in self.SITES:
+            for label, char in BLOCKED:
+                with self.subTest(site=site, char=label):
+                    first, name, _, _ = self.site_case(site, char, False)
+                    rc, out, err = first
+                    self.assertNotEqual(rc, 0, first)
+                    self.assertNotIn(name + "=", out)
+                    self.assertNotIn("STATE_FILE=", out)
+                    self.assertIn("Review halted", err)
+
+    def test_dropping_one_character_from_the_guard_lets_it_through(self):
+        for site in self.SITES:
+            for label, char in BLOCKED:
+                with self.subTest(site=site, char=label):
+                    first, name, value, _ = self.site_case(site, char, True)
+                    self.assert_mutant_trips(first, name, value,
+                                             "%s %s" % (site, label))
+
+    def test_the_mutant_check_cannot_pass_vacuously(self):
+        value = ".turingmind/state/format-53/x\ny.json"
+        refused = (1, "", "Review halted")
+        harmless = (0, "STATE_FILE=.turingmind/state/format-53/x.json\n", "")
+        cut = (0, "STATE_FILE=.turingmind/state/format-53/x\n", "")
+        through = (0, "LEGACY_STATE_FILE=a\nSTATE_FILE=%s\n" % value, "")
+        self.assertFalse(mutant_tripped(refused, "STATE_FILE", value))
+        self.assertFalse(mutant_tripped(harmless, "STATE_FILE", value))
+        self.assertFalse(mutant_tripped(cut, "STATE_FILE", value))
+        self.assertFalse(mutant_tripped((1,) + through[1:], "STATE_FILE",
+                                        value))
+        self.assertTrue(mutant_tripped(through, "STATE_FILE", value))
+
+    def test_each_mutant_drops_only_its_own_character(self):
+        # Each member is written as two characters in the pattern; a mutant
+        # is the pattern two characters shorter, every other member kept.
+        members = {"$": "\\$", "`": "\\`", '"': '\\"', "\\": "\\\\",
+                   "\n": "\\n", "\r": "\\r"}
+        for label, char in BLOCKED:
+            with self.subTest(label):
+                self.assertEqual(len(WITHOUT[char]), len(BRACKET) - 2)
+                self.assertEqual(BRACKET.replace(members[char], "", 1),
+                                 WITHOUT[char])
 
 
 if __name__ == "__main__":
