@@ -47,7 +47,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
-| 63. Finalize extraction and cross-call variable check | 7/11 | In Progress|  |
+| 63. Finalize extraction and cross-call variable check | 8/11 | In Progress|  |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
 
@@ -115,7 +115,7 @@ Run order is by wave, not by plan number: wave 1 = 01–06, wave 2 = 10, wave 3 
   4. Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit
   5. One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed
 
-**Plans:** 7/11 plans executed
+**Plans:** 8/11 plans executed
 
 Plans:
 **Wave 1**
@@ -142,7 +142,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 63-08-PLAN.md — second capture driver and compare: the five situations' outcomes against the 2.14.1 record (FINX-01..03)
+- [x] 63-08-PLAN.md — second capture driver and compare: the five situations' outcomes against the 2.14.1 record (FINX-01..03)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
