@@ -292,3 +292,30 @@ The verdict is PASS. A "go" accepts these five things:
 On PASS, "go" merges the pull request.
 
 If instead you answer "revert", the extraction commits listed in `63-COUNTS.md` are undone, and the cross-call check and its fixes stay. If you answer "keep under waiver", that wording is meant for a FAIL; on a FAIL this page would be the waiver page, the default would be revert, and there is no automatic second attempt. You can also describe what needs changing first. That would be new work, not a second automatic attempt.
+
+## Pull request
+
+- Pull request: #10, https://github.com/thejuran/vibe-check/pull/10 (`feat/v2.15-phase-63` into `main`). Open, not merged.
+- The runs recorded here are on commit `296657d`, the last commit that changes any code or test. This section was added in a later, records-only commit; its own runs are checked before the merge and recorded under `## Merge`.
+
+Runs of `offline-suite` on `296657d`, both green:
+
+| Run | Trigger | Conclusion | Suite summary line |
+|---|---|---|---|
+| https://github.com/thejuran/vibe-check/actions/runs/43768899519 | push | success | 4554 passed, 2 skipped, 5 deselected, 5762 subtests passed in 288.07s |
+| https://github.com/thejuran/vibe-check/actions/runs/43768905498 | pull_request | success | 4554 passed, 2 skipped, 5 deselected, 5762 subtests passed in 204.31s |
+
+The CI suite is narrower than the main-checkout run (6,510 passed, 0 failed, at merge `533daf9`): it leaves out the 5 tests on the left-out list and the design folders outside `docs/design/lean-v2.15/tools`.
+
+**The runs before these were red, for two reasons. Neither was hidden or re-run away.**
+
+| Commit | Run | Conclusion | What failed |
+|---|---|---|---|
+| `4ad3509` | 43765224199 (push) | failure | 2 failed: the two refusal-line comparison tests (reason 1) |
+| `4ad3509` | 43765243417 (pull_request) | failure | 3 failed: the same two, plus the Codex timing test (reason 2) |
+| `a45a01f` | 43766695429 (pull_request) | success | 4554 passed |
+| `a45a01f` | 43766691154 (push), attempts 1 and 2 | failure | 1 failed each time: the Codex timing test (reason 2) |
+
+1. **Two comparison tests assumed a UTF-8 locale.** They compare the refusal line the new helper shows with the line the 2.14.1 command shows for a saved-progress file that is not valid UTF-8. On the CI machine's C.UTF-8 locale, 2.14.1 itself shows a different line than it does on a Mac. The helper was not changed. The tests now pin the 2.14.1 side to strict UTF-8, and a new test states the difference outright. It is item 4 under "Other differences on screen" and one of the things a "go" accepts. Fixed at `dd69542`; `test_finalize_inputs.py` passes under the default, C, C.UTF-8 and en_US.UTF-8 locales (109 passed each).
+2. **A timing test from before this phase is flaky on CI.** `test_codex_collect.py::test_abnormal_exit_is_a_timeout_skip` gives a stub program 2 seconds; it is the suite's first launch of node, and it failed with `'124' != '3'` in 3 of the first 6 runs here. To check whether this phase caused it, five green runs of pre-phase code were re-run the same day: four passed and one (43611416017, commit `1659a99`) failed with the identical error. So the flake is in pre-phase code. The fix is test-only (`296657d`): node is started once, untimed, before the timed runs. No shipped file and no time limit changed. That a cold start is the cause is the best-supported explanation, not a proven one; two green runs after the fix are not enough to prove it gone. Re-running the old runs left them green again (43611416017 is at attempt 3, success).
+
