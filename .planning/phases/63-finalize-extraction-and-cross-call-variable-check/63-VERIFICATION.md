@@ -1,43 +1,72 @@
 ---
 phase: 63-finalize-extraction-and-cross-call-variable-check
-verified: 2026-11-15T23:15:00Z
+verified: 2026-11-15T23:50:00Z
 status: gaps_found
 score: 4/5 must-haves verified
 has_blocking_gaps: true
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 4/5
+  previous_verified: 2026-11-15T23:15:00Z
+  gaps_closed:
+    - "Leading-dash file names (D-24): a finding in a file whose name the 2.14.1 containment command refuses (for example top-level `-x.ts`) with a last-pass fix-obsolete verdict on unchanged code now stays open, as at 2.14.1 (counts [1,0,0], gate `outstanding-to-phase-5`, empty fingerprint file, no report). No file name disagrees in either direction on Python 3.9.6, 3.12.12, 3.13.14 or 3.14.5."
+  gaps_remaining: []
+  regressions: []
+  new_gaps:
+    - "Repo folder whose name ends in whitespace (not caused by the gap closure; present since the merge of PR #10; missed by the initial verification)"
 gaps:
   - truth: "Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline"
     status: partial
     severity: blocking
-    reason: "One input class gives a different gate decision from 2.14.1 and is not on the accepted list. For a finding in a top-level file whose name starts with `-` (for example `-x.ts`) that carries a last-pass fix-obsolete verdict on unchanged code, 2.14.1 leaves the finding open (gate `outstanding-to-phase-5`, nothing written); the new helper closes it and the gate returns `write` (APPROVED). At 2.14.1 the instructions ran `python3 \"$GUARD_PY\" --root … --path \"<file>\"` and required exit 0; that command exits 2 for a name starting with `-` (argparse reads it as an option), so the file was left out, fail closed. The helper calls `guard.contained()` in-process, which accepts the name. The records state the opposite: 63-REMOVAL-LEDGER.md 'Input gaps carried', 63-RESULT.md 'Input gaps carried' and 63-01-SUMMARY.md all say the helper 'behaves as 2.14.1 does' here. The named parity test asserts only the helper's own output and never runs the 2.14.1 command, so it cannot detect the difference. Reproduced end to end on a real temporary repo (control file `x.ts`: identical on both sides; `-x.ts`: 2.14.1 counts [1,0,0] gate `outstanding-to-phase-5`, helper counts [0,0,0] gate `write`), on Python 3.9.6 and 3.14.5. Everything else under this truth verified."
+    reason: "One input class still gives a different gate decision from 2.14.1 and is not on the accepted list. It is not a file name: it is the repo's own folder name. When the folder the repo lives in has a name ending in whitespace (a space, a tab, a no-break space), the helper trims that whitespace from the repo root (`_toplevel` returns `result[1].strip()`); 2.14.1's `$(git rev-parse --show-toplevel)` drops only the final line break. The helper then checks a folder that is not the repo. Reproduced end to end on Python 3.9.6 and 3.14.5, clean file `x.ts` with a last-pass fix-obsolete verdict on unchanged code: (a) no folder at the trimmed path — 2.14.1 counts [0,0,0] gate `write`; helper counts [1,0,0] gate `outstanding-to-phase-5` (helper stricter; the plan's rule was that the helper is never stricter than 2.14.1). (b) a second git repo sits at the trimmed path (`repo` beside `repo `) holding the same file, and the real repo's file was edited after the verdict — 2.14.1 counts [1,0,0] gate `outstanding-to-phase-5`; helper counts [0,0,0] gate `write` (the helper fingerprints the neighbouring repo and approves). Case (b) needs a very unusual folder layout and cannot be arranged by the author of the reviewed change. Present in the merged helper at `4ac7ee4`; untouched by the gap-closure commits. Everything else under this truth is verified, including the D-24 gap."
     artifacts:
       - path: "plugins/vibe-check/scripts/finalize_inputs.py"
-        issue: "`_head_blobs` line 173 validates with `PATH_RE.match(f)` and `guard.contained(root, f)`; neither refuses a leading `-`, which the 2.14.1 `guard.py` command line did"
+        issue: "`_toplevel` (line 141 at `4ac7ee4`, unchanged at `66b0429`) returns `result[1].strip()`; the 2.14.1 command substitution removes trailing line breaks only"
       - path: "plugins/vibe-check/scripts/test_finalize_inputs.py"
-        issue: "`TestParityGaps::test_gap_leading_dash_path_is_fingerprinted` is labelled a 2.14.1 parity test but compares against nothing from 2.14.1"
-      - path: ".planning/phases/63-finalize-extraction-and-cross-call-variable-check/63-RESULT.md"
-        issue: "'Input gaps carried' row 1 tells the owner this is the same as 2.14.1; it is not, so the owner's 'go' did not accept it as a difference"
+        issue: "`TestGuardCommandParity.fingerprint_2141` builds its 2.14.1 root with `.strip()` too, so the comparison shares the helper's reading of the root; no test puts a repo in a folder whose name ends in whitespace"
     missing:
-      - "Either: leave a file whose name starts with `-` out of the fingerprints (matching 2.14.1), with a test that runs the 2.14.1 guard command on the same name and a mutant; or: an owner acceptance of this difference by name, recorded as an override here and corrected on the result page and in the ledger"
-      - "Correct the three records that say this case matches 2.14.1"
+      - "Either: make the helper read the root as the 2.14.1 command substitution does (drop trailing line breaks only), with a test on a temp repo in a folder whose name ends in a space that runs the 2.14.1 command through a shell, and a mutant; or: an owner acceptance of this difference by name, recorded as an override here and added to the result page's list of differences"
+      - "If fixed: one line in the result page's correction section, since it currently says no other difference was found"
 ---
 
 # Phase 63: Finalize extraction and cross-call variable check — Verification Report
 
 **Phase Goal:** Finalize's mechanical steps run through tested stdlib helpers and behave exactly as in 2.14.1, with less model-interpreted prose on the same paths, and a shell variable read across Bash calls is caught by one general check in any phase file.
-**Verified:** 2026-11-15T23:15:00Z, against `main` at `4ac7ee4` (the squash merge of PR #10)
+**Verified:** 2026-11-15T23:50:00Z, against branch `feat/v2.15-phase-63-gap` at `66b0429` (three commits on top of the first verification commit `78ce8d0`; `main` is at `4ac7ee4`; follow-up pull request #11 open, not merged, both CI runs green on `66b0429`)
 **Status:** gaps_found
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after gap closure
 
 ## Result in plain terms
 
-- **4 of 5 roadmap criteria verified. 1 gap.**
-- **The gap:** one kind of input now gets a different Finalize decision from 2.14.1, and it is not among the differences the owner accepted. A finding in a top-level file whose name starts with `-`, with a "fix made this obsolete" verdict on unchanged code, stayed open at 2.14.1. Now it closes and Finalize writes APPROVED. The phase records say this case is the same as 2.14.1. It is not; I reproduced the difference. It is rare (a file at the repo's top level named like `-x.ts`), and the new behaviour honours a legitimate verdict, but "same gate decisions" is the phase's contract and this difference was not put to the owner as one. It closes with a one-line code change plus a real comparison test, or with the owner's acceptance by name.
-- **Counts, recounted here:** Finalize path 92 → 83 steps and 136114 → 129451 bytes on the extraction alone (`c7d92c9`); 85 steps and 130886 bytes on `main`. Both figures are below 2.14.1 at both points.
-- **Same behaviour:** the five situations match 2.14.1 on every outcome field at `HEAD` (run here, 7 walks).
-- **The four goal-carrying checks all fail when deliberately broken** (48 deliberate breaks in a scratch copy; 47 caught, 1 passed one of the checks and was caught by another — see "Guards that can trip").
-- **Tests:** full local suite 6,510 passed, 1 failed. The one failure is caused by a setting I added to my own run, not by the code; the same test passes when run the documented way.
-- **Expected and not counted as gaps:** no 63-11-SUMMARY.md, requirements and roadmap not ticked, no `## Merge` section, backlog entries not yet filed (plan 63-11 Task 3 is held for this report).
+- **The gap from the first report is closed.** A finding in a file such as `-x.ts`, with a "fix made this obsolete" verdict on unchanged code, now stays open exactly as at 2.14.1. I re-ran my own comparison against the literal 2.14.1 steps on four Python versions and widened it to 131 file names. No file name disagrees in either direction.
+- **The new test is real.** It runs the actual 2.14.1 check command beside the helper. Putting the old line back makes it fail; swapping its 2.14.1 side for the helper's old check makes it fail.
+- **Nothing I verified before has regressed.** Five situations still match 2.14.1; Finalize is still 85 steps and 130,886 bytes; the stdlib-only gate and the import-set test agree on the new `io` import.
+- **One new gap, found while testing around the fix. It is not caused by the fix and I missed it the first time.** If the folder a repo lives in has a name ending in a space (or tab), the helper trims that space and looks at the wrong folder. In the ordinary case the helper leaves a finding open that 2.14.1 would have closed. In a contrived case (a second repo sitting beside it under the trimmed name, holding the same file) the helper approves a review that 2.14.1 would have kept open. This is far rarer than the `-x.ts` case, and the author of a reviewed change cannot set it up. It is a one-line change plus a test, or an owner acceptance by name. I have graded it blocking because the phase's contract is "same gate decisions as 2.14.1" and this is a reproduced different decision that the owner has not been shown; whether to fix it in pull request #11 or accept it is the owner's decision.
+- **Score: 4 of 5**, the same number as before, for a different and smaller reason.
+- **Expected and not counted as gaps:** no 63-11-SUMMARY.md, no `## Merge` section, backlog entries not filed, ROADMAP/STATE/REQUIREMENTS not ticked, pull request #11 not merged.
+
+## Re-verification summary
+
+| Item | First report (23:15Z, `4ac7ee4`) | Now (`66b0429`) |
+|------|----------------------------------|-----------------|
+| Status | gaps_found | gaps_found |
+| Score | 4/5 | 4/5 |
+| Gap 1: leading-dash file names differ from 2.14.1 | open, blocking | **closed** |
+| Records saying the leading-dash case matches 2.14.1 | wrong in three places | **corrected** (ledger row 1, result page correction section, 63-01-SUMMARY note, 63-REPRO section) |
+| Hollow parity test | `TestParityGaps::test_gap_leading_dash_path_is_fingerprinted` | **removed**, replaced by `TestGuardCommandParity` (two tests) |
+| Regressions | — | none |
+| New gap: repo folder name ending in whitespace | not found (was present) | **open, blocking** |
+
+### What I ran now and what I carried
+
+| Criterion | Now | How |
+|-----------|-----|-----|
+| 1 (same decisions as 2.14.1) | **Re-ran** | Everything in "Gap closure evidence" and "Regression checks" below |
+| 2 (bad inputs stop; nothing written; restart works) | **Carried**, with a partial re-run | The diff touches only the per-file containment line in `_head_blobs`. Re-ran: the five-situation comparison (which includes `one-rebuild`, `refused-close`, `fresh-shell-restart`) and the whole of `test_finalize_inputs.py`. Not re-run: the real fence under bash and zsh against the six fault cases |
+| 3 (superseded prose removed, invariants kept) | **Carried** | No instruction file, design document or lock changed (`git diff 4ac7ee4 66b0429` touches two files under `plugins/`, both scripts) |
+| 4 (before/after counts, revert rule) | **Re-ran the counts**, carried the rest | 85 steps and 130,886 bytes at `4ac7ee4` and at `66b0429`; 92 steps at `dd8e4ab` |
+| 5 (the general cross-call check) | **Carried** | No phase file and no check file changed |
 
 ## Goal Achievement
 
@@ -45,104 +74,175 @@ gaps:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline | ✗ FAILED (partial) | Helper exists, is called by one fence, calls `carry_state.finalize_counts`, `finalize_gate.run` and `batch_card.decisions_report` in-process, and writes only the fingerprint file. Five situations match at HEAD. My independent comparison of the fingerprint step against the literal 2.14.1 procedure (24 file names: clean, edited, staged, deleted, mode change, symlink, symlink out of the repo, untracked, `..`, absolute, space, directory) agreed on all but one: a name starting with `-`. That one changes the gate decision and is not an accepted difference. See the gap. |
-| 2 | Missing, malformed or stale Finalize inputs stop with a plain message; a failed or refused attempt writes no report and archives nothing; restart and retry work across fresh shell calls | ✓ VERIFIED | Ran the real fence from `90-finalize.md` as its own fresh shell, under bash and zsh, against: no state file (`stop-no-state`), state `not json`, state `{}`, unreadable state, unfilled switch slots. Each stopped with the 2.14.1 sentence and wrote nothing beside the state. Situations `one-rebuild`, `refused-close` (both walks) and `fresh-shell-restart` match the 2.14.1 record. Breaking the report exit code, the exit-5 arm, the "second failure stops" rule, or the empty-fingerprint-file rule each fails tests. |
-| 3 | Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host | ✓ VERIFIED | `GATEFILE`, the counts fence, the report fence and the hand-written fingerprint step are gone from `90-finalize.md`; the rebuild rule, never-reuse rule, never-retry-a-refusal rule, the stop sentence, the write boundary and `record-decisions` are still there. The moved explanation is byte-identical to `dd8e4ab` lines 34–39 (compared here with `cmp`) and no loaded file refers to it. The card, `record-decisions` and the report fill rules differ from 2.14.1 only by the step-3 line and `-I`. All 112 test ids the ledger cites were checked against the collected suite: 104 exist; the 8 missing are exactly the 7 the ledger marks removed and the 1 it marks renamed. The helper prints no owner sentence and renders nothing. |
-| 4 | Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit | ✓ VERIFIED | Recounted here with the unchanged `step_count.py` (rule version 1) and `footprint.py`: `dd8e4ab` 92 steps / 136114 bytes; `c7d92c9` 83 / 129451, with the six shared files byte-identical to 2.14.1 at that commit; `HEAD` 85 / 130886. Growth after the extraction adds up exactly to the named items (plain review +1210 = 609 + 601; deep review +1222; Finalize +1435). The tools, the baseline records and `CRITERION.md` are unchanged since Phase 62 closed. PASS, so no revert applies. |
-| 5 | One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed | ✓ VERIFIED | `test_cross_call_vars.py` walks all 27 files; same-file exceptions list is empty; cross-file list holds only C2. Seven deliberate breaks to real phase files in a scratch copy each failed the check. Putting each pre-fix file back makes its reproduction test fail (X1–X8, C1). Commit order on the PR head: X1–X6 recorded 11-14 16:10, fixed 11-15 15:04–15:06; X7 recorded 15:08, fixed 15:31. For X8 and C1 a failing reproduction test was committed before each fix (15:29 before 15:31; 16:14 before 16:15) and C1 was written up in 63-REVIEW.md at 16:06; their 63-REPRO.md sections followed the fix by minutes (note N-2). |
+| 1 | Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline | ✗ FAILED (partial) | The D-24 gap is closed: 131 file names on four Python versions, 0 disagreements; `-x.ts` end to end matches 2.14.1. One other input class differs: a repo folder whose name ends in whitespace. See the gap. |
+| 2 | Missing, malformed or stale Finalize inputs stop with a plain message; a failed or refused attempt writes no report and archives nothing; restart and retry work across fresh shell calls | ✓ VERIFIED (carried; partial re-run) | First report's evidence stands. The five-situation comparison and the 110 helper tests pass at `66b0429`. |
+| 3 | Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host | ✓ VERIFIED (carried) | No file under this truth changed. |
+| 4 | Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit | ✓ VERIFIED (counts re-run) | `step_count.py`: 92 steps at `dd8e4ab`, 85 at `4ac7ee4`, 85 at `66b0429`. `footprint.py`: Finalize 130,886 bytes at `4ac7ee4` and at `66b0429`. |
+| 5 | One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed | ✓ VERIFIED (carried) | No file under this truth changed. |
 
 **Score:** 4/5 truths verified
 
-### Plan-level truths (detail under the criteria above)
+### Gap closure evidence (all run by me, in a scratch clone at `66b0429` and a `git archive` of `dd8e4ab`)
+
+The 2.14.1 side is the literal step 1 of `dd8e4ab:plugins/vibe-check/phases/shared/90-finalize.md`: the character filter, `guard.py` from `dd8e4ab` run as a command, then the three git commands, a file kept only when all exit 0; then `carry_state.py finalize-counts` and `finalize_gate.py` from `dd8e4ab`. The helper side is `finalize_inputs.py` at `66b0429`. Both sides use the same interpreter.
+
+**End to end (fix-obsolete verdict on unchanged code), identical on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5 unless shown:**
+
+| File | 2.14.1 | Helper | Same? |
+|------|--------|--------|-------|
+| `x.ts` (control) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `-x.ts` | [1,0,0] `outstanding-to-phase-5` | [1,0,0] `outstanding-to-phase-5`, `next` = `finalize-card`, fingerprint file `{}`, stderr empty | yes |
+| `sub/-x.ts` | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `-d/x.ts`, `--`, `-h`, `--pa`, `--root` | [1,0,0] `outstanding-to-phase-5` | the same | yes |
+| `-`, `-1` | [0,0,0] `write` | the same | yes |
+| `-1.ts`, `-1e5`, `-1_0` | 3.9 / 3.12 / 3.13: [1,0,0] `outstanding-to-phase-5`. 3.14: [0,0,0] `write` | the same as 2.14.1 on each version | yes |
+
+**File names, fingerprint step only:** 131 names per Python version, 4 versions, 0 disagreements, 0 helper crashes. 78 of the names were real committed files. Beyond the executor's 51-name matrix I added: every abbreviation of `--root`, `--path` and `--help`; `-r`, `-p`, `-v`, `-V`, `--version`; `---`; number look-alikes (`-0x10`, `-1j`, `-1e-5`, `-1.`, `-.5.5`, `-1__0`, `-inf`, `-nan`, a 22-digit number); option names with a file ending or as a folder (`--root.ts`, `-h.ts`); 200- and 300-character names; a 40-folder-deep path; names the character filter refuses that argparse treats specially (`--path=x.ts`, `--root=x`, `@file`, the empty string, non-ASCII, a lone surrogate, a NUL character, full-width and minus-sign dashes); and trailing-slash, `./`, `..` and absolute forms.
+
+**In-process versus command, the specific risks named in the request:**
+
+| Risk | What I ran | Result |
+|------|-----------|--------|
+| The in-process parser differs from the command's | 300 random leading-dash names per version, helper's check versus the `dd8e4ab` command | 0 disagreements on all four versions |
+| Output or state leaks between files | One state listing all 130 names once, twice (260), reversed, and `-x.ts`/`x.ts` alternating 50 times, run in a child process | Result equal to the 2.14.1 set each time; stdout is only the result; stderr empty |
+| stdout/stderr left replaced | Checked after every call | Always restored |
+| Something other than a clean exit escapes `guard.main` | 131 names × 4 versions, plus the oversized names below | No exception reached the caller |
+| Environment | End to end for `x.ts`, `-x.ts`, `-1.ts` under `COLUMNS=1`, forced colour, `LC_ALL=C`, `PYTHONWARNINGS=error`, `PYTHONOPTIMIZE=2`, `PYTHONUTF8=1`, and interpreter flags `-I` and `-S -E` | All the same as 2.14.1 |
+| stderr closed or discarded | Helper run with `2>&-` and `2>/dev/null` on `-x.ts` | Exit 0, `outstanding-to-phase-5`, `{}` |
+| Working folder | Helper and 2.14.1 from a non-repo folder and from a subfolder | Agree (the subfolder case is the accepted D-19 difference and was compared from the root as well) |
+| Names too long for a command line | 1.1 MB names (plain and leading-dash), 300 KB name | 2.14.1's command cannot start, file left out; helper leaves it out too. Same outcome |
+| `sys.argv[0]` | Read the code | `guard.main` sets `prog="guard.py"` itself and takes its arguments as a parameter; nothing reads `sys.argv` |
+
+**The new test can fail (scratch clone only):**
+
+| Break | Result |
+|-------|--------|
+| A. Fix line put back to `guard.contained(root, f)[0]` | Both `TestGuardCommandParity` tests fail (Python 3.14 and 3.9); the other 108 tests pass |
+| The test at `c1541b1` (test-first commit, helper not yet fixed) | Both fail, as the record says |
+| B1. The test's 2.14.1 side swapped for the helper's old in-process check, helper fixed | Both fail |
+| B2. Same swap, helper unfixed (both sides the same wrong logic) | Both fail — the test's fixed expectations (`-x.ts`, `-d/x.ts`, `--`, `--root`, `--path`, `-h`, `--help` left out; `-`, `-1` and the controls kept) catch it |
+| C. Helper uses a plain "starts with `-`" rule | The 22-name test fails (`-` and `-1` are kept by 2.14.1) |
+| D. Helper accepts any guard exit except 1 | Both fail |
+| E. Helper does not restore stdout/stderr | 5 tests fail |
+| F. Helper does not capture the guard's output | 5 tests fail |
+| G. Containment removed entirely | 7 tests fail |
+| H. `io` removed from the import-set test's expected set | `test_stdlib_import_set_is_exact` fails |
+| I. Helper gains one more stdlib import | `test_stdlib_import_set_is_exact` fails |
+
+One thing the test cannot show, by construction: if its 2.14.1 side is swapped for the helper's *current* check, it still passes, because that check is now the command's own code. This is the point of the fix, not a weakness: the fixed expectations in B2 and C are what keep the test honest.
+
+### Regression checks (run by me at `66b0429`)
+
+| Check | Command | Result | Status |
+|-------|---------|--------|--------|
+| 2.14.1 record still reproducible | `finalize_capture.py verify` | `finalize baseline matches (5 situations)` | ✓ PASS |
+| Five situations, by commit | `finalize_capture.py compare … --driver helper --commit HEAD` (Python 3.14 and 3.9) | `finalize outcome fields match (5 situations, 7 walks)`, exit 0 | ✓ PASS |
+| Five situations, by folder | same with `--root plugins/vibe-check` | the same line, exit 0 | ✓ PASS |
+| Helper tests, default locale | bare `pytest plugins/vibe-check/scripts/test_finalize_inputs.py` | 110 passed, 191 subtests | ✓ PASS |
+| Helper tests, `LC_ALL=C` | same | 110 passed, 191 subtests | ✓ PASS |
+| Helper tests, Python 3.9.6 | same | 110 passed | ✓ PASS |
+| Stdlib-only gate | `python3 -I .github/scripts/stdlib_only.py plugins/vibe-check` | `34 shipped .py files; third-party imports: none` | ✓ PASS |
+| Import-set test agrees with the gate | breaks H and I above | each fails the test | ✓ PASS |
+| Finalize steps | `step_count.py --rev HEAD --json` | 85 (35 fences, 5 inline commands, 5 Write-tool writes, 40 paste sites) — identical to `4ac7ee4` | ✓ PASS |
+| Finalize bytes | `footprint.py --rev HEAD --json` | 130,886 — identical to `4ac7ee4` | ✓ PASS |
+| Files changed under `plugins/`, `docs/`, `.github/` since `4ac7ee4` | `git diff --stat` | `finalize_inputs.py` and `test_finalize_inputs.py` only | ✓ PASS |
+| CI on the follow-up pull request head | `gh pr view 11` | open, not merged; both `offline-suite` runs success on `66b0429` | ✓ PASS |
+
+The full local suite was not run by me (one was in progress in the working checkout, per instruction). The first report's full-suite figure (6,510 passed, 1 failure caused by a setting in my own run) is carried, not re-measured.
+
+### The new gap in detail
+
+**What differs.** 2.14.1 passed the repo root to its check as `"$(git rev-parse --show-toplevel)"`. A shell drops only the final line break from that. The helper's `_toplevel` trims all whitespace from both ends. For a repo in a folder named, say, `repo ` (ending in a space), the helper's root is `…/repo`, which is a different path.
+
+**Reproduced (Python 3.9.6 and 3.14.5, identical), clean `x.ts`, fix-obsolete verdict on unchanged code:**
+
+| Repo folder | 2.14.1 | Helper |
+|-------------|--------|--------|
+| `repo` (control) | [0,0,0] `write` | [0,0,0] `write` |
+| `my repo` (space inside) | [0,0,0] `write` | [0,0,0] `write` |
+| `repo ` (ends with a space) | [0,0,0] `write` | **[1,0,0] `outstanding-to-phase-5`** |
+| ends with a tab | [0,0,0] `write` | **[1,0,0] `outstanding-to-phase-5`** |
+| ends with a no-break space | [0,0,0] `write` | **[1,0,0] `outstanding-to-phase-5`** |
+| `repo ` beside a second repo `repo` holding the same file; the real repo's `x.ts` edited after the verdict | [1,0,0] `outstanding-to-phase-5` | **[0,0,0] `write`** |
+
+**How much it matters.** A folder name ending in whitespace is very unusual and hard to create by accident. In the ordinary case the helper is the safer side: the finding stays open and the owner is asked. The last row is the unsafe direction (an approval 2.14.1 would not give) and needs a neighbouring repo under the trimmed name with the same file at the verdict's version; the author of a reviewed change does not control the reviewer's folder names. Folder names ending in a line break were compared too and agree (both leave the file out).
+
+**Why it is graded blocking.** Same test as the first report: a reproduced, deterministic gate decision that differs from 2.14.1, in both directions, not on the list the owner accepted. The plan's own rule (63-01, 63-02) is that the helper is never stricter than 2.14.1 without a named test.
+
+**Two ways to close it.**
+1. **Match 2.14.1.** Read the root as the shell does (drop trailing line breaks only), add a temp-repo test in a folder ending in a space that runs the 2.14.1 command through a shell, with a mutant. User impact: none compared with 2.14.1. Size: one line plus one test; it can ride in pull request #11.
+2. **Accept the difference by name.** Record it as an override here and add it to the result page's differences.
+
+### Corrected records, checked against what is true now
+
+| Record | Claim | Check | Holds? |
+|--------|-------|-------|--------|
+| 63-REMOVAL-LEDGER.md row 1 and correction note | 2.14.1 left the file out; the merged helper closed the finding; fixed at `72a2f94`, test first at `c1541b1`; original text kept struck through | Reproduced both; commit order confirmed; the test at `c1541b1` fails | Yes |
+| 63-REMOVAL-LEDGER.md | "22 names" in the comparison test | 19 leading-dash + 3 controls | Yes |
+| 63-RESULT.md correction section | Five situations still match; 85 steps and 130,886 bytes | Re-run | Yes |
+| 63-RESULT.md correction section | The test "failed before the fix", "fails if its 2.14.1 side is swapped for the helper's own check" | Breaks A, B1, B2 | Yes (for the helper's old check; see the note under the break table) |
+| 63-RESULT.md, 63-REPRO.md | `-1.ts`, `-1_0`, `-1e5` accepted on 3.14.5 and refused on 3.9.6 | Reproduced | Yes |
+| 63-RESULT.md, 63-REPRO.md | 51 names, 102 comparisons, 28 disagreements before the fix, 0 after | "0 after" confirmed on a larger set; the "28 before" count was not recounted | Not contradicted |
+| 63-RESULT.md correction section | "No other difference was found" | True of the 51-name matrix. A further difference exists outside it (this report's gap) | True as written; needs a line if the gap is fixed or accepted |
+| 63-REPRO.md | A name ending in a line break passes the filter on both sides; whether a model reading the prose would have accepted it cannot be determined | Reproduced: the helper fingerprints a file literally named `x.ts` + line break. 2.14.1's own tool (`fixcommit.py`) uses the same pattern the same way | Yes; stated without overclaiming |
+| 63-01-SUMMARY.md | Correction note pointing at the ledger and D-24 | Read | Yes |
+| 63-CONTEXT.md D-24 | Owner decision "Match 2.14.1 (Recommended)" | Read; the code now does this for file names | Yes |
+
+One inaccuracy, in a code comment only: the `TestGuardCommandParity` docstring says Python "3.13+" reads `-1.ts` as a negative number. On 3.13.14 the command still refuses it; 3.14.5 accepts it. The records give the right versions. Info only.
+
+### Plan-level truths (carried from the first report, updated where this diff changes them)
 
 | Plan | Truths | Status | Note |
 |------|--------|--------|------|
-| 63-01 | 6 | 5 ✓, 1 ✗ | ✗ "Where the helper could be stricter than 2.14.1 it is not: each such case has a named parity test": the leading-`-` case is recorded as parity and is the opposite (helper looser than 2.14.1); its test compares nothing against 2.14.1. Same root cause as the gap. |
-| 63-02 | 8 | 7 ✓, 1 ✗ | ✗ the repeated D-06 parity truth, same root cause. Exit codes, stderr lines, single-writer and "report failure is never rebuilt" all hold and each has a break that fails tests. |
-| 63-03 | 5 | 5 ✓ | 27 files, ≥ 70 fences; indented and four-backtick fences scanned (my break m3 used one). |
-| 63-04 | 4 | 4 ✓ | Each reproduction runs the real blocks as separate shells beside a one-shell control. |
-| 63-05 | 5 | 4 ✓, 1 ✗ | ✗ "Each case where the helper matches 2.14.1 on an input it could have refused is listed": row 1 of that list is wrong. Same root cause. |
-| 63-06 | 9 | 9 ✓ | "Six shared files byte-identical" holds at the extraction commit `c7d92c9`; later changes are the owner-decided fixes. |
-| 63-07 | 5 | 5 ✓ | |
-| 63-08 | 7 | 7 ✓ | With note N-1 on what the comparison does not see. |
-| 63-09 | 6 | 6 ✓ | Owner's fix/pin answer taken from the record. |
-| 63-10 | 5 | 5 ✓ | |
-| 63-11 | 5 | 3 ✓, 2 pending | Result page, owner "go" before merge, one PR with green runs: ✓. Backlog filing and STATE/ROADMAP edits are the held Task 3 — expected, not gaps. |
+| 63-01 | 6 | 5 ✓, 1 ✗ | ✗ "Where the helper could be stricter than 2.14.1 it is not: each such case has a named parity test". The leading-dash case under this truth is now fixed and has a real comparison test. The folder-name case is a second instance, with no test. |
+| 63-02 | 8 | 7 ✓, 1 ✗ | ✗ the repeated D-06 parity truth, same root cause as the new gap. |
+| 63-03 | 5 | 5 ✓ | carried |
+| 63-04 | 4 | 4 ✓ | carried |
+| 63-05 | 5 | 5 ✓ | Row 1 of the "input gaps carried" list is corrected. (Was 4 ✓, 1 ✗.) |
+| 63-06 | 9 | 9 ✓ | carried |
+| 63-07 | 5 | 5 ✓ | carried |
+| 63-08 | 7 | 7 ✓ | carried, with note N-1 |
+| 63-09 | 6 | 6 ✓ | carried |
+| 63-10 | 5 | 5 ✓ | carried |
+| 63-11 | 5 | 3 ✓, 2 pending | Backlog filing and STATE/ROADMAP edits are held for this report — expected, not gaps. |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `plugins/vibe-check/scripts/finalize_inputs.py` | the one helper call | ✓ VERIFIED (one defect, see gap) | 391 lines, stdlib only, called by the fence, in-process calls to the three existing helpers |
-| `plugins/vibe-check/scripts/test_finalize_inputs.py` | parity, exit codes, mutants | ✓ VERIFIED (one hollow parity test) | 13 deliberate breaks to the helper each failed it |
-| `plugins/vibe-check/scripts/test_cross_call_vars.py` | the general check, exceptions, mutants, reproductions | ✓ VERIFIED | |
-| `plugins/vibe-check/scripts/test_pasted_name_guard.py` | D-21 guard tests | ✓ VERIFIED | |
-| `plugins/vibe-check/scripts/test_inline_python_isolated.py` | D-22 isolation tests | ✓ VERIFIED | |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | one Finalize-inputs fence, next-action bullets | ✓ VERIFIED | |
-| `docs/design/lean-v2.15/finalize-counts-explained.md` | moved passage | ✓ VERIFIED | byte-identical to 2.14.1 lines 34–39 |
-| `docs/design/lean-v2.15/tools/finalize_capture.py` | second driver and compare | ✓ VERIFIED | |
-| `63-COUNTS.md`, `63-REPRO.md`, `63-EQUIVALENCE.md`, `63-REMOVAL-LEDGER.md`, `63-RESULT.md` | records | ✓ exist and substantive | One factual error (leading-`-` row) in the ledger and the result page |
-
-The SDK's artifact check passed for every plan (21/21). Its key-link check could not parse most of the plans' patterns (escaped regexes, descriptive "from" fields), so the links were checked by hand.
+| `plugins/vibe-check/scripts/finalize_inputs.py` | the one helper call | ✓ VERIFIED (one defect, see gap) | Containment now runs `guard.main` in-process; stdlib imports `io`, `json`, `os`, `subprocess`, `sys` |
+| `plugins/vibe-check/scripts/test_finalize_inputs.py` | parity, exit codes, mutants | ✓ VERIFIED | 110 tests; the hollow parity test is gone; `TestGuardCommandParity` is two-sided |
+| `plugins/vibe-check/scripts/test_cross_call_vars.py` | the general check | ✓ VERIFIED (carried) | |
+| `plugins/vibe-check/scripts/test_pasted_name_guard.py` | D-21 guard tests | ✓ VERIFIED (carried) | |
+| `plugins/vibe-check/scripts/test_inline_python_isolated.py` | D-22 isolation tests | ✓ VERIFIED (carried) | |
+| `plugins/vibe-check/phases/shared/90-finalize.md` | one Finalize-inputs fence | ✓ VERIFIED (carried; unchanged) | |
+| `docs/design/lean-v2.15/finalize-counts-explained.md` | moved passage | ✓ VERIFIED (carried; unchanged) | |
+| `docs/design/lean-v2.15/tools/finalize_capture.py` | second driver and compare | ✓ VERIFIED (re-run) | |
+| `63-COUNTS.md`, `63-REPRO.md`, `63-EQUIVALENCE.md`, `63-REMOVAL-LEDGER.md`, `63-RESULT.md` | records | ✓ exist and substantive | The leading-dash error is corrected in all of them |
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
-| `finalize_inputs.py` | `guard.py` | `guard.contained(root, f)` before any per-file git call | ✓ WIRED |
-| `finalize_inputs.py` | `fixcommit.py` | `PATH_RE` only; `validate_paths` not called | ✓ WIRED |
-| `finalize_inputs.py` | `carry_state.py`, `finalize_gate.py`, `batch_card.py` | three in-process calls | ✓ WIRED |
-| `90-finalize.md` | `finalize_inputs.py` | one fence, stderr left on screen, exit codes mapped to the 2.14.1 sentences | ✓ WIRED (ran it) |
-| `90-finalize.md` bullets | `NEXT_ACTIONS` | prose lock | ✓ WIRED (renaming a bullet fails it) |
-| `test_finalize_card.py` | design document | sha256 of the moved passage | ✓ WIRED (editing the passage fails it) |
-| `finalize_capture.py compare` | 2.14.1 situations record | `OUTCOME_KEYS` | ✓ WIRED |
-| `test_cross_call_vars.py` | every phase file | `os.walk` | ✓ WIRED |
-| CI workflow | phase test modules | `pytest plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools` | ✓ WIRED; left-out list unchanged |
-
-### Behavioral Spot-Checks (all run by me)
-
-| Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| Steps and bytes at 2.14.1 | `step_count.py --rev dd8e4ab --json`, `footprint.py --rev dd8e4ab --json` | 92 steps, 136114 bytes | ✓ PASS |
-| Steps and bytes, extraction alone | same at `c7d92c9` | 83 steps, 129451 bytes; plain 192057, deep 268997 (unchanged) | ✓ PASS |
-| Steps and bytes at HEAD | same at `HEAD` | 85 steps, 130886 bytes; plain 193267, deep 270219 | ✓ PASS |
-| 2.14.1 record still reproducible | `finalize_capture.py verify` | `finalize baseline matches (5 situations)` | ✓ PASS |
-| Baseline records | `baseline_records.py verify --repo .` | `baseline holds` | ✓ PASS |
-| Five situations at HEAD | `finalize_capture.py compare … --driver helper --commit HEAD` and `--root plugins/vibe-check` | `finalize outcome fields match (5 situations, 7 walks)`, exit 0, both | ✓ PASS |
-| Stdlib-only gate | `python3 -I .github/scripts/stdlib_only.py plugins/vibe-check` | `34 shipped .py files; third-party imports: none` | ✓ PASS |
-| Phase test modules (scratch clone) | 9 modules | 507 passed, 677 subtests | ✓ PASS |
-| Full local suite | bare `pytest -q -p no:cacheprovider` | 6,510 passed, 1 failed (my-run artefact, below) | ✓ PASS with note |
-| Real fence in fresh bash and zsh, six fault cases | scratch script | 2.14.1 sentences, nothing written | ✓ PASS |
-| Guard pattern under bash 3.2, zsh 5.9, sh | 16 names | 6 blocked characters halt; spaces, `'`, `;`, `&`, `[`, `]` pass | ✓ PASS |
-| All paste sites double-quoted | scan of every fence | 47 sites, 0 outside double quotes | ✓ PASS |
-| Leading-`-` file, end to end | scratch script | 2.14.1 `outstanding-to-phase-5`; helper `write` | ✗ FAIL (the gap) |
-| CI on `main` | `gh run view 43771152210` | success, push, `4ac7ee4` | ✓ PASS |
-| CI on the PR head `f8ae5ff` | `gh run list --commit` | push and pull_request both success | ✓ PASS |
-
-**The one full-suite failure.** `test_batchsnap.py::TestSnapshotImmutable::test_verify_survives_cache_churn` failed in my run because I had set `PYTHONDONTWRITEBYTECODE=1` to keep the working tree clean; that test starts a child pytest and requires it to write `.pyc` files. Re-run alone in the scratch clone: fails with the variable, passes without it. `batchsnap.py` and its test are unchanged since 2.14.1. Not a code defect.
-
-### Guards that can trip (deliberate breaks, scratch clone only)
-
-| Check | Breaks tried | Caught | What was broken |
-|-------|--------------|--------|-----------------|
-| Cross-call check | 7 | 7 | `PHASE_DIR` print removed; new setter/reader pair in an unrelated file; indented four-backtick pair with a braced read; Close-out state sentence removed; `--all` print removed; settings block split in two; `05-state.md` prints removed |
-| Reverse run of the reproductions | 6 files | 6 | each pre-fix file put back: its X/C test fails |
-| Equivalence comparison | 6 | 5 | caught: helper zeroes a count before the gate; a stop sentence reworded; empty report bundle; counting refusal line silenced; non-empty fingerprint file accepted. **Not caught: helper returns `next: stop-refused` for the gate's `write`** (note N-1) |
-| Pasted-name guard | 6 | 6 | guard line removed at each of the three files; backtick dropped from the character list; print moved before the guard; guard made to warn without stopping |
-| Inline-Python isolation | 5 | 5 | `-I` removed in two files; new un-isolated one-liner in a phase file and in `commands/review.md`; new isolated one-liner (count lock) |
-| Helper and fence | 18 | 18 | index check, working-tree check, root-vs-folder (D-19), character filter, containment, unreadable-state line, report exit code, report re-read, default switch, state write, fingerprint-file emptiness, third-party import (gate tool), extra import, exit-5 arm, hidden stderr, "second failure stops", renamed bullet, edited moved passage |
+| `finalize_inputs.py` | `guard.py` | `guard.main(["--root", root, "--path", f]) == 0` before any per-file git call (was `guard.contained`) | ✓ WIRED (breaks A, D, G fail tests) |
+| `finalize_inputs.py` | `fixcommit.py` | `PATH_RE` only | ✓ WIRED (carried) |
+| `finalize_inputs.py` | `carry_state.py`, `finalize_gate.py`, `batch_card.py` | three in-process calls | ✓ WIRED (carried; five situations re-run) |
+| `90-finalize.md` | `finalize_inputs.py` | one fence | ✓ WIRED (carried) |
+| `test_finalize_inputs.py::TestGuardCommandParity` | `guard.py` as a command | `subprocess.run([sys.executable, GUARD_PY, …])`; `guard.py` is byte-identical to `dd8e4ab` | ✓ WIRED (breaks B1, B2 fail it) |
+| `finalize_capture.py compare` | 2.14.1 situations record | `OUTCOME_KEYS` | ✓ WIRED (re-run) |
+| CI workflow | phase test modules | unchanged | ✓ WIRED (carried; green on `66b0429`) |
 
 ### Requirements Coverage
 
 | Requirement | Source plans | Description | Status | Evidence |
 |-------------|--------------|-------------|--------|----------|
-| FINX-01 | 01, 02, 06, 07, 08 | Helpers on the single-writer path; same gate decisions and reports as the baseline | ✗ BLOCKED (one input class) | The gap |
-| FINX-02 | 02, 06, 08 | Bad inputs fail visibly; a failed attempt writes and archives nothing | ✓ SATISFIED | Truth 2 |
-| FINX-03 | 06, 08 | Restart and retry across fresh shells | ✓ SATISFIED | Truth 2 |
-| FINX-04 | 05, 06, 07 | Superseded prose and locks removed; invariants kept; judgment stays in the host | ✓ SATISFIED | Truth 3 |
-| FINX-05 | 01, 09, 10, 11 | Before/after comparison; revert if no benefit | ✓ SATISFIED | Truth 4 |
-| XVAR-01 | 03, 11 | One general check with a mutant | ✓ SATISFIED | Truth 5 |
-| XVAR-02 | 04, 09, 10 | Flagged files recorded with reproduction before change | ✓ SATISFIED | Truth 5, note N-2 |
+| FINX-01 | 01, 02, 06, 07, 08 | Helpers on the single-writer path; same gate decisions and reports as the baseline | ✗ BLOCKED (one input class: repo folder name ending in whitespace) | The gap. The D-24 input class is now satisfied. |
+| FINX-02 | 02, 06, 08 | Bad inputs fail visibly; a failed attempt writes and archives nothing | ✓ SATISFIED | Truth 2 (carried) |
+| FINX-03 | 06, 08 | Restart and retry across fresh shells | ✓ SATISFIED | Truth 2 (carried) |
+| FINX-04 | 05, 06, 07 | Superseded prose and locks removed; invariants kept | ✓ SATISFIED | Truth 3 (carried) |
+| FINX-05 | 01, 09, 10, 11 | Before/after comparison; revert if no benefit | ✓ SATISFIED | Truth 4 (counts re-run) |
+| XVAR-01 | 03, 11 | One general check with a mutant | ✓ SATISFIED | Truth 5 (carried) |
+| XVAR-02 | 04, 09, 10 | Flagged files recorded with reproduction before change | ✓ SATISFIED | Truth 5 (carried) |
 
 All seven ids appear in plan frontmatter and in REQUIREMENTS.md under Phase 63. No orphaned requirement.
 
@@ -152,47 +252,61 @@ All seven ids appear in plan frontmatter and in REQUIREMENTS.md under Phase 63. 
 |------------------------|-----------|
 | Unreadable state file: shell's "Permission denied" line no longer shown | Yes — `## Your decision` item 1 |
 | Unsafe folder, branch or phase names stop the review (D-21) | Yes — item 2 |
-| Byte growth on every review path at phase end | Yes — item 3; adds up exactly |
+| Byte growth on every review path at phase end | Yes — item 3 |
 | Corrupted (non-UTF-8) state file on a C locale shows a different refusal line | Yes — item 4 |
-| Subfolder fix (D-19) | Yes — owner decision D-19; on the page |
-| Close out and fix loop keep the state path, incl. `--all` (D-20, D-23); `--all` prints one extra line | Yes — owner decision D-20; D-23 on the page |
-| Inline Python isolated (D-22), incl. two ignored encoding settings | Yes — owner decision D-22; encoding note on the page under the second review |
+| Subfolder fix (D-19) | Yes — owner decision D-19 |
+| Close out and fix loop keep the state path (D-20, D-23) | Yes — owner decision D-20; D-23 on the page |
+| Inline Python isolated (D-22) | Yes — owner decision D-22 |
 | X1–X6 (settings and names now carry between separate calls) | Yes — "Fix all six" |
 | Fewer commands and their output on screen | Yes — the intended difference |
 | A fingerprint file already holding `{}` is refused | On the page; cannot occur through the instructions |
-| **A top-level file whose name starts with `-` is now fingerprinted; its fix-obsolete verdict closes the finding** | **No — the page says this is the same as 2.14.1** |
+| ~~A top-level file whose name starts with `-` is now fingerprinted~~ | **Removed by D-24: the helper now matches 2.14.1** |
+| **A repo folder whose name ends in whitespace: the helper checks the trimmed path instead of the repo** | **No — not on the page** |
 
 ### Anti-Patterns Found
 
 | File | Pattern | Severity | Impact |
 |------|---------|----------|--------|
-| `test_finalize_inputs.py` `TestParityGaps::test_gap_leading_dash_path_is_fingerprinted` | A "parity" test that asserts only the new code's output | Blocker (part of the gap) | Could never detect the difference it is named for |
-| phase-modified files | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` | none found | — |
+| `finalize_inputs.py` `_toplevel` | `.strip()` where the 2.14.1 shell drops trailing line breaks only | Blocker (the gap) | Wrong repo root for a folder name ending in whitespace |
+| `test_finalize_inputs.py` `TestGuardCommandParity` docstring | "3.13+" should read 3.14 | Info | Comment only |
+| files changed by the gap closure | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` | none found | — |
 
 ### Notes (not gaps)
 
-- **N-1. The five-situation comparison does not look at `next`.** The instructions tell the model to branch on the result's `next` field; the comparison driver branches on `action`. A helper that returned the wrong `next` for a `write` passed the comparison (exit 0). The same break fails 8 unit tests in `test_finalize_inputs.py` and `test_finalize_card.py`, which run in CI, so it is covered — but by the unit tests, not by the equivalence comparison. Worth carrying with the other review items.
-- **N-2. X8 and C1 write-ups followed their fixes by minutes.** In both cases a failing reproduction test was committed before the fix, and C1 was described in the first review beforehand. The 63-REPRO.md prose sections came 8–10 minutes after.
-- **N-3. C2 stays on the exceptions list without a reproduction attempt** (`30-collect-score.md`). It is named on the result page and was accepted as carried (item 5).
-- **N-4. The result page says the 2.14.1 byte figures for `--all` and the fix loop are "not recorded".** `footprint.py --rev dd8e4ab` gives them: 284926, 361866 and 255070, equal to the extraction commit's. Nothing depends on this.
-- **N-5. The check does not see names set only in prose** (18 such names, including `PHASE_ID`, `ARGUMENTS`, `NARROW`). This is the known limit already on the result page.
+- **N-1 to N-5** from the first report are carried unchanged (the five-situation comparison does not look at `next`; X8 and C1 write-ups followed their fixes by minutes; C2 stays on the exceptions list; the result page's "not recorded" byte figures are recoverable; names set only in prose are not seen by the check).
+- **N-6. Which leading-dash names are refused depends on the Python version, on both sides alike.** On 3.14 the 2.14.1 command accepts anything starting with `-` and a digit; on 3.9 to 3.13 it accepts only plain negative numbers. The helper follows the interpreter that runs it, and the instructions start the helper with the same `python3` that 2.14.1 used for its check, so the two agree on any one machine.
+- **N-7. The helper gives each git call 60 seconds and leaves the file out if git takes longer.** 2.14.1 had no limit of its own. This fails closed and needs a git call on one file to take over a minute; it is not on the result page. Not a gap.
+- **N-8. A file whose name ends in a line break is fingerprinted by the helper.** 63-REPRO.md records this accurately. 2.14.1's own tool reads the pattern the same way, so I count it as matching.
 
 ### Human Verification Required
 
-None that blocks. One item is unmeasured by design and the owner has been told: no live review was run, so whether a live model fills the three switch slots, pastes the printed state path and branches on `next` as the scripted walks do has not been observed. Under the standing rule a live or paid run needs its own approved proposal; this report does not ask for one.
+None that blocks. Carried from the first report: no live review was run, so whether a live model fills the three switch slots, pastes the printed state path and branches on `next` as the scripted walks do has not been observed. Under the standing rule a live or paid run needs its own approved proposal; this report does not ask for one.
 
 ### Gaps Summary
 
-One gap, one root cause. The 2.14.1 instructions validated each finding's file by running `guard.py` as a command; the helper calls the same check as a function. The command refuses a name that starts with `-` (it reads it as an option); the function accepts it. The phase recorded this case as "the helper does what 2.14.1 does" without running the 2.14.1 command, and the test written to hold that claim checks only the helper. The result is a gate decision that differs from 2.14.1 for that input — a finding that 2.14.1 kept open now closes — presented to the owner as no difference.
+The gap this re-verification was asked to check is closed, with a test that genuinely compares against the 2.14.1 command and fails when it should, and with the records corrected to say what is true.
 
-Two ways to close it:
-
-1. **Match 2.14.1.** Leave such a file out of the fingerprints, add a test that runs the 2.14.1 guard command on the same name, and correct the three records. User impact: none compared with 2.14.1. Size: a one-line condition plus one test.
-2. **Accept the difference.** The new behaviour honours a legitimate "fix made this obsolete" verdict that 2.14.1 ignored by accident; git cannot misread the name (`HEAD:` prefix, and after `--`). If the owner accepts it by name, record it as an override here and correct the result page and ledger to say it differs.
-
-Which behaviour is right is a product decision for the owner. Either way the records need correcting.
+One gap remains under the same criterion, from a different cause that predates the gap closure: the helper trims whitespace from the repo's folder path where the 2.14.1 shell did not, so a repo in a folder whose name ends in a space gets a different Finalize decision. It is rare, mostly errs on the safe side, and is a one-line change plus a test. It needs the owner's decision: match 2.14.1 (it can ride in pull request #11) or accept it by name.
 
 ---
 
-_Verified: 2026-11-15T23:15:00Z_
+## History: first verification (2026-11-15T23:15:00Z, `main` at `4ac7ee4`)
+
+**Status then:** gaps_found. **Score then:** 4/5. **One blocking gap**, now closed:
+
+> For a finding in a top-level file whose name starts with `-` (for example `-x.ts`) that carries a last-pass fix-obsolete verdict on unchanged code, 2.14.1 leaves the finding open (gate `outstanding-to-phase-5`, nothing written); the new helper closes it and the gate returns `write` (APPROVED). At 2.14.1 the instructions ran `python3 "$GUARD_PY" --root … --path "<file>"` and required exit 0; that command exits 2 for a name starting with `-`, so the file was left out, fail closed. The helper calls `guard.contained()` in-process, which accepts the name. The records state the opposite. The named parity test asserts only the helper's own output and never runs the 2.14.1 command. Reproduced end to end on Python 3.9.6 and 3.14.5.
+
+Evidence from that report that is carried and was not re-run now:
+
+- **Criterion 2:** the real fence from `90-finalize.md` run as its own fresh shell under bash and zsh against no state file, `not json`, `{}`, an unreadable state and unfilled switch slots; each stopped with the 2.14.1 sentence and wrote nothing.
+- **Criterion 3:** `GATEFILE`, the counts fence, the report fence and the hand-written fingerprint step are gone; the rebuild, never-reuse and never-retry rules, the stop sentence, the write boundary and `record-decisions` remain; the moved explanation is byte-identical to `dd8e4ab` lines 34–39; all 112 cited test ids checked against the collected suite.
+- **Criterion 4:** `c7d92c9` (extraction alone) 83 steps / 129,451 bytes; growth after it adds up exactly to the named items; tools, baseline records and `CRITERION.md` unchanged since Phase 62.
+- **Criterion 5:** the check walks all 27 files; seven deliberate breaks to real phase files each failed it; each pre-fix file put back fails its reproduction test (X1–X8, C1); recorded-before-fixed order confirmed from commit times.
+- **Guards that can trip:** 48 deliberate breaks in a scratch copy, 47 caught by the check they targeted, 1 (wrong `next` for `write`) passed the five-situation comparison and was caught by 8 unit tests (note N-1).
+- **Full local suite:** 6,510 passed, 1 failed; the failure was caused by `PYTHONDONTWRITEBYTECODE=1` in my own run (`test_batchsnap.py::TestSnapshotImmutable::test_verify_survives_cache_churn`), and passes without it.
+- **Spot-checks:** baseline records hold; guard pattern under bash 3.2, zsh 5.9 and sh; all 47 paste sites double-quoted; CI green on `main` (`4ac7ee4`) and on the PR #10 head.
+
+---
+
+_Verified: 2026-11-15T23:50:00Z_
 _Verifier: Claude (bm-verifier)_
