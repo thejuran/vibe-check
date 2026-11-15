@@ -34,7 +34,7 @@ In order:
    # .auth.loggedIn == false; available=true only on exit 0 AND parseable JSON AND .ready == true.
    if [ "$INSTALLED" = true ]; then
      if PROBE=$(node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" setup --json 2>/dev/null); then PROBE_RC=0; else PROBE_RC=$?; fi
-     PROBE_FACTS=$(printf '%s' "$PROBE" | python3 -c '
+     PROBE_FACTS=$(printf '%s' "$PROBE" | python3 -I -c '
    import json, sys
    rc = int(sys.argv[1])
    try:
@@ -77,7 +77,7 @@ In order:
 
    # Envelope built with a JSON encoder from argv, never string-spliced. A value other than
    # true/false passes through as a string, and the gate refuses it (fail closed).
-   if CODEX_DECISION=$(python3 -c '
+   if CODEX_DECISION=$(python3 -I -c '
    import json, sys
    a = sys.argv[1:]
    b = {"true": True, "false": False}

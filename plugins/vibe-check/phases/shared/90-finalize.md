@@ -185,7 +185,7 @@ fi
 `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
 - `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
   ```bash
-  if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
+  if python3 -I -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
     :
   else
     echo "the translated answer could not be copied — nothing was recorded" >&2
@@ -223,7 +223,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      printf 'DECFILE=%s\n' "$DECFILE"
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
        echo "I'm uncertain about Finalize mode — the card's decisions could not be copied; nothing was written or archived." >&2
@@ -233,7 +233,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
   2. `fix` non-empty (D-10) → copy the helper's ready-made subset file-to-file:
      ```bash
      SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
        printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else
        echo "I'm uncertain about Finalize mode — the fix set could not be copied; nothing was written or archived." >&2

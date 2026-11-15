@@ -139,7 +139,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      printf 'DECFILE=%s\n' "$DECFILE"
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
        echo "the card's decisions could not be copied — nothing was recorded; the rows stay open" >&2
@@ -148,7 +148,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
   2. `fix_targets` non-empty → copy them file-to-file into a subset file (the same shape Finalize's subset step produces):
      ```bash
      SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
-     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
+     if python3 -I -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
        printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else
        echo "the fix set could not be copied — no fixes dispatched" >&2
@@ -186,7 +186,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with the `q1` the file n
   `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
   - `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
     ```bash
-    if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
+    if python3 -I -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
       :
     else
       echo "the translated answer could not be copied — nothing was recorded" >&2
