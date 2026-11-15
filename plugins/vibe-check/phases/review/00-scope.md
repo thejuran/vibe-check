@@ -90,6 +90,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
                  -name "<arg>-*" 2>/dev/null)
      [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = "1" ] && PHASE_DIR="$MATCHES"
    fi
+   case "$PHASE_DIR" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the phase folder path holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
    printf 'PHASE_DIR=%s\n' "$PHASE_DIR"
    ```
    - Unique match → `$PHASE_DIR` is set; continue.
