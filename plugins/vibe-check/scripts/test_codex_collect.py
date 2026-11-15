@@ -132,6 +132,15 @@ def render(block, values, replacements):
 
 @unittest.skipIf(skip_reason() is not None, skip_reason() or "")
 class TestCodexCollectExecutable(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Start node once before the timed runs. These are the suite's first
+        # node launches, and on a cold CI runner the first one can take longer
+        # than CAP, which turned the stub's exit 3 into the watchdog's 124.
+        # Untimed and unasserted: it only loads node into the page cache.
+        subprocess.run([NODE_BIN, "-e", "0"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=120, check=False)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         base = self._tmp.name
