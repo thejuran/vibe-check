@@ -137,9 +137,14 @@ def check_old_loops_gone(text):
 
 
 def check_helper_calls(text):
-    return ["%s x%d" % (n, text.count(n))
-            for n in (ROWS_CALL, PARSE_CALL, REPORT_CALL, RECORD_CALL)
-            if text.count(n) != 1]
+    """The card's three helper calls run once each; the report data comes in
+    the Finalize-inputs result, so no fence runs `decisions-report`."""
+    problems = ["%s x%d" % (n, text.count(n))
+                for n in (ROWS_CALL, PARSE_CALL, RECORD_CALL)
+                if text.count(n) != 1]
+    if REPORT_CALL in text:
+        problems.append("a fence still runs decisions-report")
+    return problems
 
 
 ANNOTATIONS = (
@@ -1016,6 +1021,13 @@ class TestFinalizeCard(LockCase):
 
     def test_helper_calls_present(self):
         self.assert_holds(check_helper_calls, self.text)
+        with self.subTest("mutant: the 2.14.1 report fence put back"):
+            self.assert_trips(check_helper_calls,
+                              self.text + "\n```bash\n" + P7_FENCE_2141
+                              + "```\n")
+        with self.subTest("mutant: record-decisions removed"):
+            self.assert_trips(check_helper_calls,
+                              remove(self.text, RECORD_CALL))
 
     def test_pending_and_stale_annotations(self):
         self.assert_holds(check_annotations, self.text)
@@ -1687,6 +1699,115 @@ class TestFinalRoundFinalize(LockCase):
 # --------------------------------------------------------------------------- #
 # REVIEW.md rendering.
 # --------------------------------------------------------------------------- #
+# The report fill reads its data from the Finalize-inputs result (D-02). The
+# 2.14.1 report fence is kept here as text for the D-18 walk: run fresh on a
+# state that is not JSON, it shows batch_card.py's own line, then the report
+# sentence. It is the fence body as 2.14.1 shipped it (dd8e4ab lines 304-309).
+P7_FENCE_2141 = (
+    'if DECISIONS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" '
+    'decisions-report < "$STATE_FILE"); then\n'
+    '  printf \'%s\\n\' "$DECISIONS_JSON"   # {"entries": [{"stable_hash", '
+    '"decision", "reason", "at_pass", "band", "status", "file", "line", '
+    '"title", "agent"}]}\n'
+    'else\n'
+    '  echo "I\'m uncertain about Finalize mode — batch_card.py '
+    'decisions-report failed; nothing was written or archived." >&2\n'
+    '  exit 1\n'
+    'fi\n')
+REPORT_BINDING = (
+    "The result of the Finalize-inputs fence that returned `write-review-md` "
+    "already holds the report data",
+    "`$COUNTS_JSON` below is its `counts` object and `$DECISIONS_JSON` is its "
+    "`report` object",
+    "the helper worked them out before this Write, so a failure there wrote "
+    "nothing and archived nothing",
+)
+FILL_HEAD = "\nFill from state:\n"
+# sha256 of the text from `Fill from state:` to the end of 90-finalize.md at
+# dd8e4ab (2.14.1): the fill rules do not change (D-02).
+FILL_RULES_SHA256 = ("4714f17cc2bc5ff8ba6a6f9c3a4cfef456d5aed9486d15959ad300e2afafcd28")
+
+
+def fill_rules(text):
+    """From the line `Fill from state:` to the end of the file, or None."""
+    i = text.find(FILL_HEAD)
+    return None if i < 0 else text[i + 1:]
+
+
+def fill_rules_unchanged(text):
+    tail = fill_rules(text)
+    if tail is None:
+        return ["no `Fill from state:` line"]
+    got = hashlib.sha256(tail.encode("utf-8")).hexdigest()
+    return [] if got == FILL_RULES_SHA256 else ["fill rules digest " + got]
+
+
+def report_binding_holds(text):
+    """D-02 / D-05: the Writing section binds the two names to the result in
+    one sentence before the fill rules; no fence reads the report itself;
+    the report sentence appears once, in the Finalize-inputs fence's `5)`
+    arm."""
+    problems = []
+    section = writing_section(text) if WRITING_HEADING in text else ""
+    head = section.split(FILL_HEAD, 1)[0]
+    problems += ["binding lacks: " + n[:40] for n in REPORT_BINDING
+                 if n not in head]
+    if REPORT_CALL in text:
+        problems.append("a fence still runs decisions-report")
+    if text.count(REPORT_HALT) != 1:
+        problems.append("report sentence x%d" % text.count(REPORT_HALT))
+    fence = inputs_fence(text) or ""
+    arm = ""
+    if "  5)" in fence and "  *)" in fence:
+        arm = fence[fence.index("  5)"):fence.index("  *)")]
+    if REPORT_HALT not in arm:
+        problems.append("the report sentence is not in the 5) arm")
+    return problems
+
+
+class TestReportFromTheResult(LockCase):
+    """D-02: REVIEW.md is still written by the model from the template with
+    the 2.14.1 fill rules; their data arrives in the helper's one result."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def test_report_binding_holds(self):
+        self.assert_holds(report_binding_holds, self.text)
+        for needle in REPORT_BINDING:
+            with self.subTest("mutant: removed", n=needle[:30]):
+                self.assert_trips(report_binding_holds,
+                                  remove(self.text, needle))
+        with self.subTest("mutant: the 2.14.1 report fence put back"):
+            i = self.text.index(FILL_HEAD)
+            mutant = (self.text[:i] + "\n```bash\n" + P7_FENCE_2141
+                      + "```\n" + self.text[i:])
+            self.assert_trips(report_binding_holds, mutant)
+        fence = inputs_fence(self.text)
+        arm = fence[fence.index("  5)"):fence.index("  *)")]
+        with self.subTest("mutant: the 5) arm removed"):
+            self.assert_trips(report_binding_holds,
+                              self.text.replace(arm, "", 1))
+        with self.subTest("mutant: the report sentence also left elsewhere"):
+            self.assert_trips(report_binding_holds,
+                              self.text + "\n" + REPORT_HALT + "\n")
+
+    def test_fill_rules_unchanged(self):
+        self.assert_holds(fill_rules_unchanged, self.text)
+        self.assertTrue(fill_rules(self.text).startswith(
+            "Fill from state:\n"))
+        with self.subTest("mutant: one fill rule reworded"):
+            self.assert_trips(fill_rules_unchanged, self.text.replace(
+                "nothing else. Best-effort", "nothing more. Best-effort", 1))
+        with self.subTest("mutant: Fill line gone"):
+            self.assert_trips(fill_rules_unchanged,
+                              remove(self.text, FILL_HEAD))
+        with self.subTest("the model still writes from the template"):
+            self.assertIn("Use Write to create `.turingmind/REVIEW.md` per "
+                          "`templates/review-md-schema.md`.",
+                          writing_section(self.text))
+
+
 class TestReviewMdRendering(LockCase):
     def setUp(self):
         self.schema = read_prose(SCHEMA_MD)
@@ -2242,10 +2363,21 @@ class TestFinalizeFreshShellWalk(LockCase):
         return path
 
     def _report(self, state_file):
-        rc, out, err = self._walk(_fence_holding(self.text, REPORT_CALL),
-                                  {}, state_file)
+        """What the 2.14.1 report fence printed for this state, run fresh."""
+        rc, out, err = self._run_fresh(P7_FENCE_2141, state_file)
         self.assertEqual(rc, 0, err)
         return json.loads(out.strip().splitlines()[0])
+
+    def _old_counts(self, state_file, blob):
+        """What the 2.14.1 counting command printed for this state and
+        fingerprint file."""
+        with open(state_file, "rb") as fh:
+            proc = subprocess.run(
+                [sys.executable, os.path.join(HERE, "carry_state.py"),
+                 "finalize-counts", "--head-blobs", blob],
+                stdin=fh, capture_output=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
 
     def _answer_card(self, blob, state):
         """The unchanged card fences with the printed BLOBFILE literal: rows,
@@ -2323,7 +2455,13 @@ class TestFinalizeFreshShellWalk(LockCase):
                          ("write", "write-review-md"))
         self.assertEqual(self._three(result["counts"]), (0, 0, 0))
         self.assertTrue(result["report"]["entries"])
-        self.assertTrue(self._report(state)["entries"])
+        # D-02: the bundle is what the 2.14.1 report fence and counting
+        # command print for the same state.
+        self.assertEqual(result["report"], self._report(state))
+        old_counts = self._old_counts(state, blob)
+        self.assertEqual(result["counts"]["verified_obsolete_hashes"],
+                         old_counts["verified_obsolete_hashes"])
+        self.assertEqual(result["counts"], old_counts)
         self._assert_closed()
 
     def test_card_route_records_then_writes(self):
@@ -2337,14 +2475,17 @@ class TestFinalizeFreshShellWalk(LockCase):
         self.assertEqual((result["action"], result["next"]),
                          ("outstanding-to-phase-5", "finalize-card"))
         self.assertIsNone(result["report"])
-        self._answer_card(blob1, state)
+        decided = self._answer_card(blob1, state)
         rc, blob2, result, err = self._inputs(state)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(blob2, blob1)
         self.assertEqual(result["next"], "write-review-md")
         self.assertEqual(self._three(result["counts"]), (0, 0, 0))
-        self.assertTrue(result["report"]["entries"])
-        self.assertTrue(self._report(state)["entries"])
+        # T-63-21: the re-run's report holds the decisions just recorded.
+        dismissed = sorted(e["stable_hash"] for e in result["report"]["entries"]
+                           if e["decision"] == "dismiss")
+        self.assertTrue(set(decided) <= set(dismissed), (decided, dismissed))
+        self.assertEqual(result["report"], self._report(state))
         self._assert_closed()
 
     def test_counts_fence_without_literal_exits_two(self):
@@ -2506,6 +2647,52 @@ class TestFinalizeFreshShellWalk(LockCase):
             self.assertTrue(any("stderr is" in p for p in problems), problems)
         self.assert_holds(retry_rule_holds, self.text)
 
+    def _report_line_problems(self, text):
+        """D-18: a report-stage refusal (helper exit 5) through the fence of
+        `text`, the stand-in writing the report step's own refusal line: the
+        fence exits 5 and stderr is that line, then the report sentence."""
+        rc, blob, result, err = self._inputs(
+            SIX_ROW_FIXTURE, text=text,
+            vc_root=self._stand_in_root(5, carry_state.REASON_STATE_JSON))
+        problems = []
+        if rc != 5:
+            problems.append("exit %d, not 5" % rc)
+        if result is not None:
+            problems.append("a result was printed")
+        want = [carry_state.REASON_STATE_JSON.strip(), REPORT_HALT]
+        if err.splitlines() != want:
+            problems.append("stderr is %r, not %r" % (err, want))
+        if blob is not None and os.path.exists(blob + ".err"):
+            problems.append("a <BLOBFILE>.err side file was written")
+        return problems, err
+
+    def test_report_line_stays_on_screen(self):
+        """D-18: where the 2.14.1 report fence left batch_card.py's own
+        refusal line on screen above the report sentence, the Finalize-inputs
+        fence shows the same two lines. The 2.14.1 fence (its saved text) is
+        run fresh on a state that is not JSON; its stderr equals the new
+        fence's on a report-stage exit."""
+        problems, err = self._report_line_problems(self.text)
+        self.assertEqual(problems, [])
+        not_json = os.path.join(self.tmp, "not-json.json")
+        with open(not_json, "w", encoding="utf-8") as fh:
+            fh.write("not json")
+        o_rc, _, o_err = self._run_fresh(P7_FENCE_2141, not_json)
+        self.assertEqual(o_rc, 1)
+        self.assertEqual(o_err.splitlines(),
+                         [carry_state.REASON_STATE_JSON.strip(), REPORT_HALT])
+        self.assertEqual(err, o_err)
+        line = inputs_call_line(self.text)
+        self.assertTrue(line.endswith(")"))
+        for redirect in (INPUTS_REDIRECT_MUTANT, " 2>/dev/null"):
+            with self.subTest("mutant: stderr redirected", r=redirect):
+                mutant = self.text.replace(
+                    line, line[:-1] + redirect + ")", 1)
+                self.assertNotEqual(mutant, self.text)
+                problems, _ = self._report_line_problems(mutant)
+                self.assertTrue(any("stderr is" in p for p in problems),
+                                problems)
+
     def test_post_decision_rerun_decides_on_fresh_counts(self):
         """FINL-02 / WR-02: after the card answer is recorded, the result
         read before the card still holds the pre-answer counts (5, 1, 0) and
@@ -2559,6 +2746,9 @@ class TestFinalizeFreshShellWalk(LockCase):
             self.assertEqual(rc, 0, err)
             self.assertNotEqual(blob2, blob1)
             self.assertEqual(result["next"], "write-review-md")
+            self.assertEqual(result["counts"]["verified_obsolete_hashes"],
+                             [ARCH_HASH])
+            self.assertEqual(result["counts"], self._old_counts(state, blob2))
 
         gitfixture.write(repo, ARCH_FILE, "edited while the card was open\n")
         with self.subTest("edit during the card: the finding reopens"):
