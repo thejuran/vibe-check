@@ -1162,48 +1162,50 @@ class TestRepro63(unittest.TestCase):
         gitfixture.git(repo, "add", "-A")
         gitfixture.git(repo, "commit", "-qm", "base")
 
-    def config_pair(self, label, setter):
-        fences = [setter,
-                  fence_holding(CONFIG_REL, "CONFIG_JSON=$(REPO_ROOT=")
-                  + "\n" + self.CONFIG_PROBE]
+    def config_pair(self, label, needle):
+        """The block that sets one flag value (found by `needle`) and the
+        settings-reader block, run fresh and as the control: (fresh values,
+        control values, outcome). When both are one block it runs alone."""
+        setter = fence_holding(CONFIG_REL, needle)
+        reader = fence_holding(CONFIG_REL, "CONFIG_JSON=$(REPO_ROOT=")
+        fences = [setter] if setter == reader else [setter, reader]
+        fences = [b.replace('"$ARGUMENTS"', self.CONFIG_ARGS) for b in fences]
+        self.assertTrue(any(self.CONFIG_ARGS in b for b in fences)
+                        or needle.startswith("CONFIG_REPO_ROOT"))
+        fences[-1] += "\n" + self.CONFIG_PROBE
         fresh, control, outcome, _, _ = self.run_pair(
             label, self.build_config, fences)
-        self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
-        self.assertEqual(fresh[0][1], "")
-        return (self.config_values(fresh[1][1]), self.config_values(control[1]),
-                outcome)
+        self.assertTrue(all(rc == 0 for rc, _, _ in fresh), fresh)
+        return (self.config_values("".join(out for _, out, _ in fresh)),
+                self.config_values(control[1]), outcome)
 
     def config_values(self, out):
         line = [l for l in out.splitlines() if l.startswith("CONFIG_JSON=")]
         self.assertEqual(len(line), 1, out)
         return json.loads(line[0][len("CONFIG_JSON="):])["values"]
 
-    def flag_setter(self, needle):
-        return substitute(fence_holding(CONFIG_REL, needle),
-                          [('"$ARGUMENTS"', self.CONFIG_ARGS)])
-
+    # Each value reaches the settings reader when the blocks run as separate
+    # calls, as it does in one shell.
     def test_x4_codex_flag_val(self):
         fresh, control, outcome = self.config_pair(
-            "x4", self.flag_setter("CODEX_FLAG_VAL=$(printf"))
+            "x4", "CODEX_FLAG_VAL=$(printf")
         self.assertEqual(control["codex"], "off")
-        self.assertEqual(fresh["codex"], "auto")
-        self.assertEqual(outcome, "ignored-setting")
+        self.assertEqual(fresh["codex"], "off")
+        self.assertEqual(outcome, "harmless")
 
     def test_x5_config_repo_root(self):
         fresh, control, outcome = self.config_pair(
-            "x5", fence_holding(CONFIG_REL, "CONFIG_REPO_ROOT=$(git rev-parse"))
-        # An empty repo root does not make the helper refuse: it reads no
-        # config file at all and returns the defaults.
+            "x5", "CONFIG_REPO_ROOT=$(git rev-parse")
         self.assertEqual(control["disabled"], ["style"])
-        self.assertEqual(fresh["disabled"], [])
-        self.assertEqual(outcome, "ignored-setting")
+        self.assertEqual(fresh["disabled"], ["style"])
+        self.assertEqual(outcome, "harmless")
 
     def test_x6_min_confidence_flag_val(self):
         fresh, control, outcome = self.config_pair(
-            "x6", self.flag_setter("MIN_CONFIDENCE_FLAG_VAL=$(printf"))
+            "x6", "MIN_CONFIDENCE_FLAG_VAL=$(printf")
         self.assertEqual(control["min_confidence"], 45)
-        self.assertIsNone(fresh["min_confidence"])
-        self.assertEqual(outcome, "ignored-setting")
+        self.assertEqual(fresh["min_confidence"], 45)
+        self.assertEqual(outcome, "harmless")
 
 
 class TestRepro63Record(LockCase):
