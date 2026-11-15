@@ -11,21 +11,9 @@
 
 **Bind this step's OWN repo root FIRST (do NOT reuse `$ROOT`).** `$ROOT` is bound only INSIDE the Phase-0 mode-5 `--all` branch (mode-5 step b in `$VC_ROOT/phases/review/00-scope-all.md`, `ROOT=$(git rev-parse --show-toplevel)`), so it is EMPTY on plain diff / PR / range / GSD modes — reusing it here would make `config.py` silently degrade to no-config on the common paths. Bind a fresh, mode-independent root at the TOP of this block, unconditionally (the same idempotent call Phase 0 uses, but its own variable). If `git rev-parse` yields empty (not a git repo / detached), config.py still degrades safely to no-config — acceptable; the common case binds a real root.
 
-```bash
-CONFIG_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-```
-
 **Parse the `--min-confidence N` flag HERE (mode-independent — D-04, CONF-02/03).** `--min-confidence` applies to ALL 5 modes (diff / PR / range / GSD / `--all`) and is delegated to `/deep-review`, so it belongs in this unconditional config-resolution step — NOT the `$ALL_MODE`-only mode-5 flag block (mode-5 step a in `$VC_ROOT/phases/review/00-scope-all.md` binds `--full`/`--fix`/`--include-docs`, which "add NOTHING to the four diff handlers"; a universal flag would be silently inert there on the common modes). Extract the flag's token from `$ARGUMENTS` (accept both `--min-confidence 75` and `--min-confidence=75`; capture only the token, do NOT range-check it here) into `$MIN_CONFIDENCE_FLAG_VAL`. The 0–49 bound (Fable A3: ≥ 50 is refused because the pre-scoring filter would silently drop findings that score into the critical band) is NOT re-implemented in this prose: the token is threaded through `config.py` below, so `config.py`'s tested `_validate_min_confidence` owns validation (a bad token like `999` — or a critical-annihilating `60` — degrades to no-filter + one warning that flows through `$CONFIG_WARNINGS`). When the flag is absent, `$MIN_CONFIDENCE_FLAG_VAL` is empty — byte-identical to today's no-flag path.
 
-```bash
-MIN_CONFIDENCE_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--min-confidence[ =]\([^ ]*\).*/\1/p')
-```
-
 **Parse the `--codex on|auto|off` flag HERE (mode-independent — D-10, LEGIBLE-02).** `--codex` is a UNIVERSAL flag that applies to ALL 5 modes (diff / PR / range / GSD / `--all`) and is delegated to `/deep-review`, so it belongs in this unconditional config-resolution step — NOT the `$ALL_MODE`-only mode-5 flag block (RESEARCH Pitfall 7: a universal flag would be silently inert there on the common modes). Extract the flag's token from `$ARGUMENTS` (accept both `--codex on` and `--codex=on`; capture only the token, do NOT validate `off`/`auto`/`on` here — `config.py`'s tested `_validate_codex` owns validation, coercing anything invalid to `auto`) into `$CODEX_FLAG_VAL`, mirroring the `--min-confidence` parse verbatim. The Task-1 pre-mode normalizer does NOT remove the token from `$ARGUMENTS` (it strips into the SEPARATE `$SCOPE_ARGS` used by mode detection), so this parse of `$ARGUMENTS` still finds the flag in EVERY mode — including the flag-only default-diff call the mode-1 rewire now routes correctly. When the flag is absent, `$CODEX_FLAG_VAL` is empty — byte-identical to today's no-flag path.
-
-```bash
-CODEX_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--codex[ =]\([^ ]*\).*/\1/p')
-```
 
 **`scripts/config.py` shares the Phase-0 TRUST-01 resolver with `$SCORE_PY`, but INVERTS the terminal arm to DEGRADE, never `exit 1`.** The config reader is OPTIONAL where the scorer is MANDATORY (Pitfall 4): a missing `score.py` HALTS the review (fail-closed), but a missing `config.py` means "no config" → all defaults, and the review still runs. `$CONFIG_PY` is resolved ONCE by the Phase-0 TRUST-01 resolver from the trusted plugin root, never from the reviewed repo; if it does not resolve, `$CONFIG_PY` is empty and this phase continues with all-defaults. **Do NOT "fix" this terminal arm back to fail-closed** — the divergence from `$SCORE_PY` is deliberate and load-bearing.
 
@@ -41,6 +29,9 @@ CODEX_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--codex[ =]\([^ ]*\).*/\
 **Thread `--min-confidence` AND `--codex` through config.py for validated precedence (D-04/D-10, option a).** Pass `$MIN_CONFIDENCE_FLAG_VAL` AND `$CODEX_FLAG_VAL` on the SAME invocation via the `MIN_CONFIDENCE_FLAG` and `CODEX_FLAG` env vars (Plan 31-01 / 33-01 `__main__` interface). `config.py`'s `__main__` forwards each parseable flag through the tested `_apply_flags`, so the flag runs the SAME validation bound as a toml value — resolving `flag > config > default` inside config.py with NO precedence prose here and NO duplicated `off`/`auto`/`on` or 0–49 check. An empty `MIN_CONFIDENCE_FLAG` / `CODEX_FLAG` (no flag) means "no override": the resolved value is then the toml value (or the built-in default — `min_confidence` None, `codex` `auto`) — byte-identical to today. A non-int `min_confidence` token / invalid `codex` token is coerced by `__main__`/`_validate_codex` (the shim still exits 0). Because both flags ride the config invocation, `/deep-review` inherits them for free (it runs this unconditional Phase 0.6 by delegation).
 
 ```bash
+CONFIG_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+MIN_CONFIDENCE_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--min-confidence[ =]\([^ ]*\).*/\1/p')
+CODEX_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--codex[ =]\([^ ]*\).*/\1/p')
 if [ -n "$CONFIG_PY" ]; then
   CONFIG_JSON=$(REPO_ROOT="$CONFIG_REPO_ROOT" MIN_CONFIDENCE_FLAG="$MIN_CONFIDENCE_FLAG_VAL" CODEX_FLAG="$CODEX_FLAG_VAL" python3 "$CONFIG_PY")
   CONFIG_EXIT=$?

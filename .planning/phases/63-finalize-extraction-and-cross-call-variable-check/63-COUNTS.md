@@ -1,0 +1,259 @@
+# Phase 63 — Finalize counts
+
+This file holds the before and after figures for the Phase 62 criterion: how many steps the model runs and how many bytes it loads on the Finalize path, taken straight from the commits with the counting tools, plus the checks that the 2.14.1 baseline records are still intact.
+
+## Before
+
+Recorded 2026-11-14. Every figure below was printed by the tools at the named commit (D-13); the two weak Phase 62 checks were not relied on.
+
+2.14.1 (`dd8e4ab`, tag `v2.14.1`):
+
+- steps (rule v1), Finalize path, dd8e4ab: 92
+- steps (rule v1), 90-finalize.md alone, dd8e4ab: 68
+- bytes, Finalize path, dd8e4ab: 136114
+
+Branch commit (`2a468a8`, "docs(63): begin phase execution"):
+
+- steps (rule v1), Finalize path, 2a468a8: 92
+- steps (rule v1), 90-finalize.md alone, 2a468a8: 68
+- bytes, Finalize path, 2a468a8: 136114
+
+Checks:
+
+- instruction files unchanged since 2.14.1: yes (`git diff --quiet dd8e4ab HEAD -- plugins/vibe-check/phases` exited 0)
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify: `baseline holds`
+- baseline record fingerprints: 10 of 10 match MANIFEST.json (sha256 of each file named in MANIFEST.json `files`, computed and compared directly)
+- full suite (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`): `5 failed, 4329 passed, 1 skipped, 5306 subtests passed in 274.62s (0:04:34)` — the 5 failures are all in `test_replay.py::TestPhase53SameLineRegressionCases` (`test_pre_same_line_scorer_gave_critical_100` ×2, `test_off_line_credit_mutation_trips` ×2, `test_a2_pair_sits_on_adjacent_lines_of_one_statement`); they fail at this commit with no change made and touch none of the Finalize files (see `deferred-items.md`)
+- Finalize tests (`test_finalize_card.py test_finalize_gate.py test_finalize_archive_prose.py`): `174 passed, 208 subtests passed`
+
+Commands used:
+
+```
+python3 docs/design/lean-v2.15/tools/step_count.py --rev <sha> --json      # totals.model_run_steps; files[].model_run_steps for phases/shared/90-finalize.md
+python3 plugins/vibe-check/scripts/footprint.py --rev <sha> --json          # finalize.bytes
+python3 docs/design/lean-v2.15/tools/finalize_capture.py verify --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json
+python3 docs/design/lean-v2.15/tools/baseline_records.py verify --repo .
+```
+
+## After the extraction alone (commit c7d92c9)
+
+Verdict (extraction alone): PASS
+
+- steps (rule v1), Finalize path: 92 → 83
+- steps (rule v1), 90-finalize.md alone: 68 → 59
+- bytes, Finalize path: 136114 → 129451
+
+Recorded 2026-11-15 at `c7d92c93f319a5685c4e8fe999089f259744cf74` ("docs(phase-63): update tracking after wave 6"), which holds plans 63-01 to 63-08 and no cross-call fix. The six files ordinary reviews also load (`commands/review.md`, `phases/shared/00-contract.md`, `phases/shared/01-bootstrap.md`, `phases/review/00-scope.md`, `05-state.md`, `06-config.md`) are byte-identical to `dd8e4ab` at this commit (`git diff --quiet dd8e4ab c7d92c9 -- <six files>` exited 0). Every figure below was printed in this task by `step_count.py --rev <sha> --json` and `footprint.py --rev <sha> --json` at the two commits; none is copied from an earlier summary. Pass rule (Phase 62 D-01/D-02): steps 83 ≤ 92 and bytes 129451 ≤ 136114, both strictly lower, and the same-behaviour checks below hold.
+
+| File on the Finalize path | steps dd8e4ab | steps c7d92c9 | bytes dd8e4ab | bytes c7d92c9 |
+|---------------------------|---------------|---------------|---------------|---------------|
+| commands/review.md | 1 | 1 | 16724 | 16724 |
+| phases/shared/00-contract.md | 0 | 0 | 3811 | 3811 |
+| phases/shared/01-bootstrap.md | 1 | 1 | 4621 | 4621 |
+| phases/review/00-scope.md | 10 | 10 | 20088 | 20088 |
+| phases/review/05-state.md | 7 | 7 | 19484 | 19484 |
+| phases/review/06-config.md | 5 | 5 | 15463 | 15463 |
+| phases/shared/90-finalize.md | 68 | 59 | 55923 | 49260 |
+| **Total** | **92** | **83** | **136114** | **129451** |
+
+What went away, all in `90-finalize.md`, from the tool's JSON: Bash blocks 18 → 14 (4 fewer), Write-tool writes 7 → 5 (2 fewer), copied paths 38 → 35 (3 fewer); commands run inline stay at 5. The printed names drop from 11 to 10 (`GATEFILE` is gone). The per-file git and path-guard calls the model used to run for each finding's file were never counted by rule v1 (they sat inside a loop in one Bash block), and they are also gone: the helper runs them now. The plain and deep review paths are unchanged at this commit: review-plain 192057 → 192057 bytes, deep-plain 268997 → 268997 bytes (`footprint.py`).
+
+### Maintenance added (labelled; does not decide pass or fail)
+
+From `git diff --numstat ff8ab99 c7d92c9` (`ff8ab99` = `git merge-base main HEAD`) and the files at `c7d92c9`:
+
+- `plugins/vibe-check/scripts/finalize_inputs.py` (new helper): 391 lines, 15092 bytes
+- `plugins/vibe-check/scripts/test_finalize_inputs.py` (new tests): 1841 lines, 83451 bytes
+- `docs/design/lean-v2.15/tools/finalize_capture.py`: +635 / −12 lines
+- `docs/design/lean-v2.15/tools/test_finalize_capture.py`: +486 / −0 lines
+- the three Finalize test files: `test_finalize_card.py` +806 / −576 (net +230); `test_finalize_gate.py` and `test_finalize_archive_prose.py` unchanged; net +230 lines
+- other re-pointed tests: `test_carry_state.py` +45/−6, `test_score.py` +42/−28, `test_confirmed_fix.py` +37/−8, `test_diff_ranges.py` +17/−12, `test_decision_continuity.py` +5/−4, `test_pause_batching.py` +4/−2, `.github/scripts/test_stdlib_only.py` +2/−2 (module count 33 → 34)
+- design document `docs/design/lean-v2.15/finalize-counts-explained.md` (moved text, not loaded during a review): +14 lines; `docs/design/lean-v2.15/README.md` +1/−1
+- separately, the cross-call check (not part of the extraction): `plugins/vibe-check/scripts/test_cross_call_vars.py`, 1195 lines, 51398 bytes
+
+### Same behaviour
+
+- five Finalize situations, `finalize_capture.py compare --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json --driver helper --commit c7d92c9`: exit 0, last line `finalize outcome fields match (5 situations, 7 walks)`
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify (`baseline_records.py verify --repo .`): `baseline holds`
+- archived replay: `plugins/vibe-check/scripts/score.py` and `replay.py` are byte-identical to `dd8e4ab` (`git diff --quiet` exit 0 for each); the baseline kit's replay re-check for a candidate scripts directory (`baseline_records.py verify --repo . --scripts-dir plugins/vibe-check/scripts`, which re-derives the replay report from that directory and compares its fingerprint) exit 0: `baseline holds`
+- baseline record fingerprints: 10 of 10 match MANIFEST.json (sha256 of each file named in MANIFEST.json `files`, computed and compared directly; D-13)
+- full suite: not re-run by this plan's executor at `c7d92c9` (the run was assigned to the orchestrator). The orchestrator's run of the whole suite in the main checkout at `c7d92c9` reported `6478 passed, 0 failed`; that run used a wider command than the `## Before` line, so the two totals are not like for like. The last run with the `## Before` command (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`) is 63-07's, on the final instruction text: `5 failed, 4498 passed, 1 skipped, 5604 subtests passed`, against `5 failed, 4329 passed, 1 skipped, 5306 subtests passed` in `## Before`. The same 5 known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` failures appear in both; the passing count rose by 169, which is the new helper tests (`test_finalize_inputs.py`) and the cross-call check, less the removals. Per the removal ledger, of the 46 test rows touched: 14 kept as they are, 25 rewritten or re-pointed, 7 removed as no longer applying (there is no gate input file). 63-08 then added the `compare`/`HelperWalk` tests to `docs/design/lean-v2.15/tools` (that folder: 355 passed, 202 subtests passed).
+
+### Extraction commits
+
+The exact set a revert would undo, built by rule: every commit in `git log --oneline --reverse ff8ab99..c7d92c9` that changes at least one file outside `.planning/` other than `plugins/vibe-check/scripts/test_cross_call_vars.py`. Oldest first. No commit is mixed (none changes `test_cross_call_vars.py` together with another file outside `.planning/`). Merge commits change nothing of their own and are not listed.
+
+63-01 (the helper's fingerprint half, its tests, the module-count lock 33 → 34; not the `## Before` record):
+- `2de7214` test(63-01): add failing tests for Finalize HEAD fingerprints
+- `78fbdeb` feat(63-01): add Finalize HEAD fingerprint helper
+
+63-02 (the rest of the helper):
+- `34fd96a` test(63-02): edited or staged file is not fingerprinted from a subfolder
+- `4e6bfc5` fix(63-02): fingerprint checks read the file from the repo root
+- `54bb2f9` test(63-02): add failing tests for the Finalize result
+- `184c4b2` feat(63-02): assemble the Finalize result from the three helpers
+- `9e518ea` test(63-02): add failing tests for the Finalize helper command line
+- `73f3ef7` feat(63-02): Finalize helper command line with fixed exit codes
+
+63-05 (the replacement tests, and the re-point commit for `test_carry_state.py` and `test_score.py`):
+- `5f6474e` test(63-05): helper-level replacements for the Finalize text locks
+- `45af0b3` test(63-05): re-point two locks off the Finalize instruction text
+
+63-06 (the rewritten walks and locks, the re-pointed `test_diff_ranges.py`, `test_decision_continuity.py` and `test_confirmed_fix.py`, the instruction file):
+- `36612af` test(63-06): Finalize walks and locks against the one-helper inputs block
+- `41de3c5` test(63-06): re-point the diff-ranges walk and the noninteractive pin
+- `e9dc275` test(63-06): re-point two hidden locks off the removed Finalize text
+- `1ced383` feat(63-06): Finalize gate inputs run through one finalize_inputs.py call
+
+63-07 (the design document, the instruction file, the re-pointed locks):
+- `2414bad` test(63-07): lock the counts passage word for word in its design document
+- `8d395f5` feat(63-07): move the "What the helper counts" explanation to a design document
+- `59feb98` test(63-07): report data from the Finalize-inputs result; report line stays on screen
+- `c337e63` feat(63-07): REVIEW.md fill reads the report data from the Finalize-inputs result
+
+63-08 (`HelperWalk`, `compare`, `TestHelperWalk` and the README row under `docs/design/lean-v2.15/`):
+- `e149bb0` test(63-08): the five Finalize situations driven on the new instructions
+- `e119633` feat(63-08): HelperWalk drives the five Finalize situations on the new instructions
+- `36fb368` test(63-08): compare, the like-for-like 2.14.1 run and the refusal lines
+- `f8f655e` feat(63-08): compare the new instructions with the 2.14.1 Finalize record
+
+mixed — cannot be reverted whole: none.
+
+### What stays after a revert
+
+- The 63-03 and 63-04 commits (the cross-call check and its reproductions; they touch `test_cross_call_vars.py` only): `9d5e2f9`, `cb7c8b0`, `1fda4cc`, `f2c34f0`, `7a520bb`, `2aa59df`, `c34bad8`, `9efb67d`.
+- Every phase record under `.planning/`, kept as history.
+- Later, the 63-10 cross-call fixes.
+
+Once the listed commits are reverted the tree must show: `plugins/vibe-check/phases/shared/90-finalize.md`, `test_carry_state.py`, `test_score.py`, every other test module those commits touched (`test_finalize_card.py`, `test_confirmed_fix.py`, `test_diff_ranges.py`, `test_decision_continuity.py`, `test_pause_batching.py`, `.github/scripts/test_stdlib_only.py`) and `docs/design/lean-v2.15/tools/` plus `docs/design/lean-v2.15/README.md` equal to the branch base `ff8ab99`; no `finalize_inputs.py`, no `test_finalize_inputs.py`, no `finalize-counts-explained.md`; and the module count back at 33.
+
+## Phase end (commit 85a086c)
+
+- steps (rule v1), Finalize path: 92 → 83 (extraction alone) → 85 (phase end)
+- bytes, Finalize path: 136114 → 129451 (extraction alone) → 130060 (phase end)
+- bytes, plain review path (`review-plain`): 192057 at dd8e4ab → 192057 at c7d92c9 → 192666 at 85a086c
+- bytes, deep review path (`deep-plain`): 268997 at dd8e4ab → 268997 at c7d92c9 → 269606 at 85a086c
+
+Recorded 2026-11-15 at `85a086cbea3522ce534b7e51646dbb2ff2c26cef` ("docs(63-10): record the six fixes, the reverse run and the open STATE_FILE item"), which holds the six cross-call fixes from plan 63-10. Every figure was printed by `step_count.py --rev <sha> --json` and `footprint.py --rev <sha> --json` at the three commits. The extraction's verdict above (`Verdict (extraction alone): PASS`, judged at c7d92c9) is unchanged by these figures (D-16): the growth below comes from the cross-call fixes, which the owner chose to make, and is reported separately as named growth (D-09).
+
+The other review paths grow by the same 609 bytes, because all six load the three files: review-all 284926 → 285535, deep-all 361866 → 362475, fix-loop 255070 → 255679 (c7d92c9 → 85a086c).
+
+| File on the Finalize path | steps c7d92c9 | steps 85a086c | bytes c7d92c9 | bytes 85a086c |
+|---------------------------|---------------|---------------|---------------|---------------|
+| phases/review/00-scope.md | 10 | 10 | 20088 | 20299 |
+| phases/review/05-state.md | 7 | 12 | 19484 | 19921 |
+| phases/review/06-config.md | 5 | 2 | 15463 | 15424 |
+| the other four files | 61 | 61 | 74416 | 74416 |
+| **Total** | **83** | **85** | **129451** | **130060** |
+
+## Named growth from cross-call fixes (D-09)
+
+Bytes are each file at 85a086c minus at c7d92c9 (`footprint.py`); counted steps are the file's `model_run_steps` at 85a086c minus at c7d92c9 (`step_count.py`, rule v1). Where two or three ids were fixed in one edit, the shared text is given its own row so the per-id rows add up to the file's change.
+
+| Repro id | File | Variable | Fix shape | Bytes added | Counted steps added (Finalize path) | Paths that load the file |
+|----------|------|----------|-----------|-------------|-------------------------------------|--------------------------|
+| X1 | phases/review/00-scope.md | PHASE_DIR | print and substitute | +211 | 0 | all six |
+| X2 | phases/review/05-state.md | LEGACY_STATE_FILE | print and substitute | +110 (two `printf` lines) | +1 | all six |
+| X3 | phases/review/05-state.md | STATE_FILE | print and substitute | +82 (two `printf` lines) | +4 | all six |
+| X2 + X3 | phases/review/05-state.md | (shared) | the one substitution sentence | +245 | 0 | all six |
+| X4 | phases/review/06-config.md | CODEX_FLAG_VAL | merge | −13 | −1 | all six |
+| X5 | phases/review/06-config.md | CONFIG_REPO_ROOT | merge | −13 | −1 | all six |
+| X6 | phases/review/06-config.md | MIN_CONFIDENCE_FLAG_VAL | merge | −13 | −1 | all six |
+| **Total** | | | | **+609** | **+2** | |
+
+"All six" = plain review, plain review `--all`, deep review, deep review `--all`, Finalize and the fix loop (`footprint.py`).
+
+- X2: `LEGACY_STATE_FILE` ends in `FILE`, so once the block prints it, rule v1 counts the one place a later block of the file pastes it: the forward-migration block.
+- X3: `STATE_FILE` ends in `FILE`, so once the blocks print it, rule v1 counts each of the four places a later block of the file pastes it: the forward migration, the last-reviewed-commit read, the decided list and the deferred list.
+- X4, X5, X6: each read moved into the settings-reader block, so each one-line Bash block it sat in is gone (one counted step and 13 bytes of fence lines each); the moved lines are unchanged.
+- X1 adds no counted step: `PHASE_DIR` does not end in `FILE`.
+
+Nothing else grew the plain or deep review paths: `git diff --stat c7d92c9 85a086c -- plugins/vibe-check/phases plugins/vibe-check/commands plugins/vibe-check/agents` lists only `phases/review/00-scope.md` (+3/−2 lines), `phases/review/05-state.md` (+5/−1) and `phases/review/06-config.md` (+3/−12), the three files in the table. The byte growth on review-plain and deep-plain (+609 each) equals the table's total.
+
+### Same behaviour at phase end
+
+- five Finalize situations, `finalize_capture.py compare --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json --driver helper --commit 85a086cbea3522ce534b7e51646dbb2ff2c26cef`: exit 0, last line `finalize outcome fields match (5 situations, 7 walks)`
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify (`baseline_records.py verify --repo .`): `baseline holds`
+- full suite (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`): `5 failed, 4531 passed, 1 skipped, 5628 subtests passed in 281.10s`, run in the executor's linked worktree. The 5 failures are the known worktree-only cases in `test_replay.py::TestPhase53SameLineRegressionCases` (their transcripts are local-only), and the skip is `test_replay.py`'s linked-worktree skip; no other test failed and no skip is new. The stdlib gate prints `34 shipped .py files; third-party imports: none`.
+
+## Phase end after the D-20 / D-21 follow-up (commit 9a01055)
+
+The figures above (extraction alone at `c7d92c9`; phase end at `85a086c`) stay as recorded history. These are the new phase-end figures, taken 2026-11-15 at `9a01055` ("fix(63-10): Close out and the fix loop substitute the printed state path"), the last code commit of the follow-up, with `step_count.py --rev <sha> --json [--mode <path>]` and `footprint.py --rev <sha> --json` at `85a086c` and `9a01055`. The commits after it change only `.planning/` records.
+
+- steps (rule v1), Finalize path: 92 → 83 (extraction alone) → 85 (phase end, 63-10) → **85** (phase end, follow-up)
+- bytes, Finalize path: 136114 → 129451 (extraction alone) → 130060 (phase end, 63-10) → **130846** (phase end, follow-up)
+- bytes, plain review path (`review-plain`): 192057 at dd8e4ab → 192057 at c7d92c9 → 192666 at 85a086c → **193267** at 9a01055
+- bytes, deep review path (`deep-plain`): 268997 at dd8e4ab → 268997 at c7d92c9 → 269606 at 85a086c → **270207** at 9a01055
+- the other paths, 85a086c → 9a01055: review-all 285535 → 286136, deep-all 362475 → 363076, fix-loop 255679 → 256404
+- steps on the other paths are unchanged (85a086c → 9a01055): fix-loop 114 → 114, review-plain 38 → 38, deep-plain 44 → 44
+
+The extraction verdict (`Verdict (extraction alone): PASS`, judged at c7d92c9) is unchanged (D-16). The growth below is named per D-09.
+
+### Named growth from the follow-up (D-09)
+
+Bytes are each file at 9a01055 minus at 85a086c (`footprint.py`); steps are the file's `model_run_steps` at 9a01055 minus at 85a086c (`step_count.py`, rule v1).
+
+| Decision | File | What was added | Bytes added | Counted steps added | Paths that load the file |
+|----------|------|----------------|-------------|---------------------|--------------------------|
+| D-21 | phases/review/00-scope.md | one guard line in the `PHASE_DIR` block | +169 | 0 | all six |
+| D-21 | phases/review/05-state.md | one guard line in each of the two state-file key blocks (216 bytes each) | +432 | 0 | all six |
+| D-20 | phases/shared/90-finalize.md | one substitution sentence (X7) | +185 | 0 | Finalize |
+| D-20 | phases/review/50-fix-loop.md | one substitution sentence (X8) | +124 | 0 | fix loop |
+| **Total** | | | **+910** | **0** | |
+
+Per path: review-plain, review-all, deep-plain and deep-all +601 each (the two D-21 files); Finalize +786 (+601 and the 90-finalize sentence); fix loop +725 (+601 and the 50-fix-loop sentence).
+
+- **Why no counted step was added.** The guard lines sit inside existing blocks, so no block was added. Rule v1 counts a pasted value only for a `FILE` name that the same file prints; `90-finalize.md` and `50-fix-loop.md` do not print `STATE_FILE` (`05-state.md` does), so their `"$STATE_FILE"` pastes are not counted. The 63-10 record expected the D-20 fix to add paste steps; under rule v1 as it stands it adds none. Recorded as it fell.
+- `git diff --stat 85a086c 9a01055 -- plugins/vibe-check/phases plugins/vibe-check/commands plugins/vibe-check/agents` lists only the four files in the table.
+
+### Same behaviour after the follow-up
+
+- five Finalize situations, `finalize_capture.py compare --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json --driver helper --commit 9a01055`: last line `finalize outcome fields match (5 situations, 7 walks)`; with `--root plugins/vibe-check` on the working tree the same line. `finalize_capture.py` and its tests needed no change (the driver supplies the state path itself).
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify (`baseline_records.py verify --repo .`): `baseline holds`
+- full suite (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`), in the executor's linked worktree: `5 failed, 4544 passed, 1 skipped, 5680 subtests passed in 325.33s`. The 5 failures are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` cases.
+
+## Phase end after the review fixes (D-22, D-23; commit d56232b)
+
+All figures above stay as recorded history (extraction alone at `c7d92c9`: 92 → 83 steps, 136114 → 129451 bytes; phase end at `85a086c`; follow-up at `9a01055`: 85 steps / 130846 bytes, review-plain 193267, deep-plain 270207). These are the new phase-end figures, taken 2026-11-15 with `step_count.py --rev <sha> --json [--mode <path>]` and `footprint.py --rev <sha> --json` at `9a01055`, `750870f` (D-22) and `d56232b` (D-23), the last commit that changes an instruction file. The later commits change tests and `.planning/` records only.
+
+- steps (rule v1), Finalize path: 92 → 83 (extraction alone) → 85 (63-10) → 85 (follow-up) → **85** (review fixes)
+- bytes, Finalize path: 136114 → 129451 (extraction alone) → 130060 (63-10) → 130846 (follow-up) → 130855 (D-22) → **130886** (review fixes)
+- bytes, plain review path (`review-plain`): 192057 at dd8e4ab → 192057 at c7d92c9 → 192666 at 85a086c → 193267 at 9a01055 → **193267** at d56232b (unchanged: it loads none of the changed files)
+- bytes, deep review path (`deep-plain`): 268997 at dd8e4ab → 268997 at c7d92c9 → 269606 at 85a086c → 270207 at 9a01055 → 270219 at 750870f → **270219** at d56232b
+- the other paths, 9a01055 → 750870f → d56232b: review-all 286136 → 286142 → **286385**, deep-all 363076 → 363094 → **363337**, fix-loop 256404 → 256413 → **256444**
+- steps on every path unchanged (9a01055 → d56232b): Finalize 85, fix-loop 114, review-plain 38, deep-plain 44, review-all 47, deep-all 53; `90-finalize.md` alone 59
+
+The extraction verdict (`Verdict (extraction alone): PASS`, judged at c7d92c9) is unchanged (D-16).
+
+### Named growth from the review fixes (D-09)
+
+Bytes are each file at the fix commit minus at the commit before it (`git show <sha>:<path> | wc -c`, which agrees with `footprint.py`'s path totals); steps from `step_count.py`, rule v1.
+
+| Decision | File | What was added | Bytes added | Counted steps added | Paths that load the file |
+|----------|------|----------------|-------------|---------------------|--------------------------|
+| D-22 (CR-01) | phases/shared/90-finalize.md | ` -I` in 3 inline `python3 -c` | +9 | 0 | Finalize |
+| D-22 (CR-01) | phases/review/50-fix-loop.md | ` -I` in 3 | +9 | 0 | fix loop |
+| D-22 (CR-01) | phases/review/05-state-all.md | ` -I` in 2 | +6 | 0 | review-all, deep-all |
+| D-22 (CR-01) | phases/deep-review/2c-codex-kickoff.md | ` -I` in 2 | +6 | 0 | deep-plain, deep-all |
+| D-22 (CR-01) | phases/deep-review/30-codex-collect.md | ` -I` in 1 | +3 | 0 | deep-plain, deep-all |
+| D-22 (CR-01) | phases/deep-review/01d-coverage.md | ` -I` in 1 | +3 | 0 | deep-plain, deep-all |
+| D-23 (WR-01) | phases/review/05-state-all.md | the D-21 guard line and `printf 'STATE_FILE=%s\n'` after the `--all` key | +243 | 0 | review-all, deep-all |
+| D-23 (WR-01) | phases/shared/90-finalize.md | ` (`05-state-all.md` on `--all`)` in the D-20 sentence | +31 | 0 | Finalize |
+| D-23 (WR-01) | phases/review/50-fix-loop.md | the same words in its D-20 sentence | +31 | 0 | fix loop |
+| **Total** | | | **+341** | **0** | |
+
+Per path (9a01055 → d56232b): Finalize +40, fix loop +40, review-plain 0, deep-plain +12, review-all +249, deep-all +261.
+
+- **Why no counted step was added.** No block was added: each change sits inside an existing block or sentence. The new `STATE_FILE=` print in `05-state-all.md` is read only in other files, and rule v1 counts a paste only where the same file prints the name.
+- `git diff --stat 9a01055 d56232b -- plugins/vibe-check/phases plugins/vibe-check/commands plugins/vibe-check/agents` lists only the six files in the table. `commands/review.md`, `phases/shared/00-contract.md` and `phases/shared/01-bootstrap.md` are byte-identical to dd8e4ab; `00-scope.md`, `05-state.md` and `06-config.md` are unchanged since 9a01055.
+
+### Same behaviour after the review fixes
+
+- five Finalize situations, `finalize_capture.py compare … --driver helper --commit d56232b`: `finalize outcome fields match (5 situations, 7 walks)`; with `--root plugins/vibe-check` the same line. No baseline record changed.
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify: `baseline holds`
+- full suite (same command, at `e2f0997`, in the executor's linked worktree): `5 failed, 4558 passed, 1 skipped, 5766 subtests passed in 314.91s`. The 5 failures are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` cases; no other test failed and no pin was changed.

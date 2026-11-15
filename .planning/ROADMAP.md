@@ -42,12 +42,12 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:discuss-phase 63` on a new branch `feat/v2.15-phase-63` cut from `main` (Phase 62 closed 2026-11-14: PR #9 squash-merged as `d0adb5b`, CI green on `main`). This roadmap does not authorize paid runs.
+**Next action:** `/bm:execute-phase 63` on branch `feat/v2.15-phase-63` once the plan check passes (Phase 63 planned 2026-11-14: 11 plans in 9 waves, not yet executed; Phase 62 closed 2026-11-14: PR #9 squash-merged as `d0adb5b`, CI green on `main`). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
-| 63. Finalize extraction and cross-call variable check | 0/TBD | Not started | - |
+| 63. Finalize extraction and cross-call variable check | 10/11 | In Progress|  |
 | 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
 
@@ -115,7 +115,48 @@ Run order is by wave, not by plan number: wave 1 = 01–06, wave 2 = 10, wave 3 
   4. Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit
   5. One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed
 
-**Plans**: TBD
+**Plans:** 10/11 plans executed
+
+Plans:
+**Wave 1**
+
+- [x] 63-01-PLAN.md — starting figures recorded from the commits; HEAD fingerprints in the new helper, validated before git (FINX-01, FINX-05)
+- [x] 63-03-PLAN.md — the general cross-call variable check over all 27 phase files, named exceptions, mutants (XVAR-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 63-02-PLAN.md — the helper's one call: counts, gate, next action, report bundle, fixed exit codes (FINX-01, FINX-02)
+- [x] 63-04-PLAN.md — fresh-shell reproduction of every flagged place, recorded before any change (XVAR-02)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 63-05-PLAN.md — removal ledger from a scratch-copy red list; replacements with mutants land first (FINX-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 63-06-PLAN.md — Finalize gate inputs become one helper call; superseded instructions and locks removed under the ledger (FINX-01..04)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 63-07-PLAN.md — "what the helper counts" moved word for word to a design document; report data handed over in the helper result (FINX-01, FINX-04)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [x] 63-08-PLAN.md — second capture driver and compare: the five situations' outcomes against the 2.14.1 record (FINX-01..03)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [x] 63-09-PLAN.md — before/after figures at the extraction-only commit and verdict; owner confirms the fix/pin split (FINX-05, XVAR-02)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [x] 63-10-PLAN.md — fixes for the places the owner marked, exceptions list shrunk, phase-end figures and named growth (XVAR-02, FINX-05)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 63-11-PLAN.md — owner result page, pull request, owner go, merge and phase close (FINX-05, XVAR-01)
+
+Run order is by wave, not by plan number: wave 1 = 01 and 03, wave 2 = 02 and 04, then 05, 06, 07, 08, 09, 10, 11 one per wave. Plans 09 and 11 pause for the owner. Plan 11 runs on the phase branch in the primary checkout, without worktree isolation.
 
 ### Phase 64: Optional bounded extension (conditional)
 

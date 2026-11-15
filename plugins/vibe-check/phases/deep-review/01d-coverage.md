@@ -56,7 +56,7 @@ After Phase 1.5 and Phase 1c, before Phase 2, for the test-sufficiency agent onl
 
 ```bash
 # found paths, then a literal -- separator, then injected paths
-TS_GATE_INPUT_JSON=$(python3 -c '
+TS_GATE_INPUT_JSON=$(python3 -I -c '
 import json, sys
 a = sys.argv[1:]
 i = a.index("--")

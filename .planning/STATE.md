@@ -2,14 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "ready_to_plan — Phase 62 complete and verified; Phase 63 not started"
-stopped_at: "Phase 62 complete (11/11), verification passed 5/5; PR #9 merged as d0adb5b, CI green on main; closing planning commits pushed to main (1f9f256, CI green); next is Phase 63 discussion on feat/v2.15-phase-63"
-last_updated: "2026-11-14T16:12:24Z"
-last_activity: 2026-11-14 -- PR #9 merged (d0adb5b); main's first offline-suite run green; Phase 62 closed
+status: executing
+last_updated: "2026-11-14T20:31:01.161Z"
+last_activity: 2026-11-14 -- Phase 63 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 11
+  total_plans: 22
   completed_plans: 11
   percent: 25
 ---
@@ -21,18 +20,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 63 — finalize extraction and cross call variable check
+**Current focus:** Phase 63: finalize-extraction-and-cross-call-variable-check
 
 ## Current Position
 
-Phase: 63
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-14 -- Phase 62 verified (passed, 5/5) and closed; closing planning commits pushed to main (1f9f256), CI green
+Phase: 63 (finalize-extraction-and-cross-call-variable-check) — EXECUTING
+Plan: 1 of 11
+Status: Executing Phase 63
+Last activity: 2026-11-14 -- Phase 63 execution started
 
 ## Operator Next Steps
 
-- Phase 63 discussion (`/bm:discuss-phase 63`) on a new branch `feat/v2.15-phase-63` cut from `main`
+- Plan re-check for Phase 63 (two checks so far; every issue raised is addressed in the revisions), then `/bm:execute-phase 63` on branch `feat/v2.15-phase-63`; plans are `63-01`..`63-11` in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/`
+- Two owner pauses are planned: 63-09 (which flagged cross-call places are fixed, which pinned) and 63-11 (result page and the go to merge)
 
 ## Deferred Items
 
@@ -79,6 +79,16 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-14: Phase 63 plans revised after the first plan check (2 blockers, 7 warnings) and the new owner decision D-18 (the counting step's own one-line refusal stays on screen above the stop sentence, as in 2.14.1; not redirected to a side file). Still 11 plans in 9 waves. 63-06 now has three tasks (Finalize walks and locks; the other test modules; the instruction file and ledger) and its check is one chained command; the helper (63-02) writes only the 2.14.1 counting line to stderr and nothing otherwise; 63-08 compares the failed attempt's screen text like for like and keeps the restart situation's git data outside the walked folder; 63-09 lists the exact revert set and checks the six shared files at the extraction-only commit; 63-11 stops and reports if a revert is not clean; 63-05 takes its red list against a control run; 63-01 names the git calls' working directory and adds a subdirectory parity case. Research open questions marked resolved. No code changed, nothing pushed. Next: plan re-check.
+
+2026-11-14: D-18 extended by the owner to the report-data step ("Yes, same as 2.14.1"): batch_card.py's own one-line refusal stays on screen above the report sentence too, so nothing on screen differs from 2.14.1 on the Finalize path. Plans 63-02, 63-05, 63-06, 63-07, 63-08 and 63-11 revised to match (the helper reads the state again for the report, as 2.14.1 did; walk and mutant in 63-07). Still 11 plans in 9 waves; no code changed, nothing pushed.
+
+2026-11-14: Third plan revision after the second plan check (1 blocker, 2 warnings). An unreadable state file is the one screen difference that cannot be removed (2.14.1 shows the shell's own "Permission denied" line; the candidate shows the sentence alone): it is now a named difference with a test id, entered in the ledger by 63-06 and put to the owner for acceptance on the 63-11 page, which no longer says nothing on screen differs. Non-UTF-8 state files and read errors on the report read are specified in 63-02; the exit-5 walk in 63-06 uses a stand-in helper. Still 11 plans in 9 waves; no code changed, nothing pushed. Next: plan re-check.
+
+2026-11-14: Phase 63 planned on feat/v2.15-phase-63: 11 plans in 9 waves (63-01 starting figures + HEAD fingerprints helper; 63-02 the one helper call; 63-03 cross-call check; 63-04 fresh-shell reproductions; 63-05 removal ledger with replacements first; 63-06 Finalize gate inputs become one helper call; 63-07 counts explanation moved to a design document + report bundle; 63-08 second capture driver and compare; 63-09 figures at the extraction-only commit + owner fix/pin decision; 63-10 fixes, named growth, phase-end figures; 63-11 result page, PR, owner go, merge, close). Owner decisions D-16 (pass/fail judged on the extraction alone) and D-17 (fresh-shell reproduction standard) recorded the same day. Planning files only; no code changed; nothing pushed. Plan check pending.
+
+2026-11-14: Phase 63 context gathered on feat/v2.15-phase-63 (cut from main ff8ab99). Owner decisions: only the gate inputs and gate handoff move into helpers; the card and record-decisions stay as in 2.14.1 (D-01); the model still writes REVIEW.md from a helper-supplied data bundle (D-02); files ordinary reviews load are not changed by the extraction (D-03); card-plumbing extraction goes to backlog at phase close, not scheduled (D-04); stop sentences byte-identical to 2.14.1 (D-05); the helper matches 2.14.1 on inputs it could have caught, each gap recorded and carried (D-06); flagged places get a reproduction first, real four-class failures are fixed, the rest go on a shrink-only named list (D-08), and a fix's added bytes in shared files are reported as named growth (D-09); removal ledger with replacements landing first (D-11); the open/closed explanation moves to a design document (D-12); 999.34 WR-02/WR-03 stay carried, counts taken straight from the commits (D-13); one plain result page either way and the merge waits for the owner (D-14). Planning files only; no code changed; nothing pushed. Next: /bm:plan-phase 63.
 
 2026-11-14: 62-09 complete; Phase 62 closed. Owner recorded NO-GO on cost visibility (follows the note; 1659a99) and told the main session to merge. PR #9 squash-merged as d0adb5b (head 1659a99; runs on 1659a99: push 43611416017 and pull_request 43611421379, both success). main's first push run https://github.com/thejuran/vibe-check/actions/runs/43611870373 success: `4324 passed, 2 skipped, 5 deselected, 5300 subtests passed`, `skipped set matches the recorded 2`; plugin tree at d0adb5b still 90e0697 (2.14.1). CI-01 and CI-02 met. ROADMAP Phase 62 ticked; 999.12 outcome recorded; 999.34 filed for the review carry (no 999.33: NO-GO). Closing commits on local main, not pushed; local phase branch deleted after a content check; the remote branch was already gone (`git ls-remote --heads origin feat/v2.15-phase-62` prints nothing). Verification (62-VERIFICATION.md) not yet run.
 

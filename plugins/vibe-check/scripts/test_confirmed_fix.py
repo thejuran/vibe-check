@@ -34,17 +34,16 @@ item.
 
 import json
 import os
-import re
 import sys
 import types
 import unittest
-from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import batch_card  # noqa: E402
 import carry_state  # noqa: E402
+import finalize_inputs  # noqa: E402
 import score  # noqa: E402
 import state_shape  # noqa: E402
 from test_score import _nv, _nv_cf, _nv_env, _nv_rows  # noqa: E402
@@ -65,6 +64,18 @@ CHECK_PASSED = {"kind": "test", "command": "pytest -q", "outcome": "passed",
 
 def _read(rel):
     with open(os.path.join(PLUGIN_DIR, rel), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+# The design document the 2.14.1 "What the helper counts" passage moved to
+# (the model does not load it during a review).
+COUNTS_DOC = os.path.normpath(os.path.join(
+    PLUGIN_DIR, "..", "..", "docs", "design", "lean-v2.15",
+    "finalize-counts-explained.md"))
+
+
+def _read_counts_doc():
+    with open(COUNTS_DOC, "r", encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -974,13 +985,23 @@ def fix_loop_collects_evidence_holds(text):
     )) and block.index(SHA_RE_LITERAL) < block.index("git cat-file -e")
 
 
-def finalize_renders_confirmed_fix_holds(text):
+def finalize_renders_confirmed_fix_holds(text, count_keys=None, doc_text=None):
+    """The awaiting-re-check list is one of the counts Finalize reads: the
+    instruction names it, and the helper's result carries it (the quoted key
+    lived in the 2.14.1 counts fence's comment; it now lives in
+    `finalize_inputs.COUNT_KEYS`). "never closes here" lived in the 2.14.1
+    "What the helper counts" passage, which moved word for word to the
+    design document; it is looked up there."""
+    if count_keys is None:
+        count_keys = finalize_inputs.COUNT_KEYS
+    if doc_text is None:
+        doc_text = _read_counts_doc()
     return ("`confirmed_fix_awaiting_recheck_hashes`" in text
             and "source `confirmed-fix`" in text
-            and '"confirmed_fix_awaiting_recheck_hashes"' in text
+            and "confirmed_fix_awaiting_recheck_hashes" in count_keys
             and "verified_confirmed_fix_hashes" not in text
             and "awaiting an independent re-check" in text
-            and "never closes here" in text)
+            and "never closes here" in doc_text)
 
 
 BIND_STEP = "Bind `$RECHECK_REQUESTS`"
@@ -1054,13 +1075,21 @@ class TestProse(unittest.TestCase):
     def test_finalize_renders_confirmed_fix(self):
         text = _read("phases/shared/90-finalize.md")
         self.assertTrue(finalize_renders_confirmed_fix_holds(text))
-        for needle in ("source `confirmed-fix`", "awaiting an independent re-check",
-                       "never closes here"):
+        doc = _read_counts_doc()
+        for needle in ("source `confirmed-fix`", "awaiting an independent re-check"):
             with self.subTest(mutant=needle):
                 self.assertFalse(finalize_renders_confirmed_fix_holds(
-                    text.replace(needle, "")))
+                    text.replace(needle, ""), doc_text=doc))
+        with self.subTest(mutant="never closes here"):
+            self.assertIn("never closes here", doc)
+            self.assertFalse(finalize_renders_confirmed_fix_holds(
+                text, doc_text=doc.replace("never closes here", "")))
         self.assertFalse(finalize_renders_confirmed_fix_holds(
             text + "\nverified_confirmed_fix_hashes"))
+        with self.subTest(mutant="key dropped from the helper's counts"):
+            self.assertFalse(finalize_renders_confirmed_fix_holds(
+                text, tuple(k for k in finalize_inputs.COUNT_KEYS
+                            if k != "confirmed_fix_awaiting_recheck_hashes")))
 
     def test_dispatch_routes_confirmed_fix(self):
         text = _read("phases/review/20-dispatch.md")

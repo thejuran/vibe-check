@@ -4343,7 +4343,8 @@ REPRO_60 = (
                      "earlier call) -> empty stdin -> JSONDecodeError "
                      "traceback, fence halts 'finalize_gate.py failed'",
      "disposition": "reproduced; fixed by 60-03",
-     "fixture": "test_gate_fence_reads_cross_call_variable_today"},
+     "fixture": "test_walk_reaches_counts_gate_report + "
+                "test_inputs_block_holds"},
     {"id": "GSD-SHELL-VAR", "decision": "EVID-03",
      "scenario": "committed edit at line 3, uncommitted edit at line 5; the "
                  "GSD / pass >= 2 range-source row run in a fresh bash -s "
@@ -4379,8 +4380,8 @@ REPRO_60 = (
                      "identically ('finalize_gate.py failed', traceback in "
                      ".err); retry_rule_holds lacked every GATEFILE needle",
      "disposition": "reproduced; fixed by 60-08",
-     "fixture": "test_retry_mints_new_gatefile_after_gate_input_failure + "
-                "test_gatefile_missing_path_is_a_named_trigger"},
+     "fixture": "test_retry_mints_new_blobfile_after_missing_path + "
+                "test_retry_rule_holds"},
     {"id": "HEAD-SHA-INJECTION", "decision": "EVID-03",
      "scenario": "a state file (committable inside the reviewed repo; GSD "
                  "key <phase-dir-name>.json) whose last-pass head_sha is "
@@ -4413,7 +4414,7 @@ REPRO_60 = (
                      "GATEFILE written from the recounted counts returns "
                      "write",
      "disposition": "reproduced; fixed by 60-12",
-     "fixture": "test_post_decision_rerun_decides_on_a_fresh_gatefile + "
+     "fixture": "test_post_decision_rerun_decides_on_fresh_counts + "
                 "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule"},
     {"id": "STALE-BLOBFILE-RECOUNT", "decision": "FINL-02",
      "scenario": "six-row fixture with a last-pass (pass 3) fix_verdicts "

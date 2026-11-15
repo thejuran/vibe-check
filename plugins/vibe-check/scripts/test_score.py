@@ -14,6 +14,7 @@ ban is on score.py exclusively. The AST test below enforces that ban on score.py
 """
 
 import ast
+import io
 import itertools
 import json
 import os
@@ -1298,8 +1299,9 @@ class TestCrossConfirmGroup(unittest.TestCase):
                          category="duplication", agent="design")
         groups = score.cross_confirm_group([a, b])
         self.assertEqual(len(groups), 1)
-        env = lambda fs: {"command": "deep-review", "changed_line_ranges": {},
-                          "carryforward": [], "findings": fs}
+        def env(fs):
+            return {"command": "deep-review", "changed_line_ranges": {},
+                                  "carryforward": [], "findings": fs}
         both = score.run(env([dict(a), dict(b)]))["findings"]
         alone = score.run(env([dict(a)]))["findings"]
         self.assertEqual(len(both), 1)
@@ -1343,8 +1345,9 @@ class TestCrossConfirmGroup(unittest.TestCase):
         # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category
         native = make_finding(id="sec", file="src/a.py", line=10,
                               category="injection", agent="security")
-        env = lambda fs: {"command": "deep-review", "changed_line_ranges": {},
-                          "carryforward": [], "findings": fs}
+        def env(fs):
+            return {"command": "deep-review", "changed_line_ranges": {},
+                                  "carryforward": [], "findings": fs}
         for bad in (None, 12345, ["x"], {"k": "v"}):
             with self.subTest(bad=bad):
                 other = make_finding(id="bad", file="src/a.py", line=11,
@@ -3502,7 +3505,8 @@ class TestLoneLaneCeiling(unittest.TestCase):
                 self.assertEqual(ids["nat"]["orchestrator_score"], 94)
 
     def test_non_str_agents_are_neither_codex_nor_claude(self):
-        yes = lambda m: True  # isolate the agent rule from qualification
+        def yes(m):
+            return True  # isolate the agent rule from qualification
         for bad_agent in (None, 7, ["codex-adversarial"], {"a": 1}):
             with self.subTest(agent=repr(bad_agent)):
                 members = [{"agent": bad_agent, "line": 10},
@@ -3555,7 +3559,8 @@ class TestOutputShape(unittest.TestCase):
 
     def test_suggested_fix_synonym_lands_in_fix_hint_when_empty(self):
         f = make_finding(id="k-002", line=10, source_window=["a", "b", "c", "d", "e"])
-        f.pop("fix_hint", None); f["suggested_fix"] = "use parameters"
+        f.pop("fix_hint", None)
+        f["suggested_fix"] = "use parameters"
         out = self._run(f)["findings"][0]
         self.assertEqual(out["fix_hint"], "use parameters")
         g = make_finding(id="k-003", line=10, source_window=["a", "b", "c", "d", "e"], fix_hint="keep me")
@@ -3597,7 +3602,8 @@ class TestOutputShape(unittest.TestCase):
         before = score.run({"command": "review", "all_mode": False, "pass_number": 1,
                             "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": [],
                             "findings": [dict(f)]})["findings"][0]
-        f2 = dict(f); f2["suggested_fix"] = "extra"
+        f2 = dict(f)
+        f2["suggested_fix"] = "extra"
         after = self._run(f2)["findings"][0]
         for k in ("band", "orchestrator_score", "stable_hash", "status", "attribution"):
             self.assertEqual(before[k], after[k])
@@ -3680,9 +3686,10 @@ class TestAgentConfidenceOffset(unittest.TestCase):
         # 65 + in_diff 20 + cross-confirm 10 = 95; Codex joined => second opinion.
         # D-05: each member qualifies ALONE (native 65 + 20 + offset >= 70,
         # codex 60 + 20 = 80) and both sit on line 10, so the pair corroborates.
-        pair = lambda: self._run([self._native(agent_confidence=65),
-                                  self._codex(agent_confidence=60, line=10)],
-                                 codex={"status": "joined"})
+        def pair():
+            return self._run([self._native(agent_confidence=65),
+                                          self._codex(agent_confidence=60, line=10)],
+                                         codex={"status": "joined"})
         g = self._by_id(pair())["nat"]
         plain = self._by_id(self._without_offsets(pair))["nat"]
         self.assertEqual(sorted(g["attribution"]), sorted([self.agent, "codex-adversarial"]))
@@ -3703,7 +3710,8 @@ class TestAgentConfidenceOffset(unittest.TestCase):
         cf = self._native(id="cf-keep", agent_confidence=50, current_code="  return q",
                           canonical_line_content="return q")
         # 50 + in_diff 20 + persisted 15 = 85; persistence is a second opinion.
-        run = lambda: self._run([], carryforward=[dict(cf)])
+        def run():
+            return self._run([], carryforward=[dict(cf)])
         g = self._by_id(run())["cf-keep"]
         self.assertEqual(g["status"], "persisted")
         self.assertEqual(g["orchestrator_score"], 85)
@@ -4085,7 +4093,8 @@ class TestSiteGroupingHLane(unittest.TestCase):
 
     def test_lone_lane_cap_unchanged_by_per_member_move(self):
         ranges = {"src/a.py": [[8, 14]]}
-        nat = lambda **o: dict(_hl("nat", "security", "null-access", 10, 100, "n"), **o)
+        def nat(**o):
+            return dict(_hl("nat", "security", "null-access", 10, 100, "n"), **o)
         # D-05: the corroborating pair shares line 10 (same-line proxy).
         cdx = _hl("cdx", "codex-adversarial", "adversarial", 10, 100, "c")
         lone = score.run(_hl_env([nat()], ranges, command="review"))["findings"][0]
@@ -4298,8 +4307,9 @@ class TestPerMemberCorroboration(unittest.TestCase):
                           canonical_line_content="return q",
                           source_window=["a", "b", "c", "d", "e"])
         new = _q("new", "security", 11, 100, "critical", title="fresh")
-        env = lambda: _hl_env([dict(new)], _Q_RANGES, carryforward=[dict(cf)],
-                              pass_number=2)
+        def env():
+            return _hl_env([dict(new)], _Q_RANGES, carryforward=[dict(cf)],
+                                      pass_number=2)
         r = score.run(env())
         row = r["findings"][0]
         self.assertEqual(row["id"], "new")
@@ -4755,8 +4765,9 @@ class TestMembersAcrossPasses(unittest.TestCase):
         expanded, _ = score._expand_members(e2a)
         self.assertEqual([e["line"] for e in expanded], [12])
         # MUTATION (i): a stable_hash-only identity collapses the twins.
-        hash_only = lambda x: score.stable_hash(x.get("file"), score._canonical_for_hash(x),
-                                                x.get("title"))
+        def hash_only(x):
+            return score.stable_hash(x.get("file"), score._canonical_for_hash(x),
+                                                        x.get("title"))
         with mock.patch.object(score, "_finding_identity", hash_only):
             Rm = score.run(_hl_env([dict(t1), dict(t2)], self.A_RANGES))["findings"][0]
             self.assertEqual(len(Rm["members"]), 1)
@@ -4799,9 +4810,10 @@ class TestMembersAcrossPasses(unittest.TestCase):
         self.assertEqual(p2["fixed_since_last"], [])
         expanded, _ = score._expand_members(entry)
         self.assertEqual([e["agent"] for e in expanded], ["security"])
-        agentless = lambda x: (score.stable_hash(x.get("file"), score._canonical_for_hash(x),
-                                                 x.get("title")),
-                               score._as_line(x.get("line")))
+        def agentless(x):
+            return (score.stable_hash(x.get("file"), score._canonical_for_hash(x),
+                                                         x.get("title")),
+                                       score._as_line(x.get("line")))
         with mock.patch.object(score, "_finding_identity", agentless):
             Rm = score.run(_hl_env([dict(lb), dict(ls)], self.A_RANGES))["findings"][0]
             self.assertEqual(Rm["agent"], "bugs")
@@ -6949,7 +6961,6 @@ import statepath  # noqa: E402
 # v2.11.1 blobs (verified against `git ls-tree v2.11.1`).
 OLD_CARRY_STATE_BLOB = "0fc763654914abf25e6b00fd97962b42527686f4"     # scripts/carry_state.py
 OLD_FINALIZE_GATE_BLOB = "b1d5a698478c6241fd0bb07cf7892e7aac39fd3c"   # scripts/finalize_gate.py
-OLD_FINALIZE_PROSE_BLOB = "8bba76cc3a8613061f29ce52e3f930f0eaa7ac4d"  # phases/shared/90-finalize.md
 OLD_STATEPATH_BLOB = "9ff5c2a5b95cbe1914b408a3da0a81ec56af742e"       # scripts/statepath.py
 OLD_STATE_PROSE_BLOB = "aedadf33adff095f2d6f703cbc209361ead26741"     # phases/review/05-state.md
 OLD_STATE_ALL_PROSE_BLOB = "dbf0a24e2207a45fc45a676f366804e2d6caeeee"  # phases/review/05-state-all.md
@@ -7158,13 +7169,15 @@ class TestRollbackNeedsVerification(unittest.TestCase):
         self.assertIsNone(self.OLD_CS.finalize_counts(state))
         self.assertEqual(self.OLD_CS.state_reason(state), self.OLD_CS.REASON_OBLIGATION)
         self.assertEqual(json.dumps(state, sort_keys=True), before)
-        prose = _blob_text(OLD_FINALIZE_PROSE_BLOB)
-        i = prose.index('if COUNTS_JSON=$(python3 "$VC_ROOT/scripts/carry_state.py" '
-                        'finalize-counts')
-        j = prose.index("else", i)
-        k = prose.index("exit 1", j)
-        self.assertLess(k, prose.index("finalize_gate.py", i))
-        self.assertIn("nothing was written or archived", prose[j:k])
+        # The old reader's own counts command (what its Finalize ran before
+        # the gate) refuses: non-zero exit, no counts JSON, its one line on
+        # stderr, so the old Finalize stops before the gate.
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            code, out = self.OLD_CS.run(["finalize-counts"], json.dumps(state))
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err.getvalue(), self.OLD_CS.REASON_OBLIGATION)
+        self.assertEqual(json.dumps(state, sort_keys=True), before)
 
     def test_nv_marker_is_load_bearing_mutation(self):
         h = score.stable_hash(_NV_FILE, _NV_FIRST, _NV_TITLE)
@@ -7510,7 +7523,8 @@ def _na_obligation(sc=score):
     lead3 = _na_row(r3, "logic B")
     r4 = sc.run(_hl_env([], {}, carryforward=_ko_next_cf(r3, heads), pass_number=4))
     lead4 = _na_row(r4, "logic B")
-    obl = lambda row: [m for m in row["members"] if m["agent"] == "security"][0]["obligation"]
+    def obl(row):
+        return [m for m in row["members"] if m["agent"] == "security"][0]["obligation"]
     return R1, lead3, obl(lead3), obl(lead4)
 
 

@@ -54,8 +54,10 @@ PINS = {
     REVIEW_MD: (REVIEW_SKIP_PIN,),
     DEEP_REVIEW_MD: (DEEP_REVIEW_SKIP_PIN,),
     FINALIZE_MD: (
-        "  - `noninteractive` — `$TURINGMIND_NONINTERACTIVE` is set to a "
-        "truthy value",
+        # Re-pinned (63-06, removal ledger) on the Finalize-inputs fence's
+        # switch note when the seven-key flags passage was removed.
+        "     - `--noninteractive` — `true` when `$TURINGMIND_NONINTERACTIVE` "
+        "is set to a truthy value",
         "  - Print: \"Cannot finalize — {{N}} Critical/Warning findings remain:\"",
         "  - List each obligation whose hash is in `outstanding_cw_hashes` as "
         "`{{file}}:{{line}} — {{title}}`. **Join rule** (also used by the "

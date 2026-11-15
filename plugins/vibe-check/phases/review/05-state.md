@@ -8,6 +8,9 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
   ```bash
   LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"
   STATE_FILE=".turingmind/state/format-53/${PHASE_ID}.json"
+  case "$LEGACY_STATE_FILE$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
+  printf 'LEGACY_STATE_FILE=%s\n' "$LEGACY_STATE_FILE"
+  printf 'STATE_FILE=%s\n' "$STATE_FILE"
   ```
   `$LEGACY_STATE_FILE` is the shipped key, used ONLY by the forward migration (below), which copies it forward and then archives it.
   - ✓ Correct: `.turingmind/state/format-53/02-real-data-path.json`, `.turingmind/state/format-53/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
@@ -17,13 +20,16 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
   BRANCH_SLUG=$(git branch --show-current | tr '/' '-')
   LEGACY_STATE_FILE=".turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}.json"
   STATE_FILE=".turingmind/state/format-53/$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}.json"
+  case "$LEGACY_STATE_FILE$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
+  printf 'LEGACY_STATE_FILE=%s\n' "$LEGACY_STATE_FILE"
+  printf 'STATE_FILE=%s\n' "$STATE_FILE"
   ```
 
 **Why `format-53/`.** Phase-53 state carries the needs-verification band and marker. A shipped 2.11.x plugin's resolver builds only a flat `<key>.json` or `by-mode/all/<12hex>.json` directly under `.turingmind/state/`, so it can never read or write anything under `format-53/` (structurally, like `by-mode/`): an older plugin's ordinary review cannot rescore an undecided item away, and an older finalize cannot approve over it. `scripts/statepath.py` (`current_path`) is the one rule; these two bindings are its transcription for the non-`--all` modes.
 
 If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/05-state-all.md** with the Read tool before continuing — in `--all` mode it REPLACES the state-key resolution above with the reserved-subdirectory key and forces a fresh snapshot. On a plain diff review, do not read it.
 
-**Forward migration (non-`--all` modes only).** When `$ALL_MODE` is NOT set, run under bash before step 1:
+**Forward migration (non-`--all` modes only).** In this and every later fence of this file, `"$LEGACY_STATE_FILE"` and `"$STATE_FILE"` are the literals printed after `LEGACY_STATE_FILE=` and `STATE_FILE=` above — substitute them; a shell variable does not survive into a separate Bash call. When `$ALL_MODE` is NOT set, run under bash before step 1:
 ```bash
 if python3 "$VC_ROOT/scripts/review_archive.py" migrate --legacy "$LEGACY_STATE_FILE" --current "$STATE_FILE"; then
   :
