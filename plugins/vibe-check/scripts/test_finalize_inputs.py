@@ -1938,7 +1938,8 @@ class TestImportSet(unittest.TestCase):
                 names.add(node.module)
         siblings = {"batch_card", "carry_state", "finalize_gate", "fixcommit",
                     "guard"}
-        self.assertEqual(names - siblings, {"json", "os", "subprocess", "sys"})
+        self.assertEqual(names - siblings,
+                         {"io", "json", "os", "subprocess", "sys"})
         self.assertEqual(names & siblings, siblings)
 
     def test_only_path_re_is_taken_from_fixcommit(self):

@@ -44,8 +44,12 @@ WHAT IT TRANSCRIBES. Step 1 ("HEAD fingerprints") of Finalize mode in
   `stable_hash` (rows only; absorbed `members[]` are not searched). That
   finding's `file` comes from the reviewed diff and may be attacker-authored,
   so it is validated BEFORE any git call: it must match `PATH_RE`
-  (`^[A-Za-z0-9._/-]+$`, imported from fixcommit.py) AND be contained under
-  `git rev-parse --show-toplevel` (`guard.contained`). Then three git calls:
+  (`^[A-Za-z0-9._/-]+$`, imported from fixcommit.py) AND pass the guard
+  command `guard.py --root <git rev-parse --show-toplevel> --path <file>`
+  with exit 0 (`guard.main`, run in-process with its output dropped). The
+  command's argument parsing is part of the check: a name argparse reads as
+  an option (most names starting with `-`) exits 2 and is left out, as at
+  2.14.1. Then three git calls:
 
       git rev-parse HEAD:<file>
       git diff --quiet HEAD -- <file>
@@ -74,14 +78,15 @@ helper deliberately does not.
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders.
 
-I/O: stdlib imports exactly {json, os, subprocess, sys}, plus the siblings
-`batch_card`, `carry_state` and `finalize_gate` (called in-process), `guard`
-(containment) and `fixcommit` (the PATH_RE constant only; never
+I/O: stdlib imports exactly {io, json, os, subprocess, sys}, plus the
+siblings `batch_card`, `carry_state` and `finalize_gate` (called in-process),
+`guard` (the containment command, `main`) and `fixcommit` (the PATH_RE constant only; never
 validate_paths). Every `subprocess.run` is an argv list with
 `timeout=GIT_TIMEOUT` and no shell. git's stderr is captured and discarded,
 never returned or printed.
 """
 
+import io
 import json
 import os
 import subprocess
@@ -92,7 +97,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (the report data, decisions_report)
 import carry_state  # noqa: E402  (the counts, finalize_counts)
 import finalize_gate  # noqa: E402  (the gate decision)
-import guard  # noqa: E402  (the ONE containment source)
+import guard  # noqa: E402  (the ONE containment source, as a command)
 from fixcommit import PATH_RE  # noqa: E402  (pre-filter constant only)
 
 GIT_TIMEOUT = 60
@@ -163,6 +168,23 @@ def _candidate_files(state):
     return files
 
 
+def _guard_command_accepts(root, f):
+    """Would `python3 guard.py --root <root> --path <f>` exit 0?
+
+    2.14.1 ran the containment check as that command, so argparse first
+    reads `<f>`: a value that looks like an option (most names starting
+    with `-`, by this interpreter's rules) makes it exit 2 and the file is
+    left out. This runs the same `guard.main` in-process, its stdout and
+    stderr captured and dropped, so the rule cannot drift from the
+    command's."""
+    saved = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = io.StringIO()
+    try:
+        return guard.main(["--root", root, "--path", f]) == 0
+    finally:
+        sys.stdout, sys.stderr = saved
+
+
 def _head_blobs(state, cwd):
     files = _candidate_files(state)
     if not files:
@@ -170,7 +192,7 @@ def _head_blobs(state, cwd):
     root = _toplevel(cwd)
     blobs = {}
     for f in files:
-        if not PATH_RE.match(f) or not guard.contained(root, f)[0]:
+        if not PATH_RE.match(f) or not _guard_command_accepts(root, f):
             continue
         rev = _git(["rev-parse", "HEAD:" + f], root)
         if not _ok(rev):
