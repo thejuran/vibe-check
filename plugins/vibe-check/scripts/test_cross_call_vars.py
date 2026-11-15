@@ -1071,25 +1071,30 @@ class TestRepro63(unittest.TestCase):
         body = fence_holding(STATE_REL, needle)
         return substitute(body, literals) if literals else body
 
+    STATE_NAMES = ["LEGACY_STATE_FILE", "STATE_FILE"]
+
     def test_x2_legacy_state_file(self):
         migrate = fence_holding(STATE_REL, 'review_archive.py" migrate')
         for mode, needle, literals, key in self.STATE_SETTERS:
             with self.subTest(mode=mode):
-                fences = [self.state_setter(needle, literals), migrate]
                 fresh, control, outcome, fresh_files, control_files = (
-                    self.run_pair("x2-" + mode, self.build_state(key), fences))
+                    self.run_carried("x2-" + mode, self.build_state(key),
+                                     self.state_setter(needle, literals),
+                                     [migrate], self.STATE_NAMES))
                 old = ".turingmind/state/%s.json" % key
                 new = ".turingmind/state/format-53/%s.json" % key
-                # The control moves the old file forward and archives it.
-                self.assertIn("state migrated forward to " + new, control[1])
-                self.assertIn(new, control_files)
-                self.assertNotIn(old, control_files)
-                # Fresh: both blocks exit 0, nothing is moved, nothing said.
+                # The setter prints both names; the move-forward block, run
+                # fresh with those literals, moves the old file forward and
+                # archives it, as the one-shell run does.
+                self.assertEqual(fresh[0][1],
+                                 "LEGACY_STATE_FILE=%s\nSTATE_FILE=%s\n"
+                                 % (old, new))
                 self.assertEqual([rc for rc, _, _ in fresh], [0, 0])
-                self.assertEqual(fresh[1][1], "")
-                self.assertIn(old, fresh_files)
-                self.assertNotIn(new, fresh_files)
-                self.assertEqual(outcome, "wrong-file")
+                self.assertIn("state migrated forward to " + new, fresh[1][1])
+                self.assertIn(new, fresh_files)
+                self.assertNotIn(old, fresh_files)
+                self.assertEqual(fresh_files, control_files)
+                self.assertEqual(outcome, "harmless")
 
     def test_x3_state_file(self):
         readers = [
@@ -1101,37 +1106,40 @@ class TestRepro63(unittest.TestCase):
         ]
         for mode, needle, literals, key in self.STATE_SETTERS:
             with self.subTest(mode=mode):
-                fences = [self.state_setter(needle, literals)] + readers
-                fresh, control, outcome, _, _ = self.run_pair(
-                    "x3-" + mode, self.build_state(key), fences)
+                fresh, control, outcome, _, _ = self.run_carried(
+                    "x3-" + mode, self.build_state(key),
+                    self.state_setter(needle, literals), readers,
+                    self.STATE_NAMES)
                 sha = gitfixture.git(
                     os.path.join(self.tmp, "x3-" + mode, "control", "repo"),
                     "rev-parse", "HEAD").stdout.strip()
-                # The control carries the review: it reads the last pass and
-                # the decided and deferred lists.
+                # Each block that reads the state file, run fresh with the
+                # printed literal, carries the review as the one-shell run
+                # does: the last pass and the decided and deferred lists.
                 self.assertIn("LAST_REVIEWED_SHA=%s\n[]\n[]\n" % sha,
                               control[1])
-                # Fresh: each block that reads the state file halts.
-                self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 1, 1, 1])
-                self.assertIn("last-pass head_sha is not a commit sha",
-                              fresh[2][2])
-                self.assertIn("carry_state.py decided failed", fresh[3][2])
-                self.assertIn("carry_state.py deferred failed", fresh[4][2])
-                self.assertEqual(outcome, "stop")
+                self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 0, 0])
+                self.assertEqual(fresh[2][1], "LAST_REVIEWED_SHA=%s\n" % sha)
+                self.assertEqual(fresh[3][1], "[]\n")
+                self.assertEqual(fresh[4][1], "[]\n")
+                self.assertEqual(outcome, "harmless")
         with self.subTest(mode="gsd, --finalize"):
-            # On a Close-out run the head_sha block binds nothing, but the
-            # decided and deferred blocks still halt.
+            # On a Close-out run the head_sha block binds nothing; the
+            # decided and deferred blocks still read the state file.
             mode, needle, literals, key = self.STATE_SETTERS[0]
-            fences = [self.state_setter(needle, literals), readers[0],
-                      substitute(fence_holding(STATE_REL, "last-head-sha"),
-                                 [('"$FINALIZE_MODE"', '"1"')]),
-                      readers[2], readers[3]]
-            fresh, control, outcome, _, _ = self.run_pair(
-                "x3-finalize", self.build_state(key), fences)
+            readers_finalize = [
+                readers[0],
+                substitute(fence_holding(STATE_REL, "last-head-sha"),
+                           [('"$FINALIZE_MODE"', '"1"')]),
+                readers[2], readers[3]]
+            fresh, control, outcome, _, _ = self.run_carried(
+                "x3-finalize", self.build_state(key),
+                self.state_setter(needle, literals), readers_finalize,
+                self.STATE_NAMES)
             self.assertNotIn("LAST_REVIEWED_SHA=", control[1])
             self.assertIn("[]\n[]\n", control[1])
-            self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 1, 1])
-            self.assertEqual(outcome, "stop")
+            self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 0, 0])
+            self.assertEqual(outcome, "harmless")
 
     # -- 06-config.md ------------------------------------------------------ #
     # The owner's invocation, substituted for "$ARGUMENTS", and a repo config
