@@ -320,3 +320,21 @@ Written 2026-11-15 in plan 63-09, before the owner decides. The extraction is ju
 Totals if every place is fixed: about +600 to +1450 bytes on each of the six paths, and about +5 − 3 = +2 counted steps on the Finalize path (the same +2 on every path, since all six load these files). Fixing X1-X3 only: about +600 to +1150 bytes and +5 counted steps. The X4-X6 fixes are cheapest because the settings-reader block can read the three values itself; a fix of the print-and-paste kind instead would add about +300 to +500 bytes and no counted step.
 
 Known limit that bears on X3: `phases/shared/90-finalize.md` also reads `"$STATE_FILE"` in its own Bash blocks, but its setter is in `05-state.md`, and the check is same-file only, so that read is not flagged or reproduced here. A fix that prints `STATE_FILE=` would give the Finalize blocks a value to substitute as well; whether 63-10 extends the substitution there is a measurement for 63-10, not part of this estimate.
+
+---
+
+## Owner decision
+
+- **Date:** 2026-11-15
+- **Option chosen, in the owner's words:** "Fix all six (Recommended)" (option `fix-all-reproduced`).
+- **How it arrived:** the owner's answer to the phase coordinator's question, relayed to the 63-09 executor by the coordinator with the exact quote above. The question stated: all six were reproduced; fixing all adds roughly 600 to 1,450 bytes to every review and a net +2 counted steps; the settings fixes are the cheapest and each removes a step; X5 matters most.
+- **Effect:** every reproduced place is fixed in this phase (plan 63-10); none is pinned. No place was harmless, so nothing is pinned by rule either. The exceptions list is expected to end empty once 63-10 lands.
+
+| Id | File | Variable | Disposition |
+|----|------|----------|-------------|
+| X1 | phases/review/00-scope.md | PHASE_DIR | fix |
+| X2 | phases/review/05-state.md | LEGACY_STATE_FILE | fix |
+| X3 | phases/review/05-state.md | STATE_FILE | fix |
+| X4 | phases/review/06-config.md | CODEX_FLAG_VAL | fix |
+| X5 | phases/review/06-config.md | CONFIG_REPO_ROOT | fix |
+| X6 | phases/review/06-config.md | MIN_CONFIDENCE_FLAG_VAL | fix |
