@@ -319,3 +319,9 @@ The CI suite is narrower than the main-checkout run (6,510 passed, 0 failed, at 
 1. **Two comparison tests assumed a UTF-8 locale.** They compare the refusal line the new helper shows with the line the 2.14.1 command shows for a saved-progress file that is not valid UTF-8. On the CI machine's C.UTF-8 locale, 2.14.1 itself shows a different line than it does on a Mac. The helper was not changed. The tests now pin the 2.14.1 side to strict UTF-8, and a new test states the difference outright. It is item 4 under "Other differences on screen" and one of the things a "go" accepts. Fixed at `dd69542`; `test_finalize_inputs.py` passes under the default, C, C.UTF-8 and en_US.UTF-8 locales (109 passed each).
 2. **A timing test from before this phase is flaky on CI.** `test_codex_collect.py::test_abnormal_exit_is_a_timeout_skip` gives a stub program 2 seconds; it is the suite's first launch of node, and it failed with `'124' != '3'` in 3 of the first 6 runs here. To check whether this phase caused it, five green runs of pre-phase code were re-run the same day: four passed and one (43611416017, commit `1659a99`) failed with the identical error. So the flake is in pre-phase code. The fix is test-only (`296657d`): node is started once, untimed, before the timed runs. No shipped file and no time limit changed. That a cold start is the cause is the best-supported explanation, not a proven one; two green runs after the fix are not enough to prove it gone. Re-running the old runs left them green again (43611416017 is at attempt 3, success).
 
+## Owner decision
+
+2026-11-15. The owner's answer at the checkpoint, in the owner's own words: "go".
+
+The checkpoint named the five things a "go" accepts (listed under `## Your decision`) and showed the verdict (PASS), the two counts, and the pull request with both runs green on its head commit `7cf8e22`. No condition was added. Nothing was merged before this section was written.
+
