@@ -10,7 +10,7 @@ Finalize extraction: PASS
 - **Same behaviour.** All five recorded Finalize situations match 2.14.1 on every outcome field. Fewer commands run, which is the purpose. Some things on screen do differ, and they are named below. One of them needs your acceptance: when the saved-progress file cannot be read at all, the shell's "Permission denied" line no longer shows.
 - **Cross-call check.** The check is in place and passes. It found six places where a value did not carry from one command to the next (X1 to X6), and all six reproduced. You chose to fix all six, and none were pinned. Three more were found and fixed later: Close out (X7), the fix loop (X8) and Close out and the fix loop on `--all` (C1). One flagged place remains on the exceptions list (C2). It has not been reproduced.
 - **What grew.** You chose to fix things the extraction did not need. Those fixes make the phase end larger than 2.14.1 on every review path: the plain review now loads 193267 bytes against 192057, and the deep review 270219 against 268997. The verdict is not affected (D-16). The growth is itemised below.
-- **Tests.** The full suite passed in the main checkout after each merge. The last completed run recorded before this page was **6,496 passed, 0 failed**, after the D-20/D-21 follow-up. That figure was reported by the main session and is not in the phase records. A run on the final commit, which includes the review fixes, is in progress. Its result is pending and will be added under `## Pull request`.
+- **Tests.** The full suite passed in the main checkout after each merge. The run on the final code, which includes the review fixes (merge `533daf9`), was **6,510 passed, 0 failed**. The run before it, after the D-20/D-21 follow-up, was 6,496 passed, 0 failed. Both figures are from the main session's runs, not from the phase records. The pull request's own run is recorded under `## Pull request`.
 - **What you are asked to decide.** "Go" to merge, accepting the four items listed under `## Your decision`. You can also ask for a revert or for changes.
 
 ## The two counts
@@ -237,7 +237,20 @@ Your decision in plan 63-09, in your words: "Fix all six (Recommended)". As a re
 - `test_stdlib_only.py`
 - the design document
 
-No second pass was run. The review also happened before the review-fix round. The changes made in that round have not been reviewed: the `-I` change and its new test, and the `--all` print.
+No second pass was run over those eleven files. The first review also happened before the review-fix round, so that round got its own review afterwards (`63-REVIEW-2.md`): the `-I` change and its new test, the `--all` print, and the per-character tests.
+
+**Second review, of the review-fix round only (`63-REVIEW-2.md`).** It found no critical issue, 3 warnings and 4 minor notes, and changed nothing.
+
+- **What held up.** Isolated mode ignored a planted `json.py`, `os.py`, `sitecustomize.py`, `usercustomize.py`, a `.pth` file, `PYTHONPATH=.` and `PYTHONSTARTUP` on Python 3.9.6 and 3.14.5, and broke none of the 12 commands. The new `--all` print sits behind the stop on its only path. The reworded sentences do not contradict the other modes. Six deliberate breaks of the new `--all` step were each caught by the tests.
+- **Its own coverage.** It read `05-state-all.md` and the two new test files in full; the other five instruction files only around the changed lines; and `test_cross_call_vars.py` only in the changed parts and the helpers the new tests use.
+
+| Item | Plain meaning | Status |
+|---|---|---|
+| R2-WR-01 | The helper scripts (not the inline commands) still honour a `PYTHONPATH` set in the owner's own environment. A reviewed repo cannot set it. About 70 call sites share the shape | carried |
+| R2-WR-02 | If a helper's path were left empty, Python would run a `__main__.py` from the reviewed repo. The review showed what would happen, not that a path is ever left empty. Five sites have no emptiness check in the same command. These lines predate the phase | carried |
+| R2-WR-03 | The check that no inline Python lacks isolated mode recognises today's command shapes. It would miss other shapes (for example `python3 -X utf8 -c`, or a script fed on standard input) if one were added later. None exists today | carried |
+| R2 notes | Isolated mode also ignores two encoding settings, which could matter for the Codex payload under a non-UTF-8 locale; an `--all` run might print two `STATE_FILE=` lines depending on reading order (not reproduced); the `--all` stop cannot trip on real input, because the key is always hex digits; six of the twelve commands are tested only for "planted file not run", not for their output | left as they are |
+| R2 set aside | A narrowed `--all` run may lose its narrowing value in a fresh shell and share the whole-tree key (unchanged line, not tested); version managers or an active virtual environment in the reviewed repo could choose `python3` (not testable on this machine); the `git` and `node` calls beside the inline commands were not assessed | carried, not reproduced |
 
 ## Input gaps carried
 
@@ -263,7 +276,7 @@ The subfolder gap was not carried, because you had it fixed (D-19, above).
 - The refused-close stand-in was checked against 2.14.1, but whether it is a fair replacement is argued, not proven.
 - The step counter undercounts the D-20 change. It counts a pasted name only in the file that prints it. So the 4 uses of the state-file name in `90-finalize.md` and the 4 in `50-fix-loop.md` are not counted as steps. Their bytes are counted.
 - The records do not give the 2.14.1 byte figures for the `--all` and fix-loop paths, or the 2.14.1 step figures for any path other than Finalize.
-- The test suite runs in the executors' linked worktrees each showed 5 known failures. These are tests whose recordings exist only in the main checkout. At the last of those runs, on `e2f0997`, the result was 4558 passed, 5 failed. The main-checkout run on the final commit is still pending.
+- The test suite runs in the executors' linked worktrees each showed 5 known failures. These are tests whose recordings exist only in the main checkout. At the last of those runs, on `e2f0997`, the result was 4558 passed, 5 failed. The main-checkout run on the final code was 6,510 passed, 0 failed.
 
 ## Your decision
 
@@ -272,7 +285,7 @@ The verdict is PASS. A "go" accepts these four things:
 1. **The item headed "For your acceptance"**: when the saved-progress file cannot be read at all, the "Permission denied" line no longer shows. The stop sentence appears alone.
 2. **The new stop for unsafe names (D-21)**: a review on a folder, branch or phase name containing `$`, a backtick, `"`, `\` or a line break now stops with one "Review halted" line, where 2.14.1 carried on.
 3. **Phase-end growth on every review path**: for example, the plain review is 193267 bytes against 192057 at 2.14.1, and the deep review is 270219 against 268997. This comes from the fixes you chose. The extraction alone grew nothing.
-4. **The carried review items**: WR-02, WR-03, WR-04, SA-01 and C2 (SA-02), as described above, plus the uneven review coverage (SA-03). They go to backlog and are not fixed in this phase.
+4. **The carried review items**: from the first review WR-02, WR-03, WR-04, SA-01 and C2 (SA-02), plus its uneven coverage (SA-03); from the second review R2-WR-01, R2-WR-02, R2-WR-03 and its set-aside items. All are described above. They go to backlog and are not fixed in this phase.
 
 On PASS, "go" merges the pull request.
 
