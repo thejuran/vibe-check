@@ -297,3 +297,44 @@ CONFIG_JSON={"values": {"thresholds": null, "disabled": [], "top_model": null, "
 | X4 | phases/review/06-config.md | CODEX_FLAG_VAL | ignored-setting | owner decides |
 | X5 | phases/review/06-config.md | CONFIG_REPO_ROOT | ignored-setting | owner decides |
 | X6 | phases/review/06-config.md | MIN_CONFIDENCE_FLAG_VAL | ignored-setting | owner decides |
+
+---
+
+## What each fix would add
+
+Written 2026-11-15 in plan 63-09, before the owner decides. The extraction is judged on its own (D-16): at the extraction-only commit `c7d92c9` the Finalize path went from 92 to 83 counted steps and from 136114 to 129451 bytes, verdict PASS (63-COUNTS.md, `## After the extraction alone`). Any fix below lands later (plan 63-10) and is reported as named growth by file, bytes and reproduction (D-09); it does not change that verdict.
+
+**Which paths load these files.** All three files are loaded by every review path `footprint.py` knows at `c7d92c9`: plain review, plain review `--all`, deep review, deep review `--all`, Finalize and the fix loop. Bytes added to any of them are added to all six.
+
+**How the figures are estimated.** These are estimates of a likely fix, not measurements; plan 63-10 measures the real ones with `step_count.py` and `footprint.py`. Steps: the counting rule (rule v1, per file) counts a pasted value only for printed names ending in `FILE`, so a fix that prints such a name adds one counted step for each later Bash block in the same file that uses it; a fix for any other name adds bytes but no counted step; a fix that merges two Bash blocks removes one. Bytes: a fix of the "print the value, then paste it into the later block" kind adds one `printf` line per setting block (about 40-50 bytes each) and a sentence telling the model to substitute the printed value (about 150-250 bytes, once per file if one sentence covers every later block). A merge removes the fence lines (about 12 bytes per removed block) and adds little or no text.
+
+| Id | File | Likely fix | Paths that load it | Bytes added (est.) | Counted steps added on the Finalize path (est.) |
+|----|------|-----------|--------------------|--------------------|-------------------------------------------------|
+| X1 | phases/review/00-scope.md (`PHASE_DIR`) | print `PHASE_DIR=` after the phase is found; the containment check and the phase-range block substitute the printed value | all six | about +250 to +450 | 0 (the name does not end in `FILE`) |
+| X2 | phases/review/05-state.md (`LEGACY_STATE_FILE`) | print `LEGACY_STATE_FILE=` in both naming blocks; the move-forward block substitutes it | all six | about +100 to +250 (shares the X3 sentence) | +1 (the move-forward block) |
+| X3 | phases/review/05-state.md (`STATE_FILE`) | print `STATE_FILE=` in both naming blocks; the move-forward, last-commit, decided and deferred blocks substitute it | all six | about +250 to +450 | +4 (move-forward, last-commit, decided, deferred) |
+| X4 | phases/review/06-config.md (`CODEX_FLAG_VAL`) | move the `--codex` read into the settings-reader block (merge) | all six | about 0 to +100 | −1 (one block merged away) |
+| X5 | phases/review/06-config.md (`CONFIG_REPO_ROOT`) | move the repo-root read into the settings-reader block (merge) | all six | about 0 to +100 | −1 |
+| X6 | phases/review/06-config.md (`MIN_CONFIDENCE_FLAG_VAL`) | move the `--min-confidence` read into the settings-reader block (merge) | all six | about 0 to +100 | −1 |
+
+Totals if every place is fixed: about +600 to +1450 bytes on each of the six paths, and about +5 − 3 = +2 counted steps on the Finalize path (the same +2 on every path, since all six load these files). Fixing X1-X3 only: about +600 to +1150 bytes and +5 counted steps. The X4-X6 fixes are cheapest because the settings-reader block can read the three values itself; a fix of the print-and-paste kind instead would add about +300 to +500 bytes and no counted step.
+
+Known limit that bears on X3: `phases/shared/90-finalize.md` also reads `"$STATE_FILE"` in its own Bash blocks, but its setter is in `05-state.md`, and the check is same-file only, so that read is not flagged or reproduced here. A fix that prints `STATE_FILE=` would give the Finalize blocks a value to substitute as well; whether 63-10 extends the substitution there is a measurement for 63-10, not part of this estimate.
+
+---
+
+## Owner decision
+
+- **Date:** 2026-11-15
+- **Option chosen, in the owner's words:** "Fix all six (Recommended)" (option `fix-all-reproduced`).
+- **How it arrived:** the owner's answer to the phase coordinator's question, relayed to the 63-09 executor by the coordinator with the exact quote above. The question stated: all six were reproduced; fixing all adds roughly 600 to 1,450 bytes to every review and a net +2 counted steps; the settings fixes are the cheapest and each removes a step; X5 matters most.
+- **Effect:** every reproduced place is fixed in this phase (plan 63-10); none is pinned. No place was harmless, so nothing is pinned by rule either. The exceptions list is expected to end empty once 63-10 lands.
+
+| Id | File | Variable | Disposition |
+|----|------|----------|-------------|
+| X1 | phases/review/00-scope.md | PHASE_DIR | fix |
+| X2 | phases/review/05-state.md | LEGACY_STATE_FILE | fix |
+| X3 | phases/review/05-state.md | STATE_FILE | fix |
+| X4 | phases/review/06-config.md | CODEX_FLAG_VAL | fix |
+| X5 | phases/review/06-config.md | CONFIG_REPO_ROOT | fix |
+| X6 | phases/review/06-config.md | MIN_CONFIDENCE_FLAG_VAL | fix |
