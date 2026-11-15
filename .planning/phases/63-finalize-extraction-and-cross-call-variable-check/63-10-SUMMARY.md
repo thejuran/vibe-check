@@ -167,3 +167,54 @@ Run 2026-11-15 after the owner's D-20 decision and the orchestrator's D-21 decis
 - Commits in `git log`: dd9db3e, d168b85, 25dcb9d, 9a01055.
 - STATE.md and ROADMAP.md not modified.
 
+
+## Review fixes (D-22, D-23)
+
+Run 2026-11-15 after the phase code review (63-REVIEW.md) and decisions D-22 (owner) and D-23 (orchestrator). Same plan scope (`63-10`); no new PLAN file. WR-02, WR-03, WR-04, SA-01, SA-02 and the info items were not touched.
+
+| Task | Commit | What |
+|------|--------|------|
+| A (RED) | b67463a | `test_inline_python_isolated.py`: scan of every shipped non-Python file under `plugins/vibe-check/` (outside `scripts/`) for `python -c`, `-m` and `-` (stdin); 12 inline invocations found, none with `-I`; the real programs run beside a planted `json.py` and the marker appeared for all 12 |
+| A (GREEN) | 750870f | `python3 -c` → `python3 -I -c` in 90-finalize (3), 50-fix-loop (3), 05-state-all (2), 2c-codex-kickoff (2), 30-codex-collect (1), 01d-coverage (1) |
+| B (RED) | 769fd8a | `TestRepro63::test_c1_all_mode_close_out_state_file` / `test_c1_all_mode_fix_loop_state_file`; C1 removed from `CROSS_FILE_EXCEPTIONS`. Observed: Close out got `stop-no-state` ("no prior review passes"), fix loop `[0, 1]`, cross-file check flagged 05-state-all `STATE_FILE` |
+| B (GREEN) | d56232b | `05-state-all.md` prints `STATE_FILE=` behind the D-21 guard; both D-20 sentences say "by `05-state.md` (`05-state-all.md` on `--all`)"; `REPRO_63` row C1, disposition fixed |
+| C | e2f0997 | `TestEachCharacterAtEachSite` in `test_pasted_name_guard.py`; `assert_mutant_trips` rewritten |
+| D | (records commit) | 63-COUNTS.md, 63-REPRO.md, 63-REMOVAL-LEDGER.md (8), (9), 63-EQUIVALENCE.md, 63-REVIEW.md "Disposition" |
+
+**Task A notes.** Every inline program imports only `json` and `sys` and prints ASCII, so `-I` (also ignoring `PYTHON*` variables and the user site folder) changes nothing else; the six Finalize/fix-loop one-liners still print exactly their normal output under `-I`, and the same commands with `-I` taken out create the marker (mutant, in the test). No `python3 -m` or stdin-script form exists in any shipped instruction file. Not changed: `python3 "$VC_ROOT/scripts/x.py"` and the hook's `python3 …/gitguard.py` put the script's own folder first, not the working directory (pinned by `test_a_shipped_script_puts_its_own_folder_first_not_the_cwd`, which runs `statepath.py` beside the planted module: no marker). Inline Python NOT given `-I`: the docstring example in `scripts/carry_state.py:137` (`python3 -c '…import carry_state…'`) is a code comment, not an instruction, and needs its sibling import, so `-I` would break it; test-only fixtures (`test_cross_call_vars.py` `WRITE_REVIEW`, `test_gitguard.py` command strings) run in temp folders or are data. None reported as a risk.
+
+**Task B notes.** WR-01's root cause is fixed at the print site. The helper's own handling of an empty `--state-file ""` (exit 0, `stop-no-state`) is unchanged, matched to 2.14.1 under D-06, and stays carried (`test_gap_empty_state_file_path_is_no_state`).
+
+**Task C: mutation matrix** (scratch copy of the plugin; for each site, only that site's guard line had only that character removed, then `test_each_character_alone_is_refused_at_each_site` was run; caught = that exact site-and-character subtest failed, and no other subtest failed in any of the 24 runs):
+
+| Site | `$` | backtick | `"` | `\` | newline | CR |
+|------|-----|----------|-----|-----|---------|----|
+| 00-scope.md `PHASE_DIR` | yes | yes | yes | yes | yes | yes |
+| 05-state.md GSD key | yes | yes | yes | yes | yes | yes |
+| 05-state.md repo-and-branch key | yes | yes | yes | yes | yes | yes |
+| 05-state-all.md `--all` key | yes | yes | yes | yes | yes | yes |
+
+How each value reaches the real block: 00-scope real folders, except newline (find's output is read a line at a time, so a `head` shell function hands the value over); GSD key `PHASE_ID` from the environment; repo-and-branch key real branches for `$`, backtick and `"`, a real folder for CR, a `git branch` shell function for `\` and newline (git refuses them in branch names; `xargs basename` drops or splits them in folder names); `--all` key a stub `statepath.py` under a stand-in `VC_ROOT` (the real key is 12-hex). The same per-character mutants are also run inside the suite (`test_dropping_one_character_from_the_guard_lets_it_through`). `assert_mutant_trips` now requires exit 0 and the exact `NAME=<bad value>` line; `test_the_mutant_check_cannot_pass_vacuously` shows it rejects a refused run, a harmless value and a value cut at the newline.
+
+**Figures** (63-COUNTS.md "Phase end after the review fixes"). Steps unchanged on every path (Finalize 85). Bytes 9a01055 → d56232b: Finalize 130846 → 130886 (+40), fix loop 256404 → 256444 (+40), review-plain 193267 (0), deep-plain 270207 → 270219 (+12), review-all 286136 → 286385 (+249), deep-all 363076 → 363337 (+261). By file: D-22 `-I` +36 bytes over six files (3 per invocation); D-23 05-state-all guard and print +243, the two sentence additions +31 each. Total +341 bytes, 0 counted steps.
+
+**Pins changed.** Instruction-file pins: none needed changing; the fill-rules checksum, moved-text, card/report and D-03 byte-identity checks all pass unchanged, and no baseline record under `docs/design/lean-v2.15/baseline/` changed. Test-side constants changed deliberately: `test_cross_call_vars.py` `FINALIZE_STATE_SENTENCE` and `FIX_LOOP_STATE_SENTENCE` (follow the new wording; added in the 63-10 follow-up, not 2.14.1 pins), `CROSS_FILE_EXCEPTIONS` (C1 removed), `REPRO_63` (C1 row added). `test_pasted_name_guard.py` existing mutant tests now pass the expected value to the stricter `assert_mutant_trips`, and `run_bash` reads output as bytes (text mode turned a carriage return into a newline, which hid the CR case).
+
+**Verification (observed).**
+- `test_inline_python_isolated.py`: RED 13 failed / 7 passed at b67463a; 8 passed, 32 subtests after 750870f.
+- `test_cross_call_vars.py test_pasted_name_guard.py test_inline_python_isolated.py`: 86 passed, 162 subtests at d56232b; `test_pasted_name_guard.py` 10 passed, 95 subtests at e2f0997.
+- After Task A, 32 related modules plus `docs/design/lean-v2.15/tools`: 2999 passed, 4115 subtests.
+- `finalize_capture.py compare … --driver helper --commit d56232b` and `--root plugins/vibe-check`: `finalize outcome fields match (5 situations, 7 walks)`; `verify`: `finalize baseline matches (5 situations)`; `baseline_records.py verify --repo .`: `baseline holds`.
+- Full suite once, at e2f0997: `5 failed, 4558 passed, 1 skipped, 5766 subtests passed in 314.91s`; the 5 are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` cases, nothing else failed.
+
+### Deviations (review fixes)
+
+**1. [Rule 1 - Test bug] `run_bash` in `test_pasted_name_guard.py` read output in text mode**, which translates a carriage return to a newline, so the CR mutant cases looked like a cut value. Fixed by reading bytes and decoding without newline translation. Cost if wrong: none for shipped files; the existing CR refusal cases still pass.
+**2. [Scope note] The Close-out/fix-loop `--all` repro runs the Finalize-inputs, archive and fix-loop rows blocks**, as X7/X8 do; other fix-loop blocks rely on the same sentence. Cost if wrong: an untested fix-loop block on `--all` in a fresh shell.
+**3. [Scope note] The instruction scan covers every non-Python file under `plugins/vibe-check/` except `scripts/`**; Python sources there are helpers and tests, not instructions. Cost if wrong: an inline invocation added to a helper's docstring would not be checked (none runs today).
+
+### Self-Check (review fixes): PASSED
+
+- Files present: `plugins/vibe-check/scripts/test_inline_python_isolated.py`, the six instruction files, `test_cross_call_vars.py`, `test_pasted_name_guard.py`, and the five records.
+- Commits in `git log`: b67463a, 750870f, 769fd8a, d56232b, e2f0997.
+- STATE.md and ROADMAP.md not modified.

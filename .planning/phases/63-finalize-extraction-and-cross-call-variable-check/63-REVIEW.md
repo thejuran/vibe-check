@@ -202,3 +202,14 @@ In `assert_mutant_trips`, require for the non-executing characters that the prin
 _Reviewed: 2026-11-15T21:03:28Z_
 _Reviewer: Claude (bm-code-reviewer)_
 _Depth: standard_
+
+## Disposition
+
+Recorded 2026-11-15 after the 63-10 review-fix round (D-22, D-23). The findings above are unchanged.
+
+- **CR-01: fixed** (D-22). Test `b67463a`, fix `750870f`: all twelve inline `python3 -c` commands in the shipped instruction files now run as `python3 -I -c`; `test_inline_python_isolated.py` scans every shipped instruction file and runs the real programs beside a planted `json.py`.
+- **WR-01: fixed** (D-23). Test `769fd8a`, fix `d56232b`: `05-state-all.md` prints `STATE_FILE=` behind the guard; C1 is off the cross-file exceptions. The helper's empty-path behaviour is unchanged (D-06 gap, carried).
+- **WR-05: fixed** (D-23). `e2f0997`: per-character, per-site refusal cases and a 24-mutant matrix (24 of 24 caught); `assert_mutant_trips` requires the exact bad value.
+- **WR-02, WR-03, WR-04, SA-01, SA-02: carried to backlog** (D-23).
+- **IN-01 to IN-04: left as they are.**
+- **SA-03 (files covered by pattern scan only): stands.** No second pass was run.

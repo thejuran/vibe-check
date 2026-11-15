@@ -500,3 +500,30 @@ Notes for the decision, not run: C1 means a `--all` review's Close out and fix l
 | `00-scope.md` / `30-collect-score.md` `<ref>`, `<range>` | owner-typed arguments | not covered: they come from the owner's own command line, not from repo, branch or PR names; outside D-21 |
 
 Names derived from a PR (`PR_HEAD`) were already filtered to hex where bound (`00-scope.md`); no other block tells the model to paste a literal derived from repo, branch or PR names.
+
+## Review fixes (D-22, D-23), 2026-11-15
+
+The sections above stay as recorded. This section supersedes the C1 row of "Cross-file check (D-20)" and the `05-state-all.md` row of the paste-site table.
+
+### C1 — phases/review/05-state-all.md: STATE_FILE (`--all`, 63-REVIEW WR-01): reproduced; fixed
+
+- **Reproduction** (`test_cross_call_vars.py::TestRepro63::test_c1_all_mode_close_out_state_file` and `test_c1_all_mode_fix_loop_state_file`, RED at `769fd8a`). A temp repo holds a pass-1 `--all` state file at the key `statepath.py` gives it (`.turingmind/state/format-53/by-mode/all/<12hex>.json`). The real `05-state-all.md` key block runs as its own `bash -s`; it printed no `STATE_FILE=` line, so the paste is empty. Close out (the Finalize-inputs block, run fresh with that empty paste) returned `{"action": "error", "reason": "no prior review passes", "next": "stop-no-state"}`; the one-shell control returned `write-review-md`. The fix-loop rows block run fresh exited 1 (`[0, 1]`) where the control exited 0. Outcome class: `wrong-file` (Close out writes nothing) and `stop` (fix loop).
+- **Fix** (`d56232b`). `05-state-all.md` prints `STATE_FILE=` after binding the `--all` key, behind the same guard line as `05-state.md` (the value is a 12-hex key, but one rule at every print site is simpler to check). The Close-out and fix-loop sentences now read "printed after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`)". C1 is off `CROSS_FILE_EXCEPTIONS` (only C2 remains) and has a `REPRO_63` row with disposition fixed.
+- **After the fix:** Close out on `--all` gets `write-review-md`, writes REVIEW.md and archives the state, files identical to the control; the fix-loop rows block numbers the same card as the control.
+- **Defence in depth, not changed (D-06).** The helper still reads `--state-file ""` as "no state file" (exit 0, `stop-no-state`), as 2.14.1 did; that gap stays carried (`test_gap_empty_state_file_path_is_no_state`). WR-01's root cause is fixed at the print site.
+
+### CR-01 — inline Python imported a planted module from the reviewed repo (D-22): reproduced; fixed
+
+- **Where.** Twelve inline `python3 -c` invocations, all run with the reviewed repo as the working directory: `phases/shared/90-finalize.md` (3), `phases/review/50-fix-loop.md` (3), `phases/review/05-state-all.md` (2), `phases/deep-review/2c-codex-kickoff.md` (2, one fed by `printf … |`), `phases/deep-review/30-codex-collect.md` (1), `phases/deep-review/01d-coverage.md` (1). No `python -c`, `python3 -m` or stdin-script (`python3 -`) form exists in any shipped instruction file (commands, agents, phases, templates, hooks, docs). Present at 2.14.1.
+- **Reproduction** (`test_inline_python_isolated.py`, RED at `b67463a`). Each real program text, taken from the live files, run under `/bin/bash` in a temp folder holding a `json.py` that creates a marker file in that folder: the marker appeared for all twelve.
+- **Fix** (`750870f`). `python3 -c` → `python3 -I -c` in all twelve. Every program imports only `json` and `sys`, so `-I` (no current folder, no user site folder, no `PYTHON*` variables) changes nothing else; output is ASCII (`json.dumps` default), so ignoring `PYTHONIOENCODING` does not change it.
+- **After the fix:** no marker for any of the twelve; the six Finalize and fix-loop one-liners still print exactly their normal output; the same commands with `-I` taken out create the marker (the mutant). A scan of every shipped non-Python file under `plugins/vibe-check/` finds the twelve invocations, each with `-I`.
+- **Not affected:** `python3 "$VC_ROOT/scripts/x.py"` (and the hook's `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gitguard.py`) put the script's own folder first, not the working directory; `test_a_shipped_script_puts_its_own_folder_first_not_the_cwd` runs `statepath.py` in the planted folder and the marker does not appear.
+
+### Pasted-name guard, each character on its own (63-REVIEW WR-05)
+
+`test_pasted_name_guard.py::TestEachCharacterAtEachSite` (`e2f0997`). For each of `$`, backtick, `"`, `\`, newline and carriage return, and each of the four print sites, a name holding only that one bad character (`x<c>y`) is refused: exit 1, no `NAME=` line, "Review halted" on stderr. How each value reaches the block: `00-scope.md` real phase folders, except newline (find's output is read a line at a time, so a `head` function hands the value over); `05-state.md` GSD key `PHASE_ID` from the environment (as before); `05-state.md` repo-and-branch key real branches for `$`, backtick and `"`, a real repo folder for carriage return, and a `git branch` function for `\` and newline (git refuses them in a branch name and `xargs basename` drops or splits them in a folder name); `05-state-all.md` a stub `statepath.py` under a stand-in `VC_ROOT` (the real key is 12-hex, so nothing else can carry a character into it). Mutation: taking only that character out of only that site's guard line makes exactly that site-and-character case fail, 24 of 24 (matrix in 63-10-SUMMARY "Review fixes"). The mutant check now requires the exact bad value on a printed `NAME=` line, so it cannot pass on a refused run or a harmless value.
+
+| Where the literal is pasted | Name | Covered |
+|-----------------------------|------|---------|
+| `90-finalize.md`, `50-fix-loop.md` blocks on `--all` | `STATE_FILE` | yes (guard in the `05-state-all.md` key block, added by `d56232b`) |
