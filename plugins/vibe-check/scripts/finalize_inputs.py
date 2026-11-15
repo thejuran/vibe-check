@@ -139,11 +139,14 @@ def _ok(result):
 
 
 def _toplevel(cwd):
-    """The repo root as git prints it, or "" (which guard.contained refuses)."""
+    """The repo root as `$(git rev-parse --show-toplevel)` gives it, or ""
+    (which guard.contained refuses). Command substitution drops the trailing
+    line breaks and nothing else, so a folder name ending in a space, a tab
+    or `\\r` keeps it: trimming more would check a different folder."""
     result = _git(["rev-parse", "--show-toplevel"], cwd)
     if not _ok(result):
         return ""
-    return result[1].strip()
+    return result[1].rstrip("\n")
 
 
 def _candidate_files(state):
