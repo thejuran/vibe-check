@@ -11,7 +11,7 @@
 
 Proposed split: 3 fix (X1, X2, X3), 3 for the owner to decide (X4, X5, X6), 0 pin.
 
-**Nothing has been changed.** No instruction file under `plugins/vibe-check/phases/` was edited; the three files are byte-identical to `dd8e4ab`. The owner confirms the fix/pin split in plan 63-09, and the fixes land in plan 63-10.
+**All six fixed in plan 63-10** (owner decision below: fix all six). Before 63-10 nothing had been changed and the three files were byte-identical to `dd8e4ab`. The cross-call exceptions list in `test_cross_call_vars.py` is now empty. Each `TestRepro63` fixture now asserts the repaired behaviour (fresh calls, with each printed literal substituted, match the one-shell control) and fails on the pre-fix files (see "Reverse run" at the end). One cross-file read that the same-file check cannot see does reproduce and awaits an owner decision (see "Open item" at the end).
 
 - **Date:** 2026-11-14
 - **HEAD when recorded:** `9efb67d` (the commit that completed `REPRO_63` and its fixtures; added in `7a520bb` / `2aa59df` for X1 to X3 and `c34bad8` / `9efb67d` for X4 to X6).
@@ -44,7 +44,11 @@ Two notes on the setup. The settings block (06-config.md) prints nothing, so the
 
 ## X1 — phases/review/00-scope.md: PHASE_DIR
 
-**Verdict:** REPRODUCED at `9efb67d` — stop
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (stop; first recorded at `9efb67d`)
+
+- **Fix shape:** print and substitute
+- **Green at:** `c4c84a3`
+- **Reverse run:** `TestRepro63.test_x1_phase_dir`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `c4c84a3`.
 
 **What the owner would see.** A review of a GSD phase stops at the safety check with "Phase resolution escaped .planning/ — refusing." even though the phase exists.
 
@@ -87,7 +91,11 @@ PHASE_START=d0ff18fd95380c824ce718609c638be39738583a
 
 ## X2 — phases/review/05-state.md: LEGACY_STATE_FILE
 
-**Verdict:** REPRODUCED at `9efb67d` — wrong-file
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (wrong-file; first recorded at `9efb67d`)
+
+- **Fix shape:** print and substitute (one edit with X3)
+- **Green at:** `7bd3274`
+- **Reverse run:** `TestRepro63.test_x2_legacy_state_file`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `7bd3274`.
 
 **What the owner would see.** A review whose saved progress is still in the old location is not moved forward, so it starts again at pass 1 instead of carrying on.
 
@@ -130,7 +138,11 @@ files after: .turingmind/state/format-53/repo-main.json, .turingmind/state/repo-
 
 ## X3 — phases/review/05-state.md: STATE_FILE
 
-**Verdict:** REPRODUCED at `9efb67d` — stop
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (stop; first recorded at `9efb67d`)
+
+- **Fix shape:** print and substitute (one edit with X2)
+- **Green at:** `7bd3274`
+- **Reverse run:** `TestRepro63.test_x3_state_file`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `7bd3274`.
 
 **What the owner would see.** A second pass of a review stops with "the state file's last-pass head_sha is not a commit sha" although the saved progress is fine.
 
@@ -187,7 +199,11 @@ halts above); control exit 0, prints the migrate line then [] and [] and no LAST
 
 ## X4 — phases/review/06-config.md: CODEX_FLAG_VAL
 
-**Verdict:** REPRODUCED at `9efb67d` — ignored-setting
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (ignored-setting; first recorded at `9efb67d`)
+
+- **Fix shape:** merge (one edit with X5 and X6)
+- **Green at:** `936d29e`
+- **Reverse run:** `TestRepro63.test_x4_codex_flag_val`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `936d29e`.
 
 **What the owner would see.** Asking for "--codex off" has no effect: the review runs with the Codex setting on its default instead.
 
@@ -221,7 +237,11 @@ CONFIG_JSON={"values": {"thresholds": null, "disabled": [], "top_model": null, "
 
 ## X5 — phases/review/06-config.md: CONFIG_REPO_ROOT
 
-**Verdict:** REPRODUCED at `9efb67d` — ignored-setting
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (ignored-setting; first recorded at `9efb67d`)
+
+- **Fix shape:** merge (one edit with X4 and X6)
+- **Green at:** `936d29e`
+- **Reverse run:** `TestRepro63.test_x5_config_repo_root`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `936d29e`.
 
 **What the owner would see.** The repo's settings file is not read at all, so every setting in it is silently replaced by the defaults.
 
@@ -255,7 +275,11 @@ CONFIG_JSON={"values": {"thresholds": null, "disabled": ["style"], "top_model": 
 
 ## X6 — phases/review/06-config.md: MIN_CONFIDENCE_FLAG_VAL
 
-**Verdict:** REPRODUCED at `9efb67d` — ignored-setting
+**Verdict:** REPRODUCED at `c7d92c9` → fixed by 63-10 (ignored-setting; first recorded at `9efb67d`)
+
+- **Fix shape:** merge (one edit with X4 and X5)
+- **Green at:** `936d29e`
+- **Reverse run:** `TestRepro63.test_x6_min_confidence_flag_val`, flipped to the repaired expectation, fails on the pre-fix files at `c7d92c9` and passes at `936d29e`.
 
 **What the owner would see.** Asking for "--min-confidence 45" has no effect: no low-confidence finding is filtered out.
 
@@ -338,3 +362,69 @@ Known limit that bears on X3: `phases/shared/90-finalize.md` also reads `"$STATE
 | X4 | phases/review/06-config.md | CODEX_FLAG_VAL | fix |
 | X5 | phases/review/06-config.md | CONFIG_REPO_ROOT | fix |
 | X6 | phases/review/06-config.md | MIN_CONFIDENCE_FLAG_VAL | fix |
+
+---
+
+## Reverse run (63-10)
+
+- **Date:** 2026-11-15
+- **How:** a detached scratch worktree at `c7d92c9` (the extraction-only commit, before any fix), with the 63-10 `test_cross_call_vars.py` copied in; `pytest -q -p no:cacheprovider test_cross_call_vars.py -k "TestRepro63 and not Record"`; the worktree was then removed.
+- **Result:** every flipped fixture fails on the pre-fix files:
+
+```
+FAILED TestRepro63::test_x1_phase_dir                       (0 PHASE_DIR= lines printed)
+SUBFAILED(mode='gsd')    TestRepro63::test_x2_legacy_state_file
+SUBFAILED(mode='branch') TestRepro63::test_x2_legacy_state_file
+SUBFAILED(mode='gsd')    TestRepro63::test_x3_state_file
+SUBFAILED(mode='branch') TestRepro63::test_x3_state_file
+SUBFAILED(mode='gsd, --finalize') TestRepro63::test_x3_state_file
+FAILED TestRepro63::test_x4_codex_flag_val                  ('auto' != 'off')
+FAILED TestRepro63::test_x5_config_repo_root                ([] != ['style'])
+FAILED TestRepro63::test_x6_min_confidence_flag_val         (None != 45)
+9 failed, 2 passed, 57 deselected
+```
+
+(The 2 passed are the X2 and X3 parent tests, whose subtests carry the failures.) At the 63-10 fix commits the same fixtures pass.
+
+| Id | Disposition |
+|----|-------------|
+| X1 | reproduced; fixed by 63-10 |
+| X2 | reproduced; fixed by 63-10 |
+| X3 | reproduced; fixed by 63-10 |
+| X4 | reproduced; fixed by 63-10 |
+| X5 | reproduced; fixed by 63-10 |
+| X6 | reproduced; fixed by 63-10 |
+
+---
+
+## Open item: `$STATE_FILE` read in `phases/shared/90-finalize.md` (needs an owner decision)
+
+**Verdict:** REPRODUCED at `936d29e` (the last 63-10 fix commit). Not fixed: the owner's decision covered X1 to X6 only, and `90-finalize.md` is not edited in 63-10.
+
+**What the owner would see.** `--finalize` (Close out) on a review with saved progress says there are no prior review passes and stops without writing `REVIEW.md`, although the state file is there.
+
+**Why the check missed it.** `90-finalize.md` reads `"$STATE_FILE"`, but the value is set in `phases/review/05-state.md`. The cross-call check looks within one file only (its known limit), so this read was never flagged.
+
+**How it was checked.** The same standard as above: the 05-state GSD-key block (`02-code-review` typed in for `${PHASE_ID}`; it now prints `STATE_FILE=`) and the 90-finalize Finalize-inputs block (its three `"<true|false>"` slots typed in as `"false"`), taken from the live files, in a temp git repo holding a pass-1 state file at `.turingmind/state/format-53/02-code-review.json`. `90-finalize.md` gives no instruction to substitute the printed `STATE_FILE=` literal, so the fresh Finalize block gets none. Scratch script only; nothing was added to the suite.
+
+```
+Fresh run:
+--- block 1 (05-state, GSD key): exit 0
+LEGACY_STATE_FILE=.turingmind/state/02-code-review.json
+STATE_FILE=.turingmind/state/format-53/02-code-review.json
+--- block 2 (90-finalize, Finalize inputs): exit 0
+BLOBFILE=<tmp>/vc.XXXXXX
+{"action": "error", "reason": "no prior review passes", "next": "stop-no-state", ...}
+--- the archive block alone, fresh: exit 1
+review_archive: could not archive : no file to archive: ;  was left in place
+Finalize stopped — REVIEW.md was written, but the review state could not be archived and is still live at  (the line above says why). ...
+
+Control (blocks 1 and 2 in one shell): exit 0
+{"action": "write", "reason": "no outstanding findings; finalization may proceed", "next": "write-review-md", ...}
+```
+
+Outcome class by the rule above: the fresh exit codes are 0, the files agree and the output differs, so the classifier says ignored-setting. In effect it is a stop, because `stop-no-state` ends Close out before anything is written.
+
+**Related, not run:** `phases/review/50-fix-loop.md` also reads `"$STATE_FILE"` in its own blocks (rows, record-decisions, payload, record-fix-verdicts) with no substitution sentence; `phases/review/30-collect-score.md` already says to substitute the literal state path. The same cross-file gap likely applies to the fix loop.
+
+**What a fix would look like (for the owner's decision).** `05-state.md` now prints `STATE_FILE=` (63-10, X3), so a fix is one substitution sentence in `90-finalize.md` (and likewise in `50-fix-loop.md`). Because the name ends in `FILE`, counting rule v1 would count every `"$STATE_FILE"` use in those files as a paste step. That raises the Finalize step count above the extraction-only figure and changes bytes the equivalence record covers. Options: fix it in a follow-up plan (recommended, because Close out is a required workflow), or carry it to the backlog.
