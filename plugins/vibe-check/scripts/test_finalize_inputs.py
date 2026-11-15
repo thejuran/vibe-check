@@ -1034,6 +1034,50 @@ class TestCliResult(CliCase):
         self.assertIsInstance(json.loads(out), dict)
 
 
+# The 2.14.1 guard line, run by a shell exactly as written in step 1:
+#   python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"
+# `$0` is this interpreter, `$1` guard.py, `$2` the file. `$(...)` drops the
+# trailing line breaks of git's output and nothing else, so a repo folder
+# whose name ends in a space or a tab keeps it.
+GUARD_LINE_2141 = '"$0" "$1" --root "$(git rev-parse --show-toplevel)" --path "$2"'
+
+
+def run_in(repo, args):
+    return subprocess.run(args, cwd=repo, stdin=subprocess.DEVNULL,
+                          capture_output=True, timeout=120)
+
+
+def fingerprint_2141(repo, name):
+    """The blob 2.14.1 step 1 puts in $BLOBFILE for `name`, run in the session
+    folder `repo`, or None: the PATH_RE pre-filter, the guard line through
+    /bin/sh, then the three git calls, kept only when all exit 0."""
+    if not finalize_inputs.PATH_RE.match(name):
+        return None
+    guard = run_in(repo, ["/bin/sh", "-c", GUARD_LINE_2141, sys.executable,
+                          GUARD_PY, name])
+    if guard.returncode != 0:
+        return None
+    rev = run_in(repo, ["git", "rev-parse", "HEAD:" + name])
+    if rev.returncode != 0:
+        return None
+    for check in (["git", "diff", "--quiet", "HEAD", "--", name],
+                  ["git", "diff", "--cached", "--quiet", "--", name]):
+        if run_in(repo, check).returncode != 0:
+            return None
+    return rev.stdout.decode().strip()
+
+
+def repo_at(path):
+    """A fresh repo at exactly `path` (any folder name), on main, with local
+    identity; returns `path` unchanged."""
+    os.makedirs(path)
+    git(path, "init", "-q", "-b", "main")
+    git(path, "config", "user.name", "t")
+    git(path, "config", "user.email", "t@t")
+    git(path, "config", "commit.gpgsign", "false")
+    return path
+
+
 class TestGuardCommandParity(CliCase):
     """The containment check as 2.14.1 ran it: a COMMAND, not a function.
 
@@ -1044,13 +1088,13 @@ class TestGuardCommandParity(CliCase):
 
     and required exit 0. argparse reads a `--path` value that looks like an
     option (most names starting with `-`) as an option, exits 2, and the file
-    is left out. Which names it refuses depends on the Python version (3.13+
-    reads `-1.ts` as a negative number and accepts it; 3.9 refuses it), so
-    each side here runs under the same interpreter, `sys.executable`.
+    is left out. Which names it refuses depends on the Python version
+    (observed: 3.14 accepts `-1.ts`; 3.9, 3.12 and 3.13 refuse it), so each
+    side here runs under the same interpreter, `sys.executable`.
 
-    The 2.14.1 side below is the literal per-file procedure: the PATH_RE
-    pre-filter, the guard command as a subprocess, then the three git calls,
-    a file kept only when all exit 0. It never calls the helper."""
+    The 2.14.1 side is `fingerprint_2141`: the literal per-file procedure,
+    with the guard command run through a shell so `--root` is exactly what
+    `$(git rev-parse --show-toplevel)` gives. It never calls the helper."""
 
     LEADING_DASH = ("-x.ts", "-d/x.ts", "--", "-", "-x", "-hx", "--root",
                     "--path", "-h", "--help", "--ro", "--pa", "--pathx",
@@ -1063,28 +1107,9 @@ class TestGuardCommandParity(CliCase):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "names")
 
-    def run_2141(self, args):
-        return subprocess.run(args, cwd=self.repo, stdin=subprocess.DEVNULL,
-                              capture_output=True, timeout=120)
-
     def fingerprint_2141(self, name):
         """The blob 2.14.1 step 1 puts in $BLOBFILE for `name`, or None."""
-        if not finalize_inputs.PATH_RE.match(name):
-            return None
-        top = self.run_2141(["git", "rev-parse", "--show-toplevel"])
-        root = top.stdout.decode().strip()
-        guard = self.run_2141([sys.executable, GUARD_PY, "--root", root,
-                               "--path", name])
-        if guard.returncode != 0:
-            return None
-        rev = self.run_2141(["git", "rev-parse", "HEAD:" + name])
-        if rev.returncode != 0:
-            return None
-        for check in (["git", "diff", "--quiet", "HEAD", "--", name],
-                      ["git", "diff", "--cached", "--quiet", "--", name]):
-            if self.run_2141(check).returncode != 0:
-                return None
-        return rev.stdout.decode().strip()
+        return fingerprint_2141(self.repo, name)
 
     def test_parity_leading_dash_names_match_the_2141_guard_command(self):
         names = self.LEADING_DASH + self.CONTROLS
@@ -1103,6 +1128,24 @@ class TestGuardCommandParity(CliCase):
         for name in ("-x.ts", "-d/x.ts", "--", "--root", "--path", "-h",
                      "--help"):
             self.assertNotIn(name, old)
+        self.assertEqual(new, old)
+
+    def test_parity_names_in_a_repo_folder_ending_in_a_space(self):
+        """The same names in a repo whose folder name ends in a space: the
+        root 2.14.1 passes keeps the space, so the controls are kept."""
+        self.repo = repo_at(os.path.join(self.tmp, "named", "repo "))
+        names = ("x.ts", "sub/-x.ts", "-x.ts", "-")
+        self.commit_names(names)
+        old, new = {}, {}
+        for name in names:
+            blob = self.fingerprint_2141(name)
+            if blob is not None:
+                old[name] = blob
+            new.update(finalize_inputs.head_blobs(state_for([name]),
+                                                  cwd=self.repo))
+        for name in ("x.ts", "sub/-x.ts", "-"):
+            self.assertIn(name, old)
+        self.assertNotIn("-x.ts", old)
         self.assertEqual(new, old)
 
     def test_parity_leading_dash_path_is_not_fingerprinted(self):
@@ -1142,6 +1185,113 @@ class TestGuardCommandParity(CliCase):
         self.assertIsNone(got["report"])
         with open(bp, "r", encoding="utf-8") as fh:
             self.assertEqual(json.load(fh), {})
+
+
+class TestRepoFolderNameParity(CliCase):
+    """The repo root as 2.14.1 passed it, for a repo folder whose name ends
+    in whitespace. `$(git rev-parse --show-toplevel)` drops the trailing
+    line breaks of git's output and nothing else, so `.../repo ` (ending in
+    a space) stays `.../repo `. Each case runs the whole Finalize input
+    step both ways, end to end, from the repo folder: the 2.14.1 side is
+    `fingerprint_2141` (the guard line through /bin/sh) and the three
+    2.14.1 commands; the helper side is the CLI. A clean `x.ts` carries a
+    last-pass fix-obsolete verdict on its HEAD blob."""
+
+    def repo_with_x(self, path, content="x1\n"):
+        repo = repo_at(path)
+        write(repo, "x.ts", content)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "x")
+        return repo
+
+    def state_on_x(self, repo):
+        state = fix_obsolete_state(self.blob("x.ts", cwd=repo))
+        row(state, ARCH_HASH)["file"] = "x.ts"
+        return state
+
+    def decide_2141(self, repo, sp):
+        """(blob map, [cw, medium, nv], gate) as 2.14.1 gives them with the
+        session in `repo`."""
+        blob = fingerprint_2141(repo, "x.ts")
+        blobs = {} if blob is None else {"x.ts": blob}
+        self.repo = repo
+        c_code, c_out, _ = self.old_counts(sp, self.new_path(blobs))
+        self.assertEqual(c_code, 0)
+        counts = json.loads(c_out)
+        flags = dict({"state_file_present": True,
+                      "outstanding_cw": counts["outstanding_cw"],
+                      "unacknowledged_medium": counts["unacknowledged_medium"],
+                      "undecided_nv": counts["undecided_nv"]}, **INTERACTIVE)
+        g_code, g_out, _ = self.old_gate(flags)
+        self.assertEqual(g_code, 0)
+        three = [counts["outstanding_cw"], counts["unacknowledged_medium"],
+                 counts["undecided_nv"]]
+        return blobs, three, json.loads(g_out)
+
+    def decide_helper(self, repo, sp):
+        bp = self.empty()
+        code, out, err = self.cli(argv_for(sp, bp), cwd=repo)
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        with open(bp, "r", encoding="utf-8") as fh:
+            blobs = json.load(fh)
+        c = got["counts"]
+        three = [c["outstanding_cw"], c["unacknowledged_medium"],
+                 c["undecided_nv"]]
+        return blobs, three, {"action": got["action"],
+                              "reason": got["reason"]}
+
+    def test_parity_folder_ending_in_a_space_or_a_tab(self):
+        for label, folder in (("space", "repo "), ("tab", "repo\t")):
+            with self.subTest(ending=label):
+                repo = self.repo_with_x(os.path.join(self.tmp, label, folder))
+                sp = self.new_path(self.state_on_x(repo))
+                old = self.decide_2141(repo, sp)
+                # 2.14.1 fingerprints the clean file and writes.
+                self.assertEqual(old[0], {"x.ts": self.blob("x.ts", cwd=repo)})
+                self.assertEqual((old[1], old[2]["action"]),
+                                 ([0, 0, 0], "write"))
+                self.assertEqual(self.decide_helper(repo, sp), old)
+
+    def test_parity_other_folder_name_endings(self):
+        """Further endings: other whitespace (2.14.1 keeps it in the root)
+        and line breaks (2.14.1 drops them, so the root names another folder
+        and the file is left out). A leading space is kept by both."""
+        endings = (("no-break space", "repo\u00a0", "write"),
+                   ("carriage return", "repo\r", "write"),
+                   ("vertical tab", "repo\x0b", "write"),
+                   ("form feed", "repo\x0c", "write"),
+                   ("leading space", " repo", "write"),
+                   ("line break", "repo\n", "outstanding-to-phase-5"),
+                   ("two line breaks", "repo\n\n", "outstanding-to-phase-5"),
+                   ("space, line break", "repo \n", "outstanding-to-phase-5"))
+        for label, folder, action in endings:
+            with self.subTest(ending=label):
+                try:
+                    repo = self.repo_with_x(os.path.join(self.tmp, label,
+                                                         folder))
+                except OSError:
+                    self.skipTest("the filesystem refuses " + repr(folder))
+                sp = self.new_path(self.state_on_x(repo))
+                old = self.decide_2141(repo, sp)
+                self.assertEqual(old[2]["action"], action)
+                self.assertEqual(self.decide_helper(repo, sp), old)
+
+    def test_folder_ending_in_a_space_beside_its_trimmed_name_is_not_approved(self):
+        """`repo ` beside a second repo `repo` holding the same `x.ts`; the
+        real `x.ts` is edited after the verdict. 2.14.1 leaves the finding
+        open; a root trimmed to `repo` would read the neighbour and write."""
+        base = os.path.join(self.tmp, "pair")
+        repo = self.repo_with_x(os.path.join(base, "repo "))
+        self.repo_with_x(os.path.join(base, "repo"))
+        sp = self.new_path(self.state_on_x(repo))
+        write(repo, "x.ts", "x2 edited after the verdict\n")
+        old = self.decide_2141(repo, sp)
+        self.assertEqual((old[0], old[1], old[2]["action"]),
+                         ({}, [1, 0, 0], "outstanding-to-phase-5"))
+        new = self.decide_helper(repo, sp)
+        self.assertNotEqual(new[2]["action"], "write")
+        self.assertEqual(new, old)
 
 
 class TestCliRefusals(CliCase):
