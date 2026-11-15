@@ -336,7 +336,6 @@ BOOTSTRAP_NAMES = {"VC_ROOT", "GUARD_PY", "CONFIG_PY", "SCORE_PY"}
 # records as "flagged, not reproduced / not decided". A new flag and a stale
 # entry both fail, so the list can only shrink.
 CROSS_FILE_EXCEPTIONS = {
-    ("phases/review/05-state-all.md", "STATE_FILE"): "C1",
     ("phases/review/30-collect-score.md", "STATE_FILE"): "C2",
 }
 
@@ -1017,6 +1016,7 @@ class TestClassify(unittest.TestCase):
 # anything is changed). `fixture` names the TestRepro63 test that reproduces it.
 # --------------------------------------------------------------------------- #
 SCOPE_REL = "phases/review/00-scope.md"
+ALL_STATE_REL = "phases/review/05-state-all.md"
 CONFIG_REL = "phases/review/06-config.md"
 # What the owner decided for each row (63-REPRO.md, "Owner decision"): a
 # fixed row is off the exceptions list; a pinned row stays on it by name.
@@ -1391,6 +1391,89 @@ class TestRepro63(unittest.TestCase):
         self.assertEqual(control[0], 0, control)
         # The ordinary fix-loop rows block, run fresh with the printed state
         # path, numbers the same card as the one-shell run.
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0], fresh)
+        self.assertEqual(printed_literal(fresh[1][1], "ROWS"),
+                         printed_literal(control[1], "ROWS"))
+        self.assertEqual(tree_files(run.fresh_repo),
+                         tree_files(run.control_repo))
+
+    # -- cross-file on `--all`: 05-state-all.md is the setter ------------- #
+    ALL_SETTER_NEEDLE = "ALL_STATE_FILE=$(set -o pipefail"
+
+    @staticmethod
+    def all_state_path(repo):
+        """The `--all` key statepath.py gives this repo on its branch."""
+        branch = gitfixture.git(repo, "branch", "--show-current").stdout.strip()
+        proc = subprocess.run(
+            ["python3", "-I", os.path.join(PLUGIN_ROOT, "scripts", "statepath.py")],
+            input=json.dumps({"mode": "all", "repo": os.path.basename(repo),
+                              "branch": branch, "narrow": ""}),
+            capture_output=True, text=True, timeout=30, check=True)
+        return json.loads(proc.stdout)["current_path"]
+
+    @classmethod
+    def build_saved_all_review(cls, repo):
+        """A repo with one commit and a pass-1 `--all` state file."""
+        gitfixture.write(repo, "src/a.txt", "a\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+        sha = gitfixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+        gitfixture.write(repo, cls.all_state_path(repo),
+                         json.dumps({"passes": [{"pass_number": 1,
+                                                 "head_sha": sha,
+                                                 "findings": []}]}))
+
+    def saved_all_review_run(self, label):
+        """Like saved_review_run on `--all`; the state literal is whatever
+        the setter printed after `STATE_FILE=` (empty when it printed none,
+        which is what the model would then have to paste)."""
+        work = os.path.join(self.tmp, label)
+        os.makedirs(work)
+        run = ShellRun(work, self.build_saved_all_review)
+        setter = fence_holding(ALL_STATE_REL, self.ALL_SETTER_NEEDLE)
+        first = run.fresh([setter])
+        lines = [l[len("STATE_FILE="):] for l in first[0][1].splitlines()
+                 if l.startswith("STATE_FILE=")]
+        return run, setter, first, (lines[0] if lines else "")
+
+    def test_c1_all_mode_close_out_state_file(self):
+        run, setter, first, state = self.saved_all_review_run("c1-finalize")
+        finalize = substitute(
+            fence_holding(FINALIZE_REL, 'finalize_inputs.py" --state-file'),
+            [('"<true|false>"', '"false"')])
+        archive = fence_holding(FINALIZE_REL, 'review_archive.py" state')
+        fin = run.fresh([self.carried_where_told(
+            FINALIZE_REL, finalize, "STATE_FILE", state)])
+        result = json.loads([l for l in fin[0][1].splitlines()
+                             if l.startswith("{")][0])
+        fresh = first + fin
+        if result["next"] == "write-review-md":
+            gitfixture.write(run.fresh_repo, ".turingmind/REVIEW.md",
+                             "review\n")
+            fresh += run.fresh([self.carried_where_told(
+                FINALIZE_REL, archive, "STATE_FILE", state)])
+        control = run.control([setter, finalize, self.WRITE_REVIEW, archive])
+        self.assertEqual(control[0], 0, control)
+        fresh_files = tree_files(run.fresh_repo)
+        # Close out on --all, each block run fresh with the printed state
+        # path, writes REVIEW.md and archives the state, as one shell does.
+        self.assertEqual(result["next"], "write-review-md", result)
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0], fresh)
+        self.assertIn(".turingmind/REVIEW.md", fresh_files)
+        self.assertEqual(fresh_files, tree_files(run.control_repo))
+        # The setter printed the --all key (the state it archived).
+        self.assertEqual(state, self.all_state_path(run.fresh_repo))
+        self.assertNotIn(state, fresh_files)
+
+    def test_c1_all_mode_fix_loop_state_file(self):
+        run, setter, first, state = self.saved_all_review_run("c1-fix-loop")
+        probe = "\nprintf 'ROWS=%s\\n' \"$(tr -d '\\n' < \"$ROWSFILE\")\""
+        rows = fence_holding(
+            FIX_LOOP_REL, 'rows --mode fix-loop < "$STATE_FILE"') + probe
+        fresh = first + run.fresh([self.carried_where_told(
+            FIX_LOOP_REL, rows, "STATE_FILE", state)])
+        control = run.control([setter, rows])
+        self.assertEqual(control[0], 0, control)
         self.assertEqual([rc for rc, _, _ in fresh], [0, 0], fresh)
         self.assertEqual(printed_literal(fresh[1][1], "ROWS"),
                          printed_literal(control[1], "ROWS"))
