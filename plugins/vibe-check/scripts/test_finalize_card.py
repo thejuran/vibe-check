@@ -1654,8 +1654,8 @@ def nv_fallback_listing_holds(text):
 
 
 def write_bullet(text):
-    start = text.index("- `write` (only on the gate's `write`")
-    return text[start:text.index("- `refuse`", start)]
+    start = text.index("- `write-review-md` (only on the gate's `write`")
+    return text[start:text.index("- `stop-refused`", start)]
 
 
 def schema_template_lines(schema):

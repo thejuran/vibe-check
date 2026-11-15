@@ -34,17 +34,16 @@ item.
 
 import json
 import os
-import re
 import sys
 import types
 import unittest
-from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import batch_card  # noqa: E402
 import carry_state  # noqa: E402
+import finalize_inputs  # noqa: E402
 import score  # noqa: E402
 import state_shape  # noqa: E402
 from test_score import _nv, _nv_cf, _nv_env, _nv_rows  # noqa: E402
@@ -974,10 +973,16 @@ def fix_loop_collects_evidence_holds(text):
     )) and block.index(SHA_RE_LITERAL) < block.index("git cat-file -e")
 
 
-def finalize_renders_confirmed_fix_holds(text):
+def finalize_renders_confirmed_fix_holds(text, count_keys=None):
+    """The awaiting-re-check list is one of the counts Finalize reads: the
+    instruction names it, and the helper's result carries it (the quoted key
+    lived in the 2.14.1 counts fence's comment; it now lives in
+    `finalize_inputs.COUNT_KEYS`)."""
+    if count_keys is None:
+        count_keys = finalize_inputs.COUNT_KEYS
     return ("`confirmed_fix_awaiting_recheck_hashes`" in text
             and "source `confirmed-fix`" in text
-            and '"confirmed_fix_awaiting_recheck_hashes"' in text
+            and "confirmed_fix_awaiting_recheck_hashes" in count_keys
             and "verified_confirmed_fix_hashes" not in text
             and "awaiting an independent re-check" in text
             and "never closes here" in text)
@@ -1061,6 +1066,10 @@ class TestProse(unittest.TestCase):
                     text.replace(needle, "")))
         self.assertFalse(finalize_renders_confirmed_fix_holds(
             text + "\nverified_confirmed_fix_hashes"))
+        with self.subTest(mutant="key dropped from the helper's counts"):
+            self.assertFalse(finalize_renders_confirmed_fix_holds(
+                text, tuple(k for k in finalize_inputs.COUNT_KEYS
+                            if k != "confirmed_fix_awaiting_recheck_hashes")))
 
     def test_dispatch_routes_confirmed_fix(self):
         text = _read("phases/review/20-dispatch.md")
