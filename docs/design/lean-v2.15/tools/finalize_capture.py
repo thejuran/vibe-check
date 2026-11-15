@@ -103,6 +103,10 @@ NORMALISATION = (
 # One output schema for all five situations, fixed before any driver exists.
 OUTPUT_KEYS = ("steps", "gate", "stop_sentence", "report", "files_written",
                "files_archived", "state_closed", "tally")
+# The fields a later version must reproduce byte for byte (Phase 63 D-15);
+# `steps` and `tally`, the lists of commands run, are expected to differ.
+OUTCOME_KEYS = ("gate", "stop_sentence", "report", "files_written",
+                "files_archived", "state_closed")
 STEP_KEYS = ("id", "exit", "stdout", "stderr_present")
 TALLY_KEYS = ("commands_run", "values_carried", "writes")
 
@@ -480,6 +484,8 @@ REPORT_CALL = 'batch_card.py" decisions-report < "$STATE_FILE"'
 PRIOR_REVIEW_CALL = 'review_archive.py" unstamped --dir .turingmind'
 ARCHIVE_STATE_CALL = 'review_archive.py" state --state-file "$STATE_FILE"'
 STATE_PRESENT = '[ -f "$STATE_FILE" ]'
+FINALIZE_INPUTS_CALL = ('finalize_inputs.py" --state-file "$STATE_FILE" '
+                        '--blob-out "$BLOBFILE"')
 STATE_REL = ".turingmind/state/format-53/capture.json"
 REVIEW_REL = ".turingmind/REVIEW.md"
 # The walk's TMPDIR, inside the work directory. The mktemp files the fences
@@ -670,6 +676,11 @@ class _Walk:
         Write: nothing is written and the state is not archived."""
         out = self.ok("decisions-report", self.fence(REPORT_CALL))
         self.report = json.loads(out.strip().splitlines()[0])
+        self.archive_and_write()
+
+    def archive_and_write(self):
+        """The prior-report archive, REVIEW.md and the state archive, once
+        the report is held."""
         rc, _, err = self.step("prior-review-archive",
                                self.fence(PRIOR_REVIEW_CALL))
         if rc != 0:
@@ -786,29 +797,315 @@ class FenceWalk2141:
 
 
 # --------------------------------------------------------------------------- #
+# The 2.15 driver: one Finalize-inputs fence per attempt
+# --------------------------------------------------------------------------- #
+SWITCH_SLOT = '"<true|false>"'
+SWITCH_FLAGS = (("--noninteractive", "noninteractive"),
+                ("--pr-mode", "pr_mode"), ("--range-mode", "range_mode"))
+# Stand-ins for the 2.14.1 faults, put directly after the fence's
+# `printf 'BLOBFILE=%s\n'` line. The gate input file is gone, so a malformed
+# gate input becomes a malformed file the attempt depends on: the printed
+# BLOBFILE holding `not json`.
+FAULT_LINES = {"missing": 'rm -f "$BLOBFILE"',
+               "not json": "printf 'not json' > \"$BLOBFILE\""}
+# fresh-shell-restart runs in a real git folder: the verdict's file holds
+# this text at HEAD, and the verdict is bound to its real blob id.
+RESTART_FILE_TEXT = "export const integrationDeadline = 60;\n"
+_GIT_DATE = "2026-01-01T00:00:00+00:00"
+
+
+def helper_fault_line(fault):
+    """The shell line standing in for one entry of `attempt_faults`, or None.
+    Raises CaptureError for a fault with no stand-in."""
+    if not fault:
+        return None
+    if fault.get("blobfile") in FAULT_LINES:
+        return FAULT_LINES[fault["blobfile"]]
+    if fault.get("gate_input") == "not json":
+        return FAULT_LINES["not json"]
+    raise CaptureError("no stand-in for the fault %r" % (fault,))
+
+
+def insert_after_blob_print(script, line):
+    """`script` with `line` put directly after its one BLOBFILE print line,
+    at the same indentation."""
+    anchor = print_line("BLOBFILE")
+    out, found = [], 0
+    for text in script.split("\n"):
+        out.append(text)
+        if text.strip() == anchor:
+            out.append(text[:len(text) - len(text.lstrip())] + line)
+            found += 1
+    if found != 1:
+        raise CaptureError("the fence prints BLOBFILE %d times, not 1" % found)
+    return "\n".join(out)
+
+
+def _git_env(home):
+    """git with no global or system config and a fixed identity and date."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home,
+           "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    for who in ("AUTHOR", "COMMITTER"):
+        env["GIT_%s_NAME" % who] = "walk"
+        env["GIT_%s_EMAIL" % who] = "walk@example.invalid"
+        env["GIT_%s_DATE" % who] = _GIT_DATE
+    return env
+
+
+def _git(args, cwd, env):
+    proc = subprocess.run(["git", "-c", "commit.gpgsign=false"] + list(args),
+                          cwd=cwd, env=env, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
+                          timeout=GIT_TIMEOUT)
+    if proc.returncode != 0:
+        raise CaptureError("git %s failed: %s" % (args[0],
+                                                  proc.stderr.strip()))
+    return proc.stdout
+
+
+def prepare_git_folder(workdir, files):
+    """Make `workdir` a git work tree whose git data lives in a new folder
+    beside it (never under it), with each of `files` committed. Returns
+    (git directory, {file: real HEAD blob id}). The only git artefact left in
+    `workdir` is the one-line `.git` pointer file."""
+    parent = os.path.dirname(os.path.abspath(workdir))
+    holder = tempfile.mkdtemp(prefix=os.path.basename(workdir) + ".git-",
+                              dir=parent)
+    git_dir = os.path.join(holder, "git")
+    env = _git_env(holder)
+    _git(["init", "-q", "--separate-git-dir", git_dir, workdir], parent, env)
+    for rel in files:
+        path = os.path.join(workdir, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(RESTART_FILE_TEXT)
+    _git(["add", "--"] + list(files), workdir, env)
+    _git(["commit", "-q", "-m", "walk"], workdir, env)
+    blobs = {rel: _git(["rev-parse", "HEAD:" + rel], workdir, env).strip()
+             for rel in files}
+    return git_dir, blobs
+
+
+def _bind_real_blobs(inputs, real):
+    """`inputs` with every verdict bound to a placeholder blob id rebound to
+    the real blob of the same file."""
+    swap = {inputs["head_blobs"][rel]: blob for rel, blob in real.items()}
+    out = dict(inputs)
+    out["fix_verdicts"] = {
+        h: dict(v, verified_blob=swap.get(v.get("verified_blob"),
+                                          v.get("verified_blob")))
+        for h, v in inputs.get("fix_verdicts", {}).items()}
+    return out
+
+
+class _HelperSteps(_Walk):
+    """A walk whose counting attempt is the one Finalize-inputs fence."""
+
+    def __init__(self, vc_root, workdir):
+        super().__init__(vc_root, workdir)
+        # (exit, stderr text) per attempt: kept in memory for the screen-text
+        # checks, never added to the record.
+        self.attempt_stderr = []
+        self.results = []
+        self.blobfiles = []
+        self.git_dir = None
+        self.real_blobs = {}
+
+    def attempt(self, inputs, fault=None):
+        """One run of the Finalize-inputs fence in a fresh shell. Returns
+        (printed BLOBFILE, {action, reason} or None, exit code)."""
+        script = self.fence(FINALIZE_INPUTS_CALL)
+        for flag, key in SWITCH_FLAGS:
+            slot = "%s %s" % (flag, SWITCH_SLOT)
+            if script.count(slot) != 1:
+                raise CaptureError("the Finalize-inputs fence has no single "
+                                   "%s slot" % flag)
+            script = script.replace(slot, '%s "%s"' % (
+                flag, "true" if inputs["flags"][key] else "false"))
+        line = helper_fault_line(fault)
+        if line:
+            script = insert_after_blob_print(script, line)
+        rc, out, err = self.step("finalize-inputs", script)
+        self.attempt_stderr.append((rc, err))
+        printed = dict(_PRINTED_RE.findall(out))
+        if "BLOBFILE" not in printed:
+            raise CaptureError("the Finalize-inputs fence printed no BLOBFILE=")
+        blob = printed["BLOBFILE"]
+        self.blobfiles.append(blob)
+        if rc != 0:
+            return blob, None, rc
+        try:
+            result = json.loads(out.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            raise CaptureError("the Finalize-inputs fence printed no result: "
+                               "%r" % out)
+        self.results.append(result)
+        decision = {"action": result["action"], "reason": result["reason"]}
+        self.gate.append(decision)
+        return blob, decision, rc
+
+    def close(self):
+        """The report is the result's `report` object; the archive, the
+        Write and the state archive are the same fences as before."""
+        self.report = self.results[-1]["report"]
+        self.archive_and_write()
+
+
+class HelperWalk(FenceWalk2141):
+    """The 2.15 driver: the same situations and routes, with each counting
+    attempt one Finalize-inputs fence. Exit 5 (the report failed) stops at
+    once with that fence's own sentence; any other non-zero exit is a failed
+    attempt under the one-rebuild rule."""
+
+    NAME = "helper-walk-2.15"
+    WALK = _HelperSteps
+    STOP_AT_ONCE = (5,)
+
+    def __init__(self):
+        self.last_walk = None
+
+    def prepare(self, situation_id, vc_root, workdir, leg=None):
+        """The walk and the inputs it runs on, with the starting files made
+        and the `before` snapshot taken."""
+        inputs = situation_inputs(situation_id, leg)
+        walk = self.WALK(vc_root, workdir)
+        self.last_walk = walk
+        if inputs.get("head_blobs"):
+            walk.git_dir, walk.real_blobs = prepare_git_folder(
+                workdir, sorted(inputs["head_blobs"]))
+            inputs = _bind_real_blobs(inputs, walk.real_blobs)
+        prepare_state(vc_root, situation_id, walk.state_file, inputs)
+        if inputs.get("prior_review_md") is not None:
+            with open(os.path.join(workdir, *REVIEW_REL.split("/")), "w",
+                      encoding="utf-8") as fh:
+                fh.write(inputs["prior_review_md"])
+        walk.before = _files(workdir)
+        return walk, inputs
+
+    def run(self, situation_id, vc_root, workdir, leg=None):
+        read_only = bool(situation_inputs(situation_id, leg).get(
+            "turingmind_read_only"))
+        if read_only and os.geteuid() == 0:
+            raise UsageError("%s %s needs a directory that cannot be "
+                             "written, and root ignores directory "
+                             "permissions; run the capture as a normal user"
+                             % (situation_id, leg))
+        walk, inputs = self.prepare(situation_id, vc_root, workdir, leg)
+        turingmind = os.path.join(workdir, ".turingmind")
+        if read_only:
+            os.chmod(turingmind, 0o555)
+        try:
+            getattr(self, "_" + situation_id.replace("-", "_"))(walk, inputs)
+        finally:
+            if read_only:
+                os.chmod(turingmind, 0o755)
+        return walk.outputs()
+
+    def gated(self, walk, inputs):
+        faults = inputs.get("attempt_faults", [])
+        for attempt in range(self.REBUILDS + 1):
+            fault = faults[attempt] if attempt < len(faults) else None
+            blob, decision, rc = walk.attempt(inputs, fault)
+            if decision is not None:
+                return blob, decision
+            if rc in self.STOP_AT_ONCE:
+                walk.stop(self._own_sentence(walk))
+                return None, None
+        walk.stop(stop_sentence(walk.finalize_text))
+        return None, None
+
+    @staticmethod
+    def _own_sentence(walk):
+        lines = walk.attempt_stderr[-1][1].splitlines()
+        if not lines or lines[-1] not in walk.finalize_text:
+            raise CaptureError("the Finalize-inputs fence stopped without "
+                               "its own sentence: %r" % (lines,))
+        return lines[-1]
+
+
+# The report stage cannot be interrupted from outside between the helper's
+# two reads of the state file, so this stand-in runs the real helper (kept
+# beside it as finalize_inputs_real.py) and makes the state file `not json`
+# right after the count: the helper's own re-read then refuses (exit 5).
+_REPORT_STAND_IN = r'''import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+real = __import__("finalize_inputs_real")
+
+_STATE = sys.argv[sys.argv.index("--state-file") + 1]
+_COUNT = real.carry_state.finalize_counts
+
+
+def _count_then_spoil(*args, **kwargs):
+    out = _COUNT(*args, **kwargs)
+    with open(_STATE, "w", encoding="utf-8") as fh:
+        fh.write("not json")
+    return out
+
+
+real.carry_state.finalize_counts = _count_then_spoil
+_code, _out = real.run(sys.argv[1:])
+if _out:
+    sys.stdout.write(_out)
+sys.exit(_code)
+'''
+
+
+def report_stand_in_root(vc_root, dest):
+    """A copy of the plugin tree `vc_root` under `dest` in which the real
+    helper refuses at its report stage. Returns the copy's root."""
+    root = os.path.join(dest, "report-stand-in")
+    shutil.copytree(vc_root, root,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    scripts = os.path.join(root, "scripts")
+    os.rename(os.path.join(scripts, "finalize_inputs.py"),
+              os.path.join(scripts, "finalize_inputs_real.py"))
+    with open(os.path.join(scripts, "finalize_inputs.py"), "w",
+              encoding="utf-8") as fh:
+        fh.write(_REPORT_STAND_IN)
+    return root
+
+
+# --------------------------------------------------------------------------- #
 # Capture
 # --------------------------------------------------------------------------- #
 DRIVERS = {BASELINE_COMMIT: FenceWalk2141}
+# Drivers chosen by name (`compare --driver`), for a tree that is not the
+# pinned commit.
+DRIVER_NAMES = {"helper": HelperWalk}
+
+
+def copy_tree(root, dest):
+    """Copy the plugin directory `root` into `dest` as the walk's VC_ROOT;
+    return the copy's root. Raises UsageError when `root` holds no
+    Finalize file."""
+    if not os.path.isfile(os.path.join(root, *FINALIZE_REL.split("/"))):
+        raise UsageError("%s holds no %s" % (root, FINALIZE_REL))
+    copy = os.path.join(dest, *PLUGIN_REL.split("/"))
+    shutil.copytree(root, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    return copy
 
 
 def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
-                tmp_root=None, leg=None):
+                tmp_root=None, leg=None, root=None):
     """The normalised outputs of one situation (or one of its legs) walked
-    at `commit`. Every temp directory it makes is removed before it returns
-    or raises."""
+    at `commit`, or on a copy of the plugin directory `root` when given.
+    `driver` is a driver object, a name from DRIVER_NAMES, or None for the
+    commit's own driver. Every temp directory it makes is removed before it
+    returns or raises."""
     situation_inputs(situation_id, leg)
+    driver = _driver_for(commit, driver)
     scratch = tempfile.mkdtemp(prefix="fc-", dir=tmp_root)
     try:
         pinned = os.path.join(scratch, "pinned")
         work = os.path.join(scratch, "work")
         os.mkdir(pinned)
         os.mkdir(work)
-        vc_root = materialize(repo, commit, pinned)
-        if driver is None:
-            driver_cls = DRIVERS.get(commit)
-            if driver_cls is None:
-                raise UsageError("no driver walks commit %s" % commit)
-            driver = driver_cls()
+        if root is not None:
+            vc_root = copy_tree(root, pinned)
+        else:
+            vc_root = materialize(repo, commit, pinned)
         outputs = driver.run(situation_id, vc_root, work, leg=leg)
         return normalise_outputs(outputs, work, vc_root)
     finally:
@@ -816,19 +1113,24 @@ def capture_one(repo, situation_id, commit=BASELINE_COMMIT, driver=None,
 
 
 def capture_situation(repo, situation_id, commit=BASELINE_COMMIT,
-                      driver=None, tmp_root=None):
+                      driver=None, tmp_root=None, root=None):
     """One situation's record: its main walk's normalised outputs plus
     `legs`, each named leg walked separately in its own directories."""
     situation_inputs(situation_id)
     legs = sorted(SITUATIONS[situation_id]["legs"])
-    record = capture_one(repo, situation_id, commit, driver, tmp_root)
+    record = capture_one(repo, situation_id, commit, driver, tmp_root,
+                         root=root)
     record["legs"] = {leg: capture_one(repo, situation_id, commit, driver,
-                                       tmp_root, leg=leg)
+                                       tmp_root, leg=leg, root=root)
                       for leg in legs}
     return record
 
 
 def _driver_for(commit, driver):
+    if isinstance(driver, str):
+        if driver not in DRIVER_NAMES:
+            raise UsageError("unknown driver: %s" % driver)
+        return DRIVER_NAMES[driver]()
     if driver is not None:
         return driver
     driver_cls = DRIVERS.get(commit)
