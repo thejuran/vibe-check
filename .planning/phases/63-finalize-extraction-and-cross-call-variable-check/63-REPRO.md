@@ -645,3 +645,73 @@ After the fix (`72a2f94`) the `-x.ts` row on the helper side is [1,0,0], `outsta
 **Fix (`72a2f94`).** The per-file check calls `guard.main(["--root", root, "--path", f])` in-process, with its stdout and stderr captured and dropped, and keeps the file only on exit 0. This is the command's own code path, including argparse, so the two cannot drift. No subprocess was added per finding. Test first at `c1541b1`: `test_finalize_inputs.py::TestGuardCommandParity` (22 names compared with the real guard command run as a subprocess, plus the `-x.ts` end-to-end run against the 2.14.1 counting and gate commands). Both tests failed on the unfixed helper and pass after the fix.
 
 **Mutation checks** (scratch copy). Putting the old `guard.contained(root, f)[0]` line back fails both new tests. Replacing the test's 2.14.1-side subprocess with the helper's in-process `guard.contained` check fails both tests, with the unfixed helper and with the fixed one: the 2.14.1 side really runs the command.
+
+## Repo folder names ending in whitespace (D-25), 2026-11-15
+
+Found by phase re-verification (63-VERIFICATION.md, "The new gap in detail"). Present since PR #10 merged; not caused by the D-24 fix. Owner's D-24 ruling (match 2.14.1) applied by the main session as D-25.
+
+**Mechanism, confirmed.** 2.14.1 step 1 passes `--root "$(git rev-parse --show-toplevel)"`. Command substitution removes every trailing `\n` and nothing else: no spaces, tabs or `\r`, and the bytes go through untouched. The helper's `_toplevel` returned `result[1].strip()`, which also removes spaces, tabs, `\r`, `\x0b`, `\x0c` and Unicode whitespace (no-break space, em space, ideographic space) from both ends. With the root trimmed, `guard.main` checks a folder that does not exist (file refused, finding stays open) or, when a repo of the trimmed name sits beside it, the neighbour (the helper's three git calls then run there too).
+
+**End to end, before the fix** (helper at `5fe021c`, which is the unfixed helper; 2.14.1 side = the PATH_RE filter, the `dd8e4ab` guard line run through a real shell from the repo folder, the three git calls in the same folder, then the `dd8e4ab` `carry_state.py finalize-counts` and `finalize_gate.py`; state = the phase-45 loop fixture, medium dismissed, warning row on a clean committed `x.ts` with a last-pass fix-obsolete verdict on its HEAD blob). Identical on Python 3.9.6 (bash), 3.12.12 (bash), 3.13.14 (bash) and 3.14.5 (bash and zsh). Scratch script, temp folders only, removed afterwards.
+
+| Repo folder (session in it) | 2.14.1 | Helper before fix | Same? |
+|---|---|---|---|
+| `repo` (control) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `my repo` (space inside) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| ` repo` (leading space) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo ` (trailing space) | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + tab | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + no-break space | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\r` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\x0b` / + `\x0c` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + em space / + ideographic space | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\n`, + `\n\n`, + ` \n`, + `\r\n` | [1,0,0] `outstanding-to-phase-5` | [1,0,0] `outstanding-to-phase-5` | yes (both name another folder) |
+| `repo ` beside a repo `repo` with the same `x.ts`; real `x.ts` edited after the verdict | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` | **no (wrong approval)** |
+| `repo` + tab, same neighbour set-up | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` | **no (wrong approval)** |
+| `repo` reached through a symlink | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo` reached through `other/../repo` | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo ` reached through a symlink | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo ` reached through `other/../repo ` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| folder name with byte `\xff` | not testable: APFS refuses the name (`Errno 92 Illegal byte sequence`) | | |
+
+After the fix (`92ae038`) all 21 rows are the same on both sides, on the four interpreters, under bash and under zsh.
+
+**Audit of every post-processing site in `finalize_inputs.py`.** "Shell" is what the 2.14.1 fence or prose step did with the same output.
+
+| Site | 2.14.1 | Helper | Match? | Can a difference change a fingerprint, count or gate decision? |
+|---|---|---|---|---|
+| `_toplevel`: root text from `git rev-parse --show-toplevel` | `$(...)`: every trailing `\n` removed, nothing else | was `.strip()` (both ends, all whitespace); now `.rstrip("\n")` | was **no**; now yes | **Yes** (reproduced above). Fixed. |
+| Leading whitespace of the root | kept | kept: git prints an absolute path, so the string starts with `/` and no folder-name character is ever at the front; probed with ` repo` | yes | No |
+| Trailing `\r` of the root | kept | was removed; now kept | was **no**; now yes | Yes (reproduced). Fixed by the same change. |
+| Several trailing `\n` (folder name ending in line breaks) | all removed | `.rstrip("\n")` removes all | yes | No (both give another folder; probed) |
+| Decoding of git's output, `os.fsdecode` (UTF-8 + surrogateescape on macOS) | bytes passed through the shell into `guard.py`'s argv, which Python decodes with the same filesystem encoding and error handler | `os.fsdecode`, then `guard.main` re-encodes in `realpath` | yes on macOS | Not on macOS: a non-UTF-8 folder name cannot exist on APFS. On a Linux host with a non-UTF-8 legacy locale, argv decoding and `fsdecode` could in principle differ; not probed (no such host) |
+| `_ok(result)` empty root on a git failure | `$(...)` gives `""`, guard refuses an empty root | returns `""`, guard refuses | yes | No |
+| Blob id, `rev[1].strip()` | the model reads `git rev-parse "HEAD:<file>"` output and writes it with the Write tool | `.strip()` | yes | No: the output is only hex digits and a line break, so `.strip()` and dropping the line break give the same text |
+| `if blob:` | n/a (rev-parse exit 0 always prints an id) | skip empty | yes | No |
+| Finding file name `f` | passed verbatim as `"<file>"` | passed verbatim to `guard.main` and git argv; no strip, no case change | yes | No |
+| `os.path.realpath` / containment compare | inside `guard.py`, unchanged since `dd8e4ab` | the same `guard.main` | yes | No (same code) |
+| `guard.contained` `root.strip()` blank check | same code | same code | yes | No: only decides "blank or not"; a root ending in a space is not blank |
+| Case handling | none | none | yes | No |
+| Symlinked path, `..` in the path | git prints the resolved root on both sides | same | yes | No (probed) |
+| Folder the three per-file git calls run in | the session folder | the root (accepted D-19 difference) | no, by owner decision | Not this mechanism; unchanged |
+| State file decoding | stdin text, locale-dependent | strict UTF-8 | named difference (row 10 of the change list) | Not this mechanism; unchanged |
+
+No disagreement with a different mechanism was found.
+
+**Fix (`92ae038`).** `_toplevel` returns `result[1].rstrip("\n")`: the trailing line breaks are removed, exactly as `$(...)` does; nothing else changed. Test first at `5fe021c`: `test_finalize_inputs.py::TestRepoFolderNameParity` (folder ending in a space and in a tab, end to end against the 2.14.1 commands with fixed expectations `{"x.ts": <blob>}`, [0,0,0], `write`; eight further endings; `repo ` beside `repo`, asserting the helper does not write and equals 2.14.1's [1,0,0] `outstanding-to-phase-5`) and `TestGuardCommandParity::test_parity_names_in_a_repo_folder_ending_in_a_space`. `TestGuardCommandParity`'s 2.14.1 side (`fingerprint_2141`) now runs the guard line `"$0" "$1" --root "$(git rev-parse --show-toplevel)" --path "$2"` through `/bin/sh` instead of trimming the root in Python. On the unfixed helper: 2 tests and 6 subtests failed (space, tab, no-break space, `\r`, `\x0b`, `\x0c`); the line-break and leading-space subtests passed, as they should.
+
+Also corrected in the same test commit: the `TestGuardCommandParity` docstring now says what was observed (3.14 accepts `-1.ts`; 3.9, 3.12 and 3.13 refuse it), not "3.13+".
+
+**Mutation checks** (scratch copy of the scripts folder; only the new tests selected).
+
+| Mutant | Result |
+|---|---|
+| Helper `.strip()` restored | 8 failures: the new `TestGuardCommandParity` case, the neighbouring-repo test, and 6 subtests (space, tab, no-break space, `\r`, `\x0b`, `\x0c`) |
+| Helper `.rstrip()` (all trailing whitespace) | the same 8 failures |
+| Helper removes one trailing `\n` only | 3 subtests fail (`\n`, `\n\n`, ` \n` endings) |
+| Helper `.strip()` AND the test's 2.14.1 side trimming in Python with `.strip()` | still 8 failures. The space/tab and neighbouring-repo tests fail on their fixed expectations. The `TestGuardCommandParity` case's helper-versus-2.14.1 comparison cannot see the bug in this mutant (both sides give `{}`); it fails only on its own fixed check that the clean files are kept (`'x.ts' not found in {}`) |
+| Test's 2.14.1 side `.strip()` only, helper fixed | 7 failures: the test notices its own 2.14.1 side is wrong |
+
+In a whole-file run of each mutant, 3 more failures appear (`TestNextVocabularyProse`): those tests read the phase prose by path and cannot find it from the scratch copy; they fail the same way with no mutation applied in that location, and they pass in the worktree.
+
+**Runs after the fix.** `test_finalize_inputs.py`: 114 passed (pytest, Python 3.12.12 venv, default locale and `LC_ALL=C`; `/usr/bin/python3 -m pytest`, 3.9.6, default and `LC_ALL=C`); `python3.12`, `python3.13`, `python3.14 -m unittest test_finalize_inputs`: 114 tests OK each, default locale and `LC_ALL=C`. `test_finalize_card.py`, `test_carry_state.py`, `test_confirmed_fix.py`, `test_cross_call_vars.py`: 500 passed. `docs/design/lean-v2.15/tools`: 355 passed. `finalize_capture.py verify`: `finalize baseline matches (5 situations)`. `finalize_capture.py compare --driver helper --commit HEAD`: `finalize outcome fields match (5 situations, 7 walks)` on Python 3.14.5 and 3.9.6. `stdlib_only.py plugins/vibe-check`: `34 shipped .py files; third-party imports: none`.
