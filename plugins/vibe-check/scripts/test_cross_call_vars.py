@@ -282,8 +282,6 @@ STEP_COUNT_PY = os.path.join(
 # fresh-shell reproduction record. The check fails on a flag not listed here
 # AND on a listed pair that no longer flags, so the list can only shrink.
 EXCEPTIONS = {
-    ("phases/review/05-state.md", "LEGACY_STATE_FILE"): "X2",
-    ("phases/review/05-state.md", "STATE_FILE"): "X3",
     ("phases/review/06-config.md", "CODEX_FLAG_VAL"): "X4",
     ("phases/review/06-config.md", "CONFIG_REPO_ROOT"): "X5",
     ("phases/review/06-config.md", "MIN_CONFIDENCE_FLAG_VAL"): "X6",
@@ -706,6 +704,15 @@ class TestMutants(LockCase):
         mutant = remove(text, "printf 'PHASE_DIR=%s\\n' \"$PHASE_DIR\"")
         self.assertIn("PHASE_DIR", flagged_names(mutant))
 
+    def test_x2_x3_state_file_prints_removed_trip(self):
+        text = read_rel(STATE_REL)
+        names = {"LEGACY_STATE_FILE", "STATE_FILE"}
+        self.assertFalse(names & flagged_names(text))
+        mutant = remove(text, "  printf 'LEGACY_STATE_FILE=%s\\n' "
+                              "\"$LEGACY_STATE_FILE\"\n"
+                              "  printf 'STATE_FILE=%s\\n' \"$STATE_FILE\"\n")
+        self.assertEqual(names & flagged_names(mutant), names)
+
     def test_h_new_flag_and_stale_entry_both_trip(self):
         flagged = flagged_pairs()
         with self.subTest("an unlisted pair"):
@@ -887,7 +894,7 @@ REPRO_63 = [
                    "pass 1 instead of carrying on.",
      "proposed": "fix",
      "fixture": "TestRepro63.test_x2_legacy_state_file",
-     "disposition": PINNED},
+     "disposition": FIXED},
     {"id": "X3", "file": STATE_REL, "name": "STATE_FILE",
      "outcome": "stop",
      "owner_sees": "A second pass of a review stops with 'the state file's "
@@ -895,7 +902,7 @@ REPRO_63 = [
                    "saved progress is fine.",
      "proposed": "fix",
      "fixture": "TestRepro63.test_x3_state_file",
-     "disposition": PINNED},
+     "disposition": FIXED},
     {"id": "X4", "file": CONFIG_REL, "name": "CODEX_FLAG_VAL",
      "outcome": "ignored-setting",
      "owner_sees": "Asking for '--codex off' has no effect: the review "
