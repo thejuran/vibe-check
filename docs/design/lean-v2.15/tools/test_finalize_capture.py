@@ -1314,5 +1314,191 @@ class TestHelperWalk(_CandidateTree):
         self.assertEqual(len(_inputs_steps(out)), 2)
 
 
+# --------------------------------------------------------------------------- #
+# compare, the like-for-like 2.14.1 run and the screen text (D-15, D-18)
+# --------------------------------------------------------------------------- #
+README = os.path.join(REPO, "docs", "design", "lean-v2.15", "README.md")
+
+
+def _main(argv):
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = fc.main(argv)
+    return rc, out.getvalue(), err.getvalue()
+
+
+class TestCompare(_CandidateTree):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        try:
+            cls.fresh = fc.capture_candidate(REPO, root=LIVE_PLUGIN)
+        except BaseException:
+            shutil.rmtree(cls._tmp, True)
+            raise
+
+    def _record_copy(self, mutate):
+        record = _record()
+        mutate(record)
+        path = os.path.join(self._work(), "record.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(fc.record_text(record))
+        return path
+
+    def test_outcome_fields_match_and_only_steps_and_tally_differ(self):
+        problems, intended = fc.compare(REPO, RECORD, root=LIVE_PLUGIN,
+                                        fresh=self.fresh)
+        self.assertEqual(problems, [])
+        self.assertTrue(intended)
+        for line in intended:
+            field = line.split(": ", 2)[1]
+            self.assertTrue(field.startswith(("steps", "tally.")), line)
+        self.assertIn("clean-close: tally.commands_run: before 8, after 3",
+                      intended)
+
+    def test_altered_stop_sentence_is_named_and_fails(self):
+        def mutate(record):
+            sit = record["situations"]["refused-close"]
+            old = sit["stop_sentence"]
+            sit["stop_sentence"] = old.replace("again", "once more")
+            self.assertNotEqual(sit["stop_sentence"], old)
+        path = self._record_copy(mutate)
+        problems, _ = fc.compare(REPO, path, root=LIVE_PLUGIN,
+                                 fresh=self.fresh)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("refused-close: stop_sentence"))
+        self.assertIn("once more", problems[0])
+        self.assertIn("run `--finalize` again", problems[0])
+
+    def test_altered_tally_does_not_fail(self):
+        def mutate(record):
+            record["situations"]["clean-close"]["tally"]["commands_run"] += 7
+        path = self._record_copy(mutate)
+        problems, intended = fc.compare(REPO, path, root=LIVE_PLUGIN,
+                                        fresh=self.fresh)
+        self.assertEqual(problems, [])
+        self.assertIn("clean-close: tally.commands_run: before 15, after 3",
+                      intended)
+
+    def test_cli_exit_codes(self):
+        base = ["compare", "--repo", REPO, "--record", RECORD,
+                "--driver", "helper"]
+        with self.subTest("neither --commit nor --root"):
+            self.assertEqual(_main(base)[0], 2)
+        with self.subTest("both --commit and --root"):
+            self.assertEqual(_main(base + ["--commit", "HEAD", "--root",
+                                           LIVE_PLUGIN])[0], 2)
+        with self.subTest("an unknown driver"):
+            self.assertEqual(_main(["compare", "--repo", REPO, "--record",
+                                    RECORD, "--driver", "fence", "--root",
+                                    LIVE_PLUGIN])[0], 2)
+        with self.subTest("an altered stop sentence"):
+            def mutate(record):
+                record["situations"]["refused-close"]["stop_sentence"] = "x"
+            rc, out, _ = _main(["compare", "--repo", REPO, "--record",
+                                self._record_copy(mutate), "--driver",
+                                "helper", "--root", LIVE_PLUGIN])
+            self.assertEqual(rc, 1)
+            self.assertIn("refused-close: stop_sentence", out)
+
+    def test_cli_root_and_commit_match(self):
+        head = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=30,
+                              check=True).stdout.strip()
+        for where in (["--root", LIVE_PLUGIN], ["--commit", head]):
+            with self.subTest(where[0]):
+                rc, out, err = _main(["compare", "--repo", REPO, "--record",
+                                      RECORD, "--driver", "helper"] + where)
+                self.assertEqual(rc, 0, out + err)
+                for sid in SITUATION_IDS:
+                    self.assertIn("%s: outcome fields match" % sid, out)
+                self.assertIn("one-rebuild/second-failure: outcome fields "
+                              "match", out)
+                self.assertIn("finalize outcome fields match", out)
+
+    def test_compare_drives_the_new_instructions(self):
+        """Not decorative: a break in the copied 90-finalize.md, and one in
+        the copied helper, each make compare fail."""
+        stop = fc.stop_sentence(self.finalize_text)
+        breaks = (
+            ("90-finalize.md: the stop sentence",
+             ("phases", "shared", "90-finalize.md"), stop,
+             stop.replace("again", "once more")),
+            ("finalize_inputs.py: the gate reason",
+             ("scripts", "finalize_inputs.py"),
+             '{"action": action, "reason": reason,',
+             '{"action": action, "reason": reason + "!",'))
+        for name, rel, old, new in breaks:
+            with self.subTest(name):
+                tree = os.path.join(self._work(), "vc")
+                shutil.copytree(LIVE_PLUGIN, tree, ignore=shutil.ignore_patterns(
+                    "__pycache__"))
+                path = os.path.join(tree, *rel)
+                with open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                self.assertIn(old, text)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text.replace(old, new))
+                problems, _ = fc.compare(REPO, RECORD, root=tree)
+                self.assertTrue(problems, name)
+
+
+class TestLikeForLike(_PinnedTree):
+    """The 2.14.1 tree given the candidate's stand-in for the malformed
+    input: `not json` in the printed BLOBFILE on both attempts."""
+
+    def test_refused_close_outcome_equals_the_record(self):
+        work = tempfile.mkdtemp(prefix="fc-lfl-", dir=self._tmp)
+        driver = fc.LikeForLike2141()
+        out = driver.run("refused-close", self.vc_root, work)
+        got = fc.normalise_outputs(out, work, self.vc_root)
+        self.assertEqual(_outcome_differences(
+            _recorded(_record(), "refused-close"), got), [])
+        self.assertEqual([s["exit"] for s in _steps(out, "counts")], [1, 1])
+        self.assertEqual(_steps(out, "gate"), [])
+        self.assertEqual(fc.like_for_like(REPO, _record()), [])
+
+    def test_the_stand_in_really_reached_the_counts_step(self):
+        work = tempfile.mkdtemp(prefix="fc-lfl-", dir=self._tmp)
+        driver = fc.LikeForLike2141()
+        driver.run("refused-close", self.vc_root, work)
+        for rc, err in driver.last_walk.attempt_stderr:
+            self.assertEqual(rc, 1)
+            self.assertEqual(err.splitlines()[-1], COUNTS_HALT)
+
+
+class TestScreenText(_CandidateTree):
+    """D-18: the same lines in the same place on both versions."""
+
+    def test_counting_lines_are_byte_identical(self):
+        screens = fc.counting_screens(REPO, LIVE_PLUGIN)
+        self.assertEqual(sorted(screens), ["missing", "not json"])
+        for fault, (old, new) in screens.items():
+            with self.subTest(fault):
+                self.assertEqual(old, new)
+                self.assertEqual(len(new.splitlines()), 2, new)
+                self.assertEqual(new.splitlines()[1], COUNTS_HALT)
+                altered = new[:3] + ("X" if new[3] != "X" else "Y") + new[4:]
+                self.assertNotEqual(altered, new)
+                self.assertFalse(fc.screen_matches(old, altered))
+                self.assertTrue(fc.screen_matches(old, new))
+
+    def test_report_lines_are_byte_identical(self):
+        old, new = fc.report_screens(REPO, LIVE_PLUGIN)
+        self.assertEqual(old, new)
+        self.assertEqual(len(new.splitlines()), 2, new)
+        self.assertEqual(new.splitlines()[1], REPORT_HALT)
+        self.assertNotIn("Traceback", new)
+
+    def test_readme_names_compare(self):
+        with open(README, encoding="utf-8") as fh:
+            row = [line for line in fh if line.startswith(
+                "| `finalize_capture.py`")]
+        self.assertEqual(len(row), 1)
+        self.assertIn("compare", row[0])
+        self.assertIn("--driver helper", row[0])
+
+
 if __name__ == "__main__":
     unittest.main()
