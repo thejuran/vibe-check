@@ -178,3 +178,40 @@ Nothing else grew the plain or deep review paths: `git diff --stat c7d92c9 85a08
 - finalize capture verify: `finalize baseline matches (5 situations)`
 - baseline records verify (`baseline_records.py verify --repo .`): `baseline holds`
 - full suite (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`): `5 failed, 4531 passed, 1 skipped, 5628 subtests passed in 281.10s`, run in the executor's linked worktree. The 5 failures are the known worktree-only cases in `test_replay.py::TestPhase53SameLineRegressionCases` (their transcripts are local-only), and the skip is `test_replay.py`'s linked-worktree skip; no other test failed and no skip is new. The stdlib gate prints `34 shipped .py files; third-party imports: none`.
+
+## Phase end after the D-20 / D-21 follow-up (commit 9a01055)
+
+The figures above (extraction alone at `c7d92c9`; phase end at `85a086c`) stay as recorded history. These are the new phase-end figures, taken 2026-11-15 at `9a01055` ("fix(63-10): Close out and the fix loop substitute the printed state path"), the last code commit of the follow-up, with `step_count.py --rev <sha> --json [--mode <path>]` and `footprint.py --rev <sha> --json` at `85a086c` and `9a01055`. The commits after it change only `.planning/` records.
+
+- steps (rule v1), Finalize path: 92 → 83 (extraction alone) → 85 (phase end, 63-10) → **85** (phase end, follow-up)
+- bytes, Finalize path: 136114 → 129451 (extraction alone) → 130060 (phase end, 63-10) → **130846** (phase end, follow-up)
+- bytes, plain review path (`review-plain`): 192057 at dd8e4ab → 192057 at c7d92c9 → 192666 at 85a086c → **193267** at 9a01055
+- bytes, deep review path (`deep-plain`): 268997 at dd8e4ab → 268997 at c7d92c9 → 269606 at 85a086c → **270207** at 9a01055
+- the other paths, 85a086c → 9a01055: review-all 285535 → 286136, deep-all 362475 → 363076, fix-loop 255679 → 256404
+- steps on the other paths are unchanged (85a086c → 9a01055): fix-loop 114 → 114, review-plain 38 → 38, deep-plain 44 → 44
+
+The extraction verdict (`Verdict (extraction alone): PASS`, judged at c7d92c9) is unchanged (D-16). The growth below is named per D-09.
+
+### Named growth from the follow-up (D-09)
+
+Bytes are each file at 9a01055 minus at 85a086c (`footprint.py`); steps are the file's `model_run_steps` at 9a01055 minus at 85a086c (`step_count.py`, rule v1).
+
+| Decision | File | What was added | Bytes added | Counted steps added | Paths that load the file |
+|----------|------|----------------|-------------|---------------------|--------------------------|
+| D-21 | phases/review/00-scope.md | one guard line in the `PHASE_DIR` block | +169 | 0 | all six |
+| D-21 | phases/review/05-state.md | one guard line in each of the two state-file key blocks (216 bytes each) | +432 | 0 | all six |
+| D-20 | phases/shared/90-finalize.md | one substitution sentence (X7) | +185 | 0 | Finalize |
+| D-20 | phases/review/50-fix-loop.md | one substitution sentence (X8) | +124 | 0 | fix loop |
+| **Total** | | | **+910** | **0** | |
+
+Per path: review-plain, review-all, deep-plain and deep-all +601 each (the two D-21 files); Finalize +786 (+601 and the 90-finalize sentence); fix loop +725 (+601 and the 50-fix-loop sentence).
+
+- **Why no counted step was added.** The guard lines sit inside existing blocks, so no block was added. Rule v1 counts a pasted value only for a `FILE` name that the same file prints; `90-finalize.md` and `50-fix-loop.md` do not print `STATE_FILE` (`05-state.md` does), so their `"$STATE_FILE"` pastes are not counted. The 63-10 record expected the D-20 fix to add paste steps; under rule v1 as it stands it adds none. Recorded as it fell.
+- `git diff --stat 85a086c 9a01055 -- plugins/vibe-check/phases plugins/vibe-check/commands plugins/vibe-check/agents` lists only the four files in the table.
+
+### Same behaviour after the follow-up
+
+- five Finalize situations, `finalize_capture.py compare --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json --driver helper --commit 9a01055`: last line `finalize outcome fields match (5 situations, 7 walks)`; with `--root plugins/vibe-check` on the working tree the same line. `finalize_capture.py` and its tests needed no change (the driver supplies the state path itself).
+- finalize capture verify: `finalize baseline matches (5 situations)`
+- baseline records verify (`baseline_records.py verify --repo .`): `baseline holds`
+- full suite (`pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools`), in the executor's linked worktree: `5 failed, 4544 passed, 1 skipped, 5680 subtests passed in 325.33s`. The 5 failures are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` cases.

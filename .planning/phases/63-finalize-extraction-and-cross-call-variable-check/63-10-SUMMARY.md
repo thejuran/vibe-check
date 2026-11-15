@@ -112,3 +112,58 @@ None.
 
 - Files: the three instruction files, `test_cross_call_vars.py`, `63-REPRO.md`, `63-COUNTS.md` and this SUMMARY are present.
 - Commits: 09b969d, c4c84a3, 7722c0f, 7bd3274, 47a2e4a, 936d29e, 85a086c, 44a8472 are in `git log`.
+
+## Follow-up (D-20, D-21)
+
+Run 2026-11-15 after the owner's D-20 decision and the orchestrator's D-21 decision (63-CONTEXT.md). Same plan scope (`63-10`); no new PLAN file.
+
+**D-21: a pasted name is refused if it holds a shell-live character.** The `PHASE_DIR` block (`00-scope.md`) and both state-file key blocks (`05-state.md`) now stop before printing when the value holds `$`, a backtick, `"`, `\`, a newline or a carriage return. One `case` line per block (`case "$V" in *[\$\`\"\\$'\n\r']*) echo "Review halted — … nothing was scored." >&2; exit 1;; esac`), bash 3.2 safe, no `eval`, every expansion quoted. Names with spaces and ordinary punctuation still pass.
+
+**D-20: Close out and the fix loop use the printed state path.** One sentence each in `90-finalize.md` (first bullet of `## Finalize mode`) and `50-fix-loop.md` ("Temp paths are literals" paragraph): "In every fence of this file, `"$STATE_FILE"` is the literal printed after `STATE_FILE=` by `05-state.md` — substitute it[; a shell variable does not survive into a separate Bash call]." Nothing else in `90-finalize.md` changed.
+
+**Cross-file companion check.** `test_cross_call_vars.py::TestCrossFile` flags a read of a name only another phase file sets unless the reading file names `` `NAME=` ``, and a setter of such a name that never prints it. Bootstrap names are exempt. `CROSS_FILE_EXCEPTIONS` (can only shrink) holds two places, recorded in 63-REPRO.md as "flagged, not reproduced / not decided": **C1** `05-state-all.md` `STATE_FILE` (the `--all` key is set but never printed, so the D-20 sentences have no printed line to point at on `--all`; the value is 12-hex) and **C2** `30-collect-score.md` `STATE_FILE` (already says to substitute "the literal state path bound in Phase 0.5", but does not name `STATE_FILE=`; likely harmless).
+
+| Task | Commit | What |
+|------|--------|------|
+| A (RED) | dd9db3e | `test_pasted_name_guard.py`: real blocks in fresh `/bin/bash -s` inside temp repos with bad folder/branch/phase names; paste what was printed; no marker file; good names round-trip; guard-removed mutant |
+| A (GREEN) | d168b85 | guard line in `00-scope.md` (1) and `05-state.md` (2) |
+| B (RED) | 25dcb9d | `TestCrossFile`, `CROSS_FILE_EXCEPTIONS`, X7 / X8 rows and fresh-shell fixtures in `test_cross_call_vars.py` |
+| B (GREEN) | 9a01055 | one sentence each in `90-finalize.md` and `50-fix-loop.md` |
+| C | (records commit) | 63-COUNTS.md, 63-REPRO.md, 63-REMOVAL-LEDGER.md, 63-EQUIVALENCE.md |
+
+**Fix-loop result.** It reproduced: with no substitution sentence, the fix-loop rows block run fresh exits 1 with `batch_card.py refused — fix loop cannot render its card; nothing was changed` (stop) while the one-shell control exits 0. Fixed with the one sentence, test-first (X8).
+
+**Close-out result.** RED at 25dcb9d: Finalize returned `stop-no-state` ("no prior review passes"), no REVIEW.md. GREEN at 9a01055: `write-review-md`, REVIEW.md written, state archived, files identical to the one-shell control (X7).
+
+**Paste sites and the guard** (full table in 63-REPRO.md "Pasted-name guard (D-21)"). Covered at the print site: `00-scope.md` guard and phase-range blocks (`PHASE_DIR`); `05-state.md` migrate/last-commit/decided/deferred blocks; `30-collect-score.md` since-review blocks (the scoring step's state-path paste); `90-finalize.md` and `50-fix-loop.md` state-file blocks. Covered upstream only: the `${PHASE_ID}` the model types into the `05-state.md` GSD key block (PHASE_ID is part of the guarded `PHASE_DIR`; the 05-state guard runs after that assignment, so on its own it would not stop a `$(…)` typed there). **Not covered:** the owner-typed `<ref>` / `<range>` arguments (from the owner's command line, not repo/branch/PR names; outside D-21). `05-state-all.md` is not printed (C1) and its value is hex from `statepath.py`.
+
+**Figures** (63-COUNTS.md "Phase end after the D-20 / D-21 follow-up", at 9a01055). Finalize path steps 85 → 85; bytes 130060 → 130846. review-plain 192666 → 193267; deep-plain 269606 → 270207. Growth by item: D-21 guard `00-scope.md` +169 bytes / 0 steps, `05-state.md` +432 (216 × 2) / 0; D-20 sentence `90-finalize.md` +185 / 0, `50-fix-loop.md` +124 / 0; total +910 bytes, 0 counted steps. Rule v1 counts a `FILE` paste only when the same file prints the name, so the D-20 pastes are not counted (63-10 expected some); recorded as it fell.
+
+**Verification (observed).**
+- `pytest test_pasted_name_guard.py test_cross_call_vars.py`: 69 passed at d168b85 (guard); after 9a01055 the related modules (`test_cross_call_vars`, `test_pasted_name_guard`, `test_finalize_card`, `test_finalize_archive_prose`, `test_finalize_inputs`, `test_fix_loop_card`, `test_card_text`, `test_pause_batching`, `test_tracecheck`, `test_fixcommit`): 603 passed, 971 subtests passed. Fill-rules checksum and moved-passage pin in `test_finalize_card.py` pass.
+- RED runs observed: guard tests 24 failed / 5 passed at dd9db3e; cross-file + X7/X8 5 failed at 25dcb9d (exactly the expected flags: 50-fix-loop and 90-finalize `STATE_FILE`).
+- `finalize_capture.py compare … --driver helper --commit 9a01055`: `finalize outcome fields match (5 situations, 7 walks)` (also `--root plugins/vibe-check`). `verify`: `finalize baseline matches (5 situations)`. `baseline_records.py verify --repo .`: `baseline holds`. `docs/design/lean-v2.15/tools` tests: 355 passed. `finalize_capture.py` needed no change.
+- Full suite, once: `5 failed, 4544 passed, 1 skipped, 5680 subtests passed in 325.33s`. The 5 failures are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` cases.
+- `step_count.py` / `footprint.py` at 85a086c and 9a01055 as above; `git diff --stat 85a086c 9a01055 -- phases commands agents` lists only the four files.
+
+**Named differences.** Added to 63-REMOVAL-LEDGER.md "Named differences from 2.14.1" as (6) the D-21 stop on an unsafe name (new behaviour; not exercised by any of the five situations) and (7) the D-20 repair (no change to the five situations); mirrored in 63-EQUIVALENCE.md "Named differences" item 2.
+
+### Deviations (follow-up)
+
+**1. [Scope note] The fix-loop sentence covers every block of the file, but only the rows block was run.** The record-decisions, payload and record-fix-verdicts blocks read the same name and are covered by the same sentence; building fixtures for them would need a full fix-loop answer set. Cost if wrong: a fix-loop block with a different failure mode stays untested in a fresh shell.
+
+**2. [Test design] The GSD-key injection tests supply `${PHASE_ID}` from the environment instead of typing it into the block.** Typing a `$(…)` name into the block would run it at assignment, before any guard in that block; that path is covered upstream by the `PHASE_DIR` guard. Supplying it raw tests the 05-state guard itself. Cost if wrong: none for the shipped files; the table in 63-REPRO.md names the upstream-only coverage.
+
+**3. [Rule 3 - Tooling] The known limit text in `test_cross_call_vars.py` was reworded** to describe the new companion (it still names "another file", which its lock requires). Cost if wrong: one sentence of test documentation.
+
+### Assumption Drift (advisory, follow-up)
+
+- **Found during:** figures. **Planned:** 63-10 expected the D-20 sentence to add paste steps on the Finalize path. **Actual:** 0 steps (rule v1 counts only pastes of names the same file prints). **Why:** the counter is per file. **Cost if wrong:** the step figure understates the model's pastes by the four `"$STATE_FILE"` uses in 90-finalize and four in 50-fix-loop; the bytes are counted.
+- **Found during:** cross-file check. **Planned:** D-20 is about `05-state.md`'s printed path. **Actual:** on `--all`, `05-state-all.md` sets `STATE_FILE` and prints nothing, so the new sentences point at a line `--all` never prints (C1, not decided). **Cost if wrong:** `--all` Close out / fix loop may still hit the D-20 gap when the model does not carry the path itself.
+
+### Self-Check (follow-up): PASSED
+
+- Files present: `plugins/vibe-check/scripts/test_pasted_name_guard.py`, the four instruction files, `test_cross_call_vars.py`, and the four records.
+- Commits in `git log`: dd9db3e, d168b85, 25dcb9d, 9a01055.
+- STATE.md and ROADMAP.md not modified.
+

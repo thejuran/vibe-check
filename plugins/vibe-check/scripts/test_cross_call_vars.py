@@ -7,7 +7,9 @@ an empty string. The only safe hand-over is for the setting fence to print the
 value as `NAME=<value>` and for the later fence to use that printed literal.
 
 This module walks every phase file and flags each read of a variable that an
-earlier fence of the same file set without printing it.
+earlier fence of the same file set without printing it. A companion check
+flags a read of a variable that only another phase file sets, unless the
+reading file names the printed literal (`NAME=`).
 """
 import ast
 import importlib.util
@@ -286,8 +288,9 @@ EXCEPTIONS = {}
 KNOWN_LIMITS = (
     "The check covers plugins/vibe-check/phases/ only; command and agent "
     "files are not scanned.",
-    "The check is same-file: a read whose setter is in another file is not "
-    "checked.",
+    "A read whose setter is in another file is checked only by the "
+    "cross-file companion, which requires the reading file to name the "
+    "printed literal; it does not check the order the files run in.",
 )
 
 
@@ -317,6 +320,71 @@ def check_exceptions(flagged, exceptions):
     return (["new cross-call read: %s %s" % p for p in sorted(flagged - listed)]
             + ["listed but no longer flagged: %s %s" % p
                for p in sorted(listed - flagged)])
+
+
+# --------------------------------------------------------------------------- #
+# The cross-file companion. A fence may read a name that only another phase
+# file sets (05-state.md sets STATE_FILE; 90-finalize.md reads it). Such a
+# read is flagged unless the reading file names the printed literal
+# (`NAME=`), and a file that sets such a name without ever printing it is
+# flagged too. The bootstrap names are carried by 01-bootstrap.md's own rule
+# (later phases substitute the resolved absolute paths it prints).
+# --------------------------------------------------------------------------- #
+BOOTSTRAP_NAMES = {"VC_ROOT", "GUARD_PY", "CONFIG_PY", "SCORE_PY"}
+
+# Today's cross-file flags, by file and name, each with the id 63-REPRO.md
+# records as "flagged, not reproduced / not decided". A new flag and a stale
+# entry both fail, so the list can only shrink.
+CROSS_FILE_EXCEPTIONS = {
+    ("phases/review/05-state-all.md", "STATE_FILE"): "C1",
+    ("phases/review/30-collect-score.md", "STATE_FILE"): "C2",
+}
+
+
+def cross_file_flags(texts):
+    """{(path, NAME)} over {path: text}: a read of NAME in a fence of `path`
+    that neither an earlier fence of `path` nor the same fence before it
+    sets, where another file sets NAME and `path` does not name `NAME=`;
+    and each other file that sets such a NAME without ever printing it."""
+    setters, printers, parsed = {}, {}, {}
+    for rel, text in texts.items():
+        fences = [b for _, b in bash_fences(text)]
+        lines = [_code_lines(b) for b in fences]
+        sites = [_assignment_sites(ls) for ls in lines]
+        parsed[rel] = (lines, sites)
+        for body, fence_sites in zip(fences, sites):
+            for _, _, name in fence_sites:
+                setters.setdefault(name, set()).add(rel)
+            for name in printed_names(body):
+                printers.setdefault(name, set()).add(rel)
+    flags = set()
+    for rel, (lines, sites) in parsed.items():
+        earlier = set()
+        for j, fence_lines in enumerate(lines):
+            for line, col, name in _read_sites(fence_lines):
+                if (name in BOOTSTRAP_NAMES or name in earlier
+                        or _assigned_before_read(fence_lines, sites[j], line,
+                                                 col, name)):
+                    continue
+                others = setters.get(name, set()) - {rel}
+                if not others:
+                    continue
+                if "`%s=`" % name not in texts[rel]:
+                    flags.add((rel, name))
+                flags |= {(o, name) for o in others
+                          if o not in printers.get(name, set())}
+            earlier |= {name for _, _, name in sites[j]}
+    return flags
+
+
+def phase_texts():
+    """{path under the plugin root: text} for every phase file."""
+    texts = {}
+    for path in phase_files():
+        with open(path, encoding="utf-8") as fh:
+            rel = os.path.relpath(path, PLUGIN_ROOT).replace(os.sep, "/")
+            texts[rel] = fh.read()
+    return texts
 
 
 def load_step_count():
@@ -737,6 +805,75 @@ class TestMutants(LockCase):
                 self.assert_trips(check_exceptions, flagged - {key}, EXCEPTIONS)
 
 
+FIX_LOOP_REL = "phases/review/50-fix-loop.md"
+# The sentences that tell each reading file to substitute the printed
+# state-file literal (D-20).
+FINALIZE_STATE_SENTENCE = (
+    " In every fence of this file, `\"$STATE_FILE\"` is the literal printed "
+    "after `STATE_FILE=` by `05-state.md` — substitute it; a shell variable "
+    "does not survive into a separate Bash call.")
+FIX_LOOP_STATE_SENTENCE = (
+    " In every fence of this file, `\"$STATE_FILE\"` is the literal printed "
+    "after `STATE_FILE=` by `05-state.md` — substitute it.")
+
+
+class TestCrossFile(LockCase):
+    def test_flags_are_exactly_the_named_cross_file_exceptions(self):
+        self.assert_holds(check_exceptions, cross_file_flags(phase_texts()),
+                          CROSS_FILE_EXCEPTIONS)
+
+    def test_cross_file_ids_are_unique(self):
+        ids = list(CROSS_FILE_EXCEPTIONS.values())
+        self.assertEqual(len(set(ids)), len(ids))
+        for repro in ids:
+            self.assertRegex(repro, r"^C[0-9]+$")
+
+    def test_synthetic_files(self):
+        setter = doc("XV=$(pwd)\nprintf 'XV=%s\\n' \"$XV\"")
+        reader = doc('ls "$XV"')
+        named = "Substitute the literal printed after `XV=`.\n" + reader
+        with self.subTest("an unnamed read in another file is flagged"):
+            self.assertEqual(cross_file_flags({"a": setter, "b": reader}),
+                             {("b", "XV")})
+        with self.subTest("a named read is not"):
+            self.assertEqual(cross_file_flags({"a": setter, "b": named}),
+                             set())
+        with self.subTest("a setter that never prints is flagged"):
+            silent = doc("XV=$(pwd)")
+            self.assertEqual(cross_file_flags({"a": silent, "b": named}),
+                             {("a", "XV")})
+        with self.subTest("a name set earlier in the reading file is not"):
+            own = doc("XV=1\nprintf 'XV=%s\\n' \"$XV\"", 'ls "$XV"')
+            self.assertEqual(cross_file_flags({"a": setter, "b": own}), set())
+        with self.subTest("a bootstrap name is not"):
+            boot = doc('ls "$VC_ROOT"')
+            self.assertEqual(
+                cross_file_flags({"a": doc("VC_ROOT=$(pwd)"), "b": boot}),
+                set())
+
+    def test_mutant_state_sentence_removed_trips(self):
+        for relpath, sentence in ((FINALIZE_REL, FINALIZE_STATE_SENTENCE),
+                                  (FIX_LOOP_REL, FIX_LOOP_STATE_SENTENCE)):
+            with self.subTest(relpath):
+                texts = phase_texts()
+                texts[relpath] = remove(texts[relpath], sentence)
+                self.assertIn((relpath, "STATE_FILE"),
+                              cross_file_flags(texts))
+                self.assert_trips(check_exceptions, cross_file_flags(texts),
+                                  CROSS_FILE_EXCEPTIONS)
+
+    def test_mutant_new_and_stale_trip(self):
+        flagged = cross_file_flags(phase_texts())
+        stale = ("phases/review/00-scope.md", "XVAR_STALE")
+        self.assert_trips(check_exceptions, flagged,
+                          {**CROSS_FILE_EXCEPTIONS, stale: "C99"})
+        for key in sorted(CROSS_FILE_EXCEPTIONS):
+            with self.subTest(key=key):
+                self.assert_trips(check_exceptions, flagged | {key},
+                                  {k: v for k, v in
+                                   CROSS_FILE_EXCEPTIONS.items() if k != key})
+
+
 # --------------------------------------------------------------------------- #
 # Fresh-shell reproductions of the flagged places.
 #
@@ -932,6 +1069,23 @@ REPRO_63 = [
      "proposed": "owner decides",
      "fixture": "TestRepro63.test_x6_min_confidence_flag_val",
      "disposition": FIXED},
+    # Cross-file reads (D-20): the setter is 05-state.md.
+    {"id": "X7", "file": FINALIZE_REL, "name": "STATE_FILE",
+     "outcome": "wrong-file",
+     "owner_sees": "Close out on a review with saved progress says there "
+                   "are no prior review passes and stops without writing "
+                   "REVIEW.md.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x7_finalize_state_file",
+     "disposition": FIXED},
+    {"id": "X8", "file": FIX_LOOP_REL, "name": "STATE_FILE",
+     "outcome": "stop",
+     "owner_sees": "The fix-loop card is never shown: the fix loop stops "
+                   "with 'batch_card.py refused — fix loop cannot render its "
+                   "card' although the saved progress is fine.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_x8_fix_loop_state_file",
+     "disposition": FIXED},
 ]
 
 PROPOSED_FOR = {"stop": "fix", "wrong-file": "fix",
@@ -982,9 +1136,11 @@ def record_problems(rows, exceptions):
 class TestRepro63(unittest.TestCase):
     """Each reproduced pair run fresh (one process per Bash block, each
     printed literal substituted as the instruction says) next to a control
-    (the same blocks in one process). All six were fixed in 63-10, so each
+    (the same blocks in one process). All eight were fixed in 63-10, so each
     test asserts the fresh run matches the control; on the pre-fix files
-    each fails (63-REPRO.md records that reverse run)."""
+    each fails (63-REPRO.md records that reverse run). X7 and X8 read a name
+    another file sets, and substitute the printed literal only where the
+    reading file names it."""
 
     def setUp(self):
         self.tmp = os.path.realpath(tempfile.mkdtemp())
@@ -1157,6 +1313,89 @@ class TestRepro63(unittest.TestCase):
             self.assertIn("[]\n[]\n", control[1])
             self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0, 0, 0])
             self.assertEqual(outcome, "harmless")
+
+    # -- cross-file: 90-finalize.md and 50-fix-loop.md -------------------- #
+    @staticmethod
+    def build_saved_review(repo):
+        """A repo with one commit and a pass-1 state file, no findings."""
+        gitfixture.write(repo, "src/a.txt", "a\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+        sha = gitfixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+        gitfixture.write(repo, ".turingmind/state/format-53/02-code-review.json",
+                         json.dumps({"passes": [{"pass_number": 1,
+                                                 "head_sha": sha,
+                                                 "findings": []}]}))
+
+    @staticmethod
+    def carried_where_told(relpath, body, name, value):
+        """`body` with `$NAME` replaced by the printed literal only when
+        `relpath` tells the model to (it names `NAME=`)."""
+        if "`%s=`" % name in read_rel(relpath):
+            return body.replace("$" + name, value)
+        return body
+
+    # The model writes REVIEW.md with the Write tool when the gate says
+    # write; in the one-shell control this line stands in for it.
+    WRITE_REVIEW = (
+        "[ \"$(printf '%s' \"$FINALIZE_JSON\" | python3 -c 'import json,sys; "
+        "print(json.load(sys.stdin)[\"next\"])')\" = write-review-md ] "
+        "|| exit 3\nprintf 'review\\n' > .turingmind/REVIEW.md")
+
+    def saved_review_run(self, label):
+        work = os.path.join(self.tmp, label)
+        os.makedirs(work)
+        run = ShellRun(work, self.build_saved_review)
+        _, needle, literals, _ = self.STATE_SETTERS[0]
+        setter = self.state_setter(needle, literals)
+        first = run.fresh([setter])
+        return run, setter, first, printed_literal(first[0][1], "STATE_FILE")
+
+    def test_x7_finalize_state_file(self):
+        run, setter, first, state = self.saved_review_run("x7")
+        finalize = substitute(
+            fence_holding(FINALIZE_REL, 'finalize_inputs.py" --state-file'),
+            [('"<true|false>"', '"false"')])
+        archive = fence_holding(FINALIZE_REL, 'review_archive.py" state')
+        fin = run.fresh([self.carried_where_told(
+            FINALIZE_REL, finalize, "STATE_FILE", state)])
+        result = json.loads([l for l in fin[0][1].splitlines()
+                             if l.startswith("{")][0])
+        fresh = first + fin
+        if result["next"] == "write-review-md":
+            gitfixture.write(run.fresh_repo, ".turingmind/REVIEW.md",
+                             "review\n")
+            fresh += run.fresh([self.carried_where_told(
+                FINALIZE_REL, archive, "STATE_FILE", state)])
+        control = run.control([setter, finalize, self.WRITE_REVIEW, archive])
+        self.assertEqual(control[0], 0, control)
+        fresh_files = tree_files(run.fresh_repo)
+        control_files = tree_files(run.control_repo)
+        # Close out, each block run fresh with the printed state path, gets
+        # "write", writes REVIEW.md and archives the state, as one shell does.
+        self.assertEqual(result["next"], "write-review-md", result)
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0], fresh)
+        self.assertIn(".turingmind/REVIEW.md", fresh_files)
+        self.assertNotIn(".turingmind/state/format-53/02-code-review.json",
+                         fresh_files)
+        self.assertEqual(fresh_files, control_files)
+
+    def test_x8_fix_loop_state_file(self):
+        run, setter, first, state = self.saved_review_run("x8")
+        probe = "\nprintf 'ROWS=%s\\n' \"$(tr -d '\\n' < \"$ROWSFILE\")\""
+        rows = fence_holding(
+            FIX_LOOP_REL, 'rows --mode fix-loop < "$STATE_FILE"') + probe
+        fresh = first + run.fresh([self.carried_where_told(
+            FIX_LOOP_REL, rows, "STATE_FILE", state)])
+        control = run.control([setter, rows])
+        self.assertEqual(control[0], 0, control)
+        # The ordinary fix-loop rows block, run fresh with the printed state
+        # path, numbers the same card as the one-shell run.
+        self.assertEqual([rc for rc, _, _ in fresh], [0, 0], fresh)
+        self.assertEqual(printed_literal(fresh[1][1], "ROWS"),
+                         printed_literal(control[1], "ROWS"))
+        self.assertEqual(tree_files(run.fresh_repo),
+                         tree_files(run.control_repo))
 
     # -- 06-config.md ------------------------------------------------------ #
     # The owner's invocation, substituted for "$ARGUMENTS", and a repo config

@@ -8,6 +8,7 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
   ```bash
   LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"
   STATE_FILE=".turingmind/state/format-53/${PHASE_ID}.json"
+  case "$LEGACY_STATE_FILE$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
   printf 'LEGACY_STATE_FILE=%s\n' "$LEGACY_STATE_FILE"
   printf 'STATE_FILE=%s\n' "$STATE_FILE"
   ```
@@ -19,6 +20,7 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
   BRANCH_SLUG=$(git branch --show-current | tr '/' '-')
   LEGACY_STATE_FILE=".turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}.json"
   STATE_FILE=".turingmind/state/format-53/$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}.json"
+  case "$LEGACY_STATE_FILE$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
   printf 'LEGACY_STATE_FILE=%s\n' "$LEGACY_STATE_FILE"
   printf 'STATE_FILE=%s\n' "$STATE_FILE"
   ```
