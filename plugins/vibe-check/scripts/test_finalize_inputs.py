@@ -347,13 +347,6 @@ class TestValidationBeforeGit(InputsCase):
 class TestParityGaps(InputsCase):
     """Inputs where the helper could be stricter than 2.14.1 and is not (D-06)."""
 
-    def test_gap_leading_dash_path_is_fingerprinted(self):
-        write(self.repo, "-x.ts", "dash\n")
-        git(self.repo, "add", "--", "-x.ts")
-        git(self.repo, "commit", "-q", "-m", "dash")
-        out, _ = self.run_helper(state_for(["-x.ts"]))
-        self.assertEqual(out, {"-x.ts": self.blob("-x.ts")})
-
     def test_gap_at_pass_true_matches_pass_one(self):
         s = load_fixture()
         s["passes"] = s["passes"][:1]
@@ -854,6 +847,7 @@ class TestResultMutants(ResultCase):
 CARRY_STATE_PY = os.path.join(SCRIPTS_DIR, "carry_state.py")
 BATCH_CARD_PY = os.path.join(SCRIPTS_DIR, "batch_card.py")
 FINALIZE_GATE_PY = os.path.join(SCRIPTS_DIR, "finalize_gate.py")
+GUARD_PY = os.path.join(SCRIPTS_DIR, "guard.py")  # unchanged since dd8e4ab
 OWNER_SENTENCES = ("uncertain about Finalize", "Finalize stopped")
 NOT_UTF8 = b'{"passes": "\xff\xfe"}'
 
@@ -1038,6 +1032,116 @@ class TestCliResult(CliCase):
                                   stdin_path=sp)
         self.assertEqual((code, err), (0, b""))
         self.assertIsInstance(json.loads(out), dict)
+
+
+class TestGuardCommandParity(CliCase):
+    """The containment check as 2.14.1 ran it: a COMMAND, not a function.
+
+    2.14.1 (dd8e4ab) `phases/shared/90-finalize.md` step 1 "HEAD
+    fingerprints" validated each finding's file with
+
+        python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"
+
+    and required exit 0. argparse reads a `--path` value that looks like an
+    option (most names starting with `-`) as an option, exits 2, and the file
+    is left out. Which names it refuses depends on the Python version (3.13+
+    reads `-1.ts` as a negative number and accepts it; 3.9 refuses it), so
+    each side here runs under the same interpreter, `sys.executable`.
+
+    The 2.14.1 side below is the literal per-file procedure: the PATH_RE
+    pre-filter, the guard command as a subprocess, then the three git calls,
+    a file kept only when all exit 0. It never calls the helper."""
+
+    LEADING_DASH = ("-x.ts", "-d/x.ts", "--", "-", "-x", "-hx", "--root",
+                    "--path", "-h", "--help", "--ro", "--pa", "--pathx",
+                    "-1", "-1.5", "-.5", "-1.ts", "-1e5", "-1_0")
+    CONTROLS = ("x.ts", "sub/-x.ts", "d-/x.ts")
+
+    def commit_names(self, names):
+        for name in names:
+            write(self.repo, name, name + "\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "names")
+
+    def run_2141(self, args):
+        return subprocess.run(args, cwd=self.repo, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=120)
+
+    def fingerprint_2141(self, name):
+        """The blob 2.14.1 step 1 puts in $BLOBFILE for `name`, or None."""
+        if not finalize_inputs.PATH_RE.match(name):
+            return None
+        top = self.run_2141(["git", "rev-parse", "--show-toplevel"])
+        root = top.stdout.decode().strip()
+        guard = self.run_2141([sys.executable, GUARD_PY, "--root", root,
+                               "--path", name])
+        if guard.returncode != 0:
+            return None
+        rev = self.run_2141(["git", "rev-parse", "HEAD:" + name])
+        if rev.returncode != 0:
+            return None
+        for check in (["git", "diff", "--quiet", "HEAD", "--", name],
+                      ["git", "diff", "--cached", "--quiet", "--", name]):
+            if self.run_2141(check).returncode != 0:
+                return None
+        return rev.stdout.decode().strip()
+
+    def test_parity_leading_dash_names_match_the_2141_guard_command(self):
+        names = self.LEADING_DASH + self.CONTROLS
+        self.commit_names(names)
+        old, new = {}, {}
+        for name in names:
+            blob = self.fingerprint_2141(name)
+            if blob is not None:
+                old[name] = blob
+            new.update(finalize_inputs.head_blobs(state_for([name]),
+                                                  cwd=self.repo))
+        # The 2.14.1 side really ran: controls kept, the gap's names refused,
+        # and the rule is not "starts with -" (`-` and `-1` are accepted).
+        for name in self.CONTROLS + ("-", "-1"):
+            self.assertIn(name, old)
+        for name in ("-x.ts", "-d/x.ts", "--", "--root", "--path", "-h",
+                     "--help"):
+            self.assertNotIn(name, old)
+        self.assertEqual(new, old)
+
+    def test_parity_leading_dash_path_is_not_fingerprinted(self):
+        """End to end for `-x.ts` with a fix-obsolete verdict on unchanged
+        code: 2.14.1 leaves the finding open and does not write."""
+        self.commit_names(["-x.ts"])
+        state = fix_obsolete_state(self.blob("-x.ts"))
+        row(state, ARCH_HASH)["file"] = "-x.ts"
+        sp = self.new_path(state)
+        # 2.14.1: the blob file step 1 writes, then the counts and the gate.
+        blob = self.fingerprint_2141("-x.ts")
+        old_bp = self.new_path({} if blob is None else {"-x.ts": blob})
+        c_code, c_out, _ = self.old_counts(sp, old_bp)
+        self.assertEqual(c_code, 0)
+        counts = json.loads(c_out)
+        flags = dict({"state_file_present": True,
+                      "outstanding_cw": counts["outstanding_cw"],
+                      "unacknowledged_medium": counts["unacknowledged_medium"],
+                      "undecided_nv": counts["undecided_nv"]}, **INTERACTIVE)
+        g_code, g_out, _ = self.old_gate(flags)
+        self.assertEqual(g_code, 0)
+        gate = json.loads(g_out)
+        self.assertEqual(
+            [counts["outstanding_cw"], counts["unacknowledged_medium"],
+             counts["undecided_nv"]], [1, 0, 0])
+        self.assertEqual(gate["action"], "outstanding-to-phase-5")
+        # The helper on the same state gives the same counts and decision,
+        # writes an empty fingerprint map and no report.
+        bp = self.empty()
+        code, out, err = self.cli(argv_for(sp, bp))
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        self.assertEqual(got["counts"], counts)
+        self.assertEqual({"action": got["action"], "reason": got["reason"]},
+                         gate)
+        self.assertEqual(got["next"], "finalize-card")
+        self.assertIsNone(got["report"])
+        with open(bp, "r", encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {})
 
 
 class TestCliRefusals(CliCase):
