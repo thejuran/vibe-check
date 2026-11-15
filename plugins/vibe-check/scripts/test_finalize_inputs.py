@@ -941,14 +941,27 @@ class CliCase(ResultCase):
             code, out = mod.run(argv, cwd=cwd or self.repo)
         return code, out, err.getvalue()
 
-    def old(self, script, args, stdin_path=None, stdin_bytes=None):
-        """A 2.14.1 command as a subprocess -> (code, stdout, stderr) bytes."""
+    def old(self, script, args, stdin_path=None, stdin_bytes=None, env=None):
+        """A 2.14.1 command as a subprocess -> (code, stdout, stderr) bytes.
+
+        The 2.14.1 commands read the state from stdin as text, and Python
+        picks stdin's error handler from the locale: strict on a UTF-8
+        locale such as en_US.UTF-8, `surrogateescape` on C, POSIX and
+        C.UTF-8. Only bytes that are not valid UTF-8 tell the two apart.
+        The default environment pins strict UTF-8 standard streams
+        (`PYTHONIOENCODING=utf-8:strict`, honoured by Python 3.4+ under
+        every locale and in UTF-8 mode) so each comparison is against
+        2.14.1 on a UTF-8 locale wherever the tests run.
+        `test_named_difference_non_utf8_state_under_c_locale` covers the
+        C locale. `env` replaces the default environment."""
         if stdin_path is not None:
             with open(stdin_path, "rb") as fh:
                 stdin_bytes = fh.read()
+        if env is None:
+            env = dict(os.environ, PYTHONIOENCODING="utf-8:strict")
         proc = subprocess.run([sys.executable, script] + list(args),
                               cwd=self.repo, input=stdin_bytes or b"",
-                              capture_output=True, timeout=120)
+                              env=env, capture_output=True, timeout=120)
         return proc.returncode, proc.stdout, proc.stderr
 
     def old_counts(self, state_path, blob_path):
@@ -1279,6 +1292,78 @@ class TestCliStderrParity(CliCase):
             self.assertIn(sp, lines[0])
         finally:
             os.chmod(sp, 0o600)
+
+    @staticmethod
+    def locale_env(name):
+        """The current environment on locale `name`, with every variable
+        that would override the locale's choice of stream handling removed."""
+        drop = ("LANG", "LANGUAGE", "PYTHONIOENCODING", "PYTHONUTF8",
+                "PYTHONCOERCECLOCALE")
+        env = {k: v for k, v in os.environ.items()
+               if k not in drop and not k.startswith("LC_")}
+        env.update(LC_ALL=name, LANG=name)
+        return env
+
+    def test_named_difference_non_utf8_state_under_c_locale(self):
+        # At 2.14.1 the counting and report commands read the state from
+        # stdin as text. On C, POSIX and C.UTF-8 Python reads stdin with
+        # `surrogateescape`, so a state that is not valid UTF-8 parses and
+        # is refused as malformed; on a UTF-8 locale such as en_US.UTF-8
+        # stdin is strict and it is refused as not JSON. The helper reads
+        # the file as strict UTF-8 and prints the not-JSON line on every
+        # locale.
+        not_json = b"refused: state is not valid JSON\n"
+        malformed = b"refused: malformed state: passes\n"
+        self.assertEqual(carry_state.REASON_STATE_JSON.encode(), not_json)
+        probe = ("import locale, sys; "
+                 "print(locale.setlocale(locale.LC_CTYPE, ''), "
+                 "sys.stdin.errors)")
+        for name in ("C", "C.UTF-8"):
+            with self.subTest(locale=name):
+                env = self.locale_env(name)
+                # The locale must really be in force; a missing locale makes
+                # `setlocale` raise and this assertion fail (never a skip).
+                proc = subprocess.run([sys.executable, "-c", probe], env=env,
+                                      stdin=subprocess.DEVNULL,
+                                      capture_output=True, timeout=120)
+                self.assertEqual((proc.returncode, proc.stdout.split()),
+                                 (0, [name.encode(), b"surrogateescape"]),
+                                 proc.stderr)
+                sp = self.new_path(NOT_UTF8)
+                bp = self.empty()
+                o_code, _, o_err = self.old(
+                    CARRY_STATE_PY, ["finalize-counts", "--head-blobs", bp],
+                    stdin_path=sp, env=env)
+                self.assertNotEqual(o_code, 0)
+                self.assertEqual(o_err, malformed)
+                o_code, _, o_err = self.old(BATCH_CARD_PY, ["decisions-report"],
+                                            stdin_path=sp, env=env)
+                self.assertNotEqual(o_code, 0)
+                self.assertEqual(o_err, malformed)
+                before = sha256_of(sp)
+                proc = subprocess.run(
+                    [sys.executable, MODULE_PATH] + argv_for(sp, bp),
+                    cwd=self.repo, env=env, stdin=subprocess.DEVNULL,
+                    capture_output=True, timeout=120)
+                self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                                 (3, b"", not_json))
+                self.assertEqual(sha256_of(sp), before)
+                with open(bp, "rb") as fh:
+                    self.assertEqual(fh.read(), b"")
+        # On a UTF-8 locale with strict stdin 2.14.1 printed the helper's line.
+        sp = self.new_path(NOT_UTF8)
+        bp = self.empty()
+        for o_code, _, o_err in (self.old_counts(sp, bp), self.old_report(sp)):
+            self.assertNotEqual(o_code, 0)
+            self.assertEqual(o_err, not_json)
+        self.assertEqual(self.cli(argv_for(sp, bp))[:3], (3, b"", not_json))
+        # Report stage, run as the report-stage parity test runs it.
+        sp = self.new_path(dismissed_all_state())
+        reader, calls = self.swap_reader(sp, NOT_UTF8)
+        with mock.patch.object(finalize_inputs, "_read_text", reader):
+            code, out, err = self.inproc(argv_for(sp, self.empty()))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual((code, out, err), (5, "", not_json.decode()))
 
     def test_stderr_empty_on_every_other_exit(self):
         sp = self.new_path(load_six_row())
