@@ -90,12 +90,13 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
                  -name "<arg>-*" 2>/dev/null)
      [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = "1" ] && PHASE_DIR="$MATCHES"
    fi
+   printf 'PHASE_DIR=%s\n' "$PHASE_DIR"
    ```
    - Unique match → `$PHASE_DIR` is set; continue.
    - Zero matches → error: "Phase '<arg>' not found under .planning/phases/ or .planning/milestones/. Available: <list dirs from both roots>".
    - Multiple matches → error listing them and stop — do not guess between an archived and an active copy of the same phase number.
 
-   **After resolution, verify containment.** Confirm the resolved phase dir is a descendant of `.planning/` (the common root of both layouts) via the ONE tested guard (Fable A7/B2 — the old inline `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*` copy failed OPEN when `cd .planning` failed and left `$PLANNING_ROOT` empty). `$PHASE_DIR` is CWD-relative (`find` output), so absolutize it with `$PWD` — guard.py resolves a RELATIVE `--path` against `--root`, which would double the `.planning/` prefix here:
+   **After resolution, verify containment.** Confirm the resolved phase dir is a descendant of `.planning/` (the common root of both layouts) via the ONE tested guard (Fable A7/B2 — the old inline `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*` copy failed OPEN when `cd .planning` failed and left `$PLANNING_ROOT` empty). `$PHASE_DIR` here is the literal printed after `PHASE_DIR=` — substitute it; a shell variable does not survive into a separate Bash call. It is CWD-relative (`find` output), so absolutize it with `$PWD` — guard.py resolves a RELATIVE `--path` against `--root`, which would double the `.planning/` prefix here:
    ```bash
    [ -n "$GUARD_PY" ] && python3 "$GUARD_PY" --root "$PWD/.planning" --path "$PWD/$PHASE_DIR" \
      || { echo "Phase resolution escaped .planning/ — refusing."; exit 1; }
@@ -104,7 +105,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
 
    Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way. Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`, exactly as in mode 1: those runs never reach Phase 3's collect, so a snapshot would only be left behind.
 
-   Compute phase commit range (`$PHASE_DIR` is the path resolved above):
+   Compute phase commit range (`"$PHASE_DIR"` is the literal printed after `PHASE_DIR=` above — substitute it):
    ```bash
    PHASE_START=$(git log --reverse --format=%H -- "$PHASE_DIR" | head -1)
    [[ -z "$PHASE_START" || "$PHASE_START" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || { echo "Review halted — the phase-start commit id is not a commit sha; nothing was scored." >&2; exit 1; }

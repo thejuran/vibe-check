@@ -282,7 +282,6 @@ STEP_COUNT_PY = os.path.join(
 # fresh-shell reproduction record. The check fails on a flag not listed here
 # AND on a listed pair that no longer flags, so the list can only shrink.
 EXCEPTIONS = {
-    ("phases/review/00-scope.md", "PHASE_DIR"): "X1",
     ("phases/review/05-state.md", "LEGACY_STATE_FILE"): "X2",
     ("phases/review/05-state.md", "STATE_FILE"): "X3",
     ("phases/review/06-config.md", "CODEX_FLAG_VAL"): "X4",
@@ -701,6 +700,12 @@ class TestMutants(LockCase):
                 "\n```bash\nls \"$XVAR_MUTANT\"\n```\n")
             self.assertNotIn("XVAR_MUTANT", flagged_names(printed))
 
+    def test_x1_phase_dir_print_removed_trips(self):
+        text = read_rel(SCOPE_REL)
+        self.assertNotIn("PHASE_DIR", flagged_names(text))
+        mutant = remove(text, "printf 'PHASE_DIR=%s\\n' \"$PHASE_DIR\"")
+        self.assertIn("PHASE_DIR", flagged_names(mutant))
+
     def test_h_new_flag_and_stale_entry_both_trip(self):
         flagged = flagged_pairs()
         with self.subTest("an unlisted pair"):
@@ -874,7 +879,7 @@ REPRO_63 = [
                    "though the phase exists.",
      "proposed": "fix",
      "fixture": "TestRepro63.test_x1_phase_dir",
-     "disposition": PINNED},
+     "disposition": FIXED},
     {"id": "X2", "file": STATE_REL, "name": "LEGACY_STATE_FILE",
      "outcome": "wrong-file",
      "owner_sees": "A review whose saved progress is still in the old "
@@ -1194,9 +1199,12 @@ class TestRepro63Record(LockCase):
         self.assert_holds(record_problems, REPRO_63, EXCEPTIONS)
 
     def test_mutant_row_removed_trips(self):
+        # An exception with no row trips (X1 put back on the list, its row
+        # gone).
         fewer = [r for r in REPRO_63 if r["id"] != "X1"]
         self.assertEqual(len(fewer), len(REPRO_63) - 1)
-        self.assertEqual(record_problems(fewer, EXCEPTIONS),
+        listed = {**EXCEPTIONS, (SCOPE_REL, "PHASE_DIR"): "X1"}
+        self.assertEqual(record_problems(fewer, listed),
                          ["no record row for X1"])
 
     def test_mutant_fixture_misspelled_trips(self):
