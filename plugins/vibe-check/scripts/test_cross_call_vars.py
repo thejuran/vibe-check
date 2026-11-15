@@ -809,11 +809,13 @@ FIX_LOOP_REL = "phases/review/50-fix-loop.md"
 # state-file literal (D-20).
 FINALIZE_STATE_SENTENCE = (
     " In every fence of this file, `\"$STATE_FILE\"` is the literal printed "
-    "after `STATE_FILE=` by `05-state.md` — substitute it; a shell variable "
+    "after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) "
+    "— substitute it; a shell variable "
     "does not survive into a separate Bash call.")
 FIX_LOOP_STATE_SENTENCE = (
     " In every fence of this file, `\"$STATE_FILE\"` is the literal printed "
-    "after `STATE_FILE=` by `05-state.md` — substitute it.")
+    "after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) "
+    "— substitute it.")
 
 
 class TestCrossFile(LockCase):
@@ -1085,6 +1087,16 @@ REPRO_63 = [
                    "card' although the saved progress is fine.",
      "proposed": "fix",
      "fixture": "TestRepro63.test_x8_fix_loop_state_file",
+     "disposition": FIXED},
+    # The same read on `--all`: the setter is 05-state-all.md (63-REVIEW
+    # WR-01); the fix-loop twin is test_c1_all_mode_fix_loop_state_file.
+    {"id": "C1", "file": ALL_STATE_REL, "name": "STATE_FILE",
+     "outcome": "wrong-file",
+     "owner_sees": "Close out after an --all review says there are no prior "
+                   "review passes and stops without writing REVIEW.md; the "
+                   "fix loop on --all stops before its card.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_c1_all_mode_close_out_state_file",
      "disposition": FIXED},
 ]
 

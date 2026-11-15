@@ -20,6 +20,8 @@
        | python3 "$VC_ROOT/scripts/statepath.py" \
        | python3 -I -c 'import json,sys; r=json.load(sys.stdin); print(r["current_path"]) if r["current_path"] else sys.exit("statepath.py refused: " + r["reason"])'); then
     STATE_FILE="$ALL_STATE_FILE"      # the single canonical handle Finalize consumes (alias of the --all key)
+    case "$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
+    printf 'STATE_FILE=%s\n' "$STATE_FILE"
     mkdir -p .turingmind/state/format-53/by-mode/all
   else
     echo "--all state key could not be resolved — review HALTED." >&2
