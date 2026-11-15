@@ -20,6 +20,7 @@ applied to the real text (must return []) AND to a mutant of it (must return
 something), so no lock is decorative: a check that cannot trip fails here.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -36,6 +37,7 @@ import batch_card  # noqa: E402  (sibling module: KNOWN_FLAGS, build_rows)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import carry_state  # noqa: E402  (sibling module: KNOWN_FLAGS)
 import finalize_gate  # noqa: E402  (sibling module: FLAGS, the REVIEW.md stamp)
+import footprint  # noqa: E402  (sibling module: MODE_PATHS)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
 from finalize_inputs import NEXT_ACTIONS  # noqa: E402  (the next-action vocabulary)
 from test_batch_card import HB, successor_state  # noqa: E402
@@ -154,28 +156,83 @@ def check_annotations(text):
     return [n for n in ANNOTATIONS if n not in section]
 
 
-PHASE57_DECISIONS = (
+# The "What the helper counts" passage (2.14.1 `90-finalize.md` lines 34-39 at
+# dd8e4ab) is explanation, not a rule the model acts on, so it lives word for
+# word in a design document the model does not load during a review. The
+# digest is of those exact bytes, taken once from dd8e4ab and pasted here.
+REPO_ROOT = os.path.normpath(os.path.join(PLUGIN_DIR, "..", ".."))
+COUNTS_DOC = os.path.join(REPO_ROOT, "docs", "design", "lean-v2.15",
+                          "finalize-counts-explained.md")
+COUNTS_DOC_NAME = "finalize-counts-explained"
+COUNTS_PASSAGE_SHA256 = ("7665e58071516901008d6eb740e7c7212d6522844b6511ed"
+                         "bac6c955c730d707")
+COUNTS_START = "<!-- moved-passage:start -->\n"
+COUNTS_END = "<!-- moved-passage:end -->"
+COUNTS_HEAD = "What the helper counts"
+
+
+def read_counts_doc():
+    with open(COUNTS_DOC, "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def counts_passage(doc_text):
+    """The text between the two marker lines (each marker on its own line),
+    or None when either marker is missing."""
+    i = doc_text.find(COUNTS_START)
+    if i < 0 or (i and doc_text[i - 1] != "\n"):
+        return None
+    i += len(COUNTS_START)
+    j = doc_text.find("\n" + COUNTS_END, i - 1)
+    if j < i - 1:
+        return None
+    return doc_text[i:j + 1]
+
+
+def check_counts_passage(doc_text):
+    passage = counts_passage(doc_text)
+    if passage is None:
+        return ["moved-passage markers missing"]
+    got = hashlib.sha256(passage.encode("utf-8")).hexdigest()
+    return [] if got == COUNTS_PASSAGE_SHA256 else ["passage digest " + got]
+
+
+def check_counts_moved_out(text):
+    """The loaded file no longer carries the explanation and never points the
+    model at the design document."""
+    return [n for n in (COUNTS_HEAD, COUNTS_DOC_NAME) if n in text]
+
+
+# Needles that lived in the moved passage are looked up there; the ones in
+# the card's suffix bullets stay on the loaded file.
+PHASE57_DECISIONS_MOVED = (
     "the line number is stored, not compared",
     "snapshot.nearby_at",
     "a drop keeps the decision",
     "re-asks only with new corroboration",
     "recorded as covered at decision time",
-    'stale.cause == "nearby"',
-    "now also report(s) it",
-    "joined it",
     "within 5 lines above or below",
     "whose title is not a covered title",
     "separately-owed obligation is never covered",
     "did not report this concern at decision time",
 )
+PHASE57_DECISIONS_KEPT = (
+    'stale.cause == "nearby"',
+    "now also report(s) it",
+    "joined it",
+)
+PHASE57_DECISIONS = PHASE57_DECISIONS_MOVED + PHASE57_DECISIONS_KEPT
 
 
-def check_phase57_decisions(text):
-    """The Open/Closed contract and the stale-suffix bullets say what the
-    helper does: the line is not compared, a nearby change reopens, a drop
-    keeps, a rise reopens only with a new lane, coverage recorded at decision
-    time is the one inheritance path, and the three new suffixes exist."""
-    return [n for n in PHASE57_DECISIONS if n not in text]
+def check_phase57_decisions(text, doc_text):
+    """The Open/Closed contract (in the moved passage) and the stale-suffix
+    bullets (in the loaded file) say what the helper does: the line is not
+    compared, a nearby change reopens, a drop keeps, a rise reopens only with
+    a new lane, coverage recorded at decision time is the one inheritance
+    path, and the three new suffixes exist."""
+    passage = counts_passage(doc_text) or ""
+    return ([n for n in PHASE57_DECISIONS_MOVED if n not in passage]
+            + [n for n in PHASE57_DECISIONS_KEPT if n not in text])
 
 
 TURN_AND_BUDGET = ("THIS assistant turn", "Finalize costs one card",
@@ -968,12 +1025,49 @@ class TestFinalizeCard(LockCase):
                                   remove(self.text, needle))
 
     def test_phase57_decision_contract(self):
-        self.assert_holds(check_phase57_decisions, self.text)
-        for needle in PHASE57_DECISIONS:
+        doc = read_counts_doc()
+        self.assert_holds(check_phase57_decisions, self.text, doc)
+        for needle in PHASE57_DECISIONS_MOVED:
+            with self.subTest("mutant: removed " + needle):
+                mutant = remove(doc, needle)
+                self.assertNotEqual(mutant, doc)
+                self.assert_trips(check_phase57_decisions, self.text, mutant)
+        for needle in PHASE57_DECISIONS_KEPT:
             with self.subTest("mutant: removed " + needle):
                 mutant = remove(self.text, needle)
                 self.assertNotEqual(mutant, self.text)
-                self.assert_trips(check_phase57_decisions, mutant)
+                self.assert_trips(check_phase57_decisions, mutant, doc)
+
+    def test_counts_passage_moved_word_for_word(self):
+        doc = read_counts_doc()
+        self.assert_holds(check_counts_passage, doc)
+        passage = counts_passage(doc)
+        self.assertTrue(passage.startswith("  " + COUNTS_HEAD))
+        with self.subTest("mutant: one character changed"):
+            i = doc.index("no expiry")
+            mutant = doc[:i] + "No" + doc[i + 2:]
+            self.assert_trips(check_counts_passage, mutant)
+        with self.subTest("mutant: trailing newline dropped"):
+            mutant = doc.replace("\n" + COUNTS_END, COUNTS_END, 1)
+            self.assert_trips(check_counts_passage, mutant)
+        with self.subTest("mutant: end marker missing"):
+            self.assert_trips(check_counts_passage,
+                              remove(doc, COUNTS_END))
+
+    def test_counts_passage_not_in_the_loaded_file(self):
+        self.assert_holds(check_counts_moved_out, self.text)
+        with self.subTest("mutant: passage head left in"):
+            self.assert_trips(check_counts_moved_out,
+                              self.text + "\n  " + COUNTS_HEAD + "\n")
+        with self.subTest("mutant: a Read of the design document"):
+            self.assert_trips(check_counts_moved_out,
+                              self.text + "\nRead docs/design/lean-v2.15/"
+                              + COUNTS_DOC_NAME + ".md\n")
+
+    def test_counts_doc_not_on_any_mode_path(self):
+        for mode, paths in footprint.MODE_PATHS.items():
+            with self.subTest(mode=mode):
+                self.assertFalse([p for p in paths if COUNTS_DOC_NAME in p])
 
     def test_phase57_old_closed_rule_gone(self):
         self.assertNotIn("equals the same four values now", self.text)
