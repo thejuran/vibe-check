@@ -11,7 +11,7 @@ Finalize extraction: PASS
 - **Cross-call check.** The check is in place and passes. It found six places where a value did not carry from one command to the next (X1 to X6), and all six reproduced. You chose to fix all six, and none were pinned. Three more were found and fixed later: Close out (X7), the fix loop (X8) and Close out and the fix loop on `--all` (C1). One flagged place remains on the exceptions list (C2). It has not been reproduced.
 - **What grew.** You chose to fix things the extraction did not need. Those fixes make the phase end larger than 2.14.1 on every review path: the plain review now loads 193267 bytes against 192057, and the deep review 270219 against 268997. The verdict is not affected (D-16). The growth is itemised below.
 - **Tests.** The full suite passed in the main checkout after each merge. The run on the final code, which includes the review fixes (merge `533daf9`), was **6,510 passed, 0 failed**. The run before it, after the D-20/D-21 follow-up, was 6,496 passed, 0 failed. Both figures are from the main session's runs, not from the phase records. The pull request's own run is recorded under `## Pull request`.
-- **What you are asked to decide.** "Go" to merge, accepting the four items listed under `## Your decision`. You can also ask for a revert or for changes.
+- **What you are asked to decide.** "Go" to merge, accepting the five items listed under `## Your decision`. You can also ask for a revert or for changes.
 
 ## The two counts
 
@@ -143,6 +143,7 @@ Not everything on screen is the same as in 2.14.1. These are the differences:
 1. **Commands the model no longer runs show no output (intended).** The per-file git and safety checks, the counting command and the gate command now run inside the helper. Their output no longer appears on screen, and neither do their error messages. You will see fewer "ran a command" entries.
 2. **Unsafe names stop the review (D-21, new).** See the cross-call section. Not exercised by the five situations.
 3. **`--all` prints one extra line.** The `--all` state step now shows a `STATE_FILE=` line (D-23).
+4. **A different refusal line for a corrupted state file on some machines (found by the pull request's test run).** This applies only when the saved-progress file is not valid UTF-8 text and the machine's locale is C, POSIX or C.UTF-8 (common on Linux servers, not on a Mac). There, 2.14.1 read the bad bytes leniently and showed `refused: malformed state: passes` above the stop sentence. The new version shows `refused: state is not valid JSON`. On a UTF-8 locale both show the same line. The refusal, the stop sentence and the one rebuild are unchanged. The new version shows the same line on every machine, where 2.14.1 varied. Test: `test_finalize_inputs.py::TestCliStderrParity::test_named_difference_non_utf8_state_under_c_locale`. Not exercised by the five situations.
 
 ### Kept the same on screen
 
@@ -280,12 +281,13 @@ The subfolder gap was not carried, because you had it fixed (D-19, above).
 
 ## Your decision
 
-The verdict is PASS. A "go" accepts these four things:
+The verdict is PASS. A "go" accepts these five things:
 
 1. **The item headed "For your acceptance"**: when the saved-progress file cannot be read at all, the "Permission denied" line no longer shows. The stop sentence appears alone.
 2. **The new stop for unsafe names (D-21)**: a review on a folder, branch or phase name containing `$`, a backtick, `"`, `\` or a line break now stops with one "Review halted" line, where 2.14.1 carried on.
 3. **Phase-end growth on every review path**: for example, the plain review is 193267 bytes against 192057 at 2.14.1, and the deep review is 270219 against 268997. This comes from the fixes you chose. The extraction alone grew nothing.
-4. **The carried review items**: from the first review WR-02, WR-03, WR-04, SA-01 and C2 (SA-02), plus its uneven coverage (SA-03); from the second review R2-WR-01, R2-WR-02, R2-WR-03 and its set-aside items. All are described above. They go to backlog and are not fixed in this phase.
+4. **The different refusal line for a corrupted state file on C-locale machines**, item 4 under "Other differences on screen".
+5. **The carried review items**: from the first review WR-02, WR-03, WR-04, SA-01 and C2 (SA-02), plus its uneven coverage (SA-03); from the second review R2-WR-01, R2-WR-02, R2-WR-03 and its set-aside items. All are described above. They go to backlog and are not fixed in this phase.
 
 On PASS, "go" merges the pull request.
 
