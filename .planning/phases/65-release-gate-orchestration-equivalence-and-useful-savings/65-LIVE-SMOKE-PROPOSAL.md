@@ -1,6 +1,6 @@
-# Proposal: Phase 65 live smoke of the 2.15.0 candidate (NOT APPROVED)
+# Proposal: Phase 65 live smoke of the 2.15.0 candidate (APPROVED)
 
-Status: PROPOSED
+Status: APPROVED (owner, 2026-11-16)
 
 Written 2026-11-16. Nothing runs and nothing is spent until the owner explicitly approves this proposal. This proposal does not authorize publishing.
 
@@ -76,3 +76,14 @@ The smoke does not run and nothing is spent. The release record and sign-off car
 "The rewritten Close out (one helper call and its structured result) and the printed state path were proven only by offline fresh-shell walks, not in a live model session. No route was run live for 2.15.0."
 
 At sign-off the owner is asked to waive the live check, and the release notes say that no live check was run.
+
+## Owner ruling
+
+**Ruling:** APPROVED (owner, 2026-11-16)
+**Channel:** AskUserQuestion in the main session (not relayed by any agent)
+**Question asked:** Live smoke for the 2.15.0 candidate: approve an estimated $20–30 (an estimate, not a cap) for 3 fresh Claude Code sessions driven in tmux on a throwaway project — review that defers a planted finding, Close out in a new session, and a review that leaves one finding open then Close out to reach the decision card? It runs only after the free gates pass; a spoiled run gets one retry; the one fix round is already spent on WR-02, so a serious failure stops the release unless the owner separately approves a second round. Declining spends nothing and the gap is waived at sign-off and stated in the release notes.
+**Selection, verbatim:** "Approve (Recommended)"
+**Description shown with the selection, verbatim:** "Spend an estimated $20–30 on the 3-session live test after the free gates pass, for live evidence that Close out and its decision card work before shipping."
+**Conditions:** none beyond the proposal as written.
+
+This ruling authorizes the three-session live smoke as written in this proposal (plus the one invalid-run retry) and nothing else.
