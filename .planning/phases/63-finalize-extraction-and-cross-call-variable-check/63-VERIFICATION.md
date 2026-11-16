@@ -1,23 +1,294 @@
 ---
 phase: 63-finalize-extraction-and-cross-call-variable-check
-verified: 2026-11-16T01:43:00Z
-status: gaps_found
-score: 4/5 must-haves verified
-has_blocking_gaps: true
+verified: 2026-11-16T03:38:17Z
+status: passed
+score: 5/5 must-haves verified
+has_blocking_gaps: false
 overrides_applied: 0
+verifier_model: "Opus 5.5 (claude-opus-5-5); this round ran on Opus 5.5 instead of the configured Fable because of an account rate limit"
 re_verification:
   previous_status: gaps_found
   previous_score: 4/5
-  previous_verified: 2026-11-16T00:14:00Z
+  previous_verified: 2026-11-16T01:43:00Z
   gaps_closed:
-    - "Gap 3 (D-26): the three per-file git checks run in the session folder again. All four reproduced rows (folder name ending in a line break beside a repo / a plain folder at the trimmed name; core.worktree pointing at another folder / at a separate repo with a staged edit) now give the 2.14.1 decision on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5."
-    - "Gap 4 (D-27): the 60-second limit per git call is kept and accepted by the owner by name; recorded on the result page in the owner's words; GIT_TIMEOUT = 60 is still in the code. Now an accepted difference, not a gap."
-    - "Gap 1 (D-24) and gap 2 (D-25), closed in earlier rounds: re-probed, still match 2.14.1 on all four Python versions."
+    - "Gap 5 (D-28): a file name starting with ./ or ../, session in a subfolder. Fixed at 7079ab0 (`_pathspec_for_blob`: such a name goes to the two git diff checks as written; every other name gets the ../ lift). My own literal-2.14.1 harness, 513 comparisons (3 session folders x 19 name forms x 9 content changes) per Python version: 499 the same, 10 the D-19 shape, 4 the N-13 shape, 0 an edited file fingerprinted from a subfolder, identical on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5. The same harness against the pre-fix helper (29e1664) finds 12 edited files fingerprinted (wrong approvals) and 13 safe-direction differences, so it can see the defect."
+    - "Gaps 1 (D-24), 2 (D-25), 3 (D-26): one end-to-end probe each (plus a twin) re-run on four Python versions; all give the 2.14.1 decision."
+    - "Gap 4 (D-27): still an accepted difference; GIT_TIMEOUT = 60 unchanged."
   gaps_remaining: []
-  regressions:
-    - "Introduced by the gap 3 fix (08f0018), not present on main (4ac7ee4) or at 48b307f: with the session in a subfolder and a finding file name that starts with ./, a file with unsaved or staged edits is fingerprinted and the gate returns write where 2.14.1 (and the merged helper) keep the finding open. This breaks the D-19 promise."
-  new_gaps:
-    - "Gap 5 (blocking): file names git reads relative to the session folder (./name, ../name), session in a subfolder. The helper reads the blob from one file and checks another for changes."
+  regressions: []
+  new_gaps: []
+---
+
+# Phase 63: Finalize extraction and cross-call variable check — Verification Report
+
+**Phase Goal:** Finalize's mechanical steps run through tested stdlib helpers and behave exactly as in 2.14.1, with less model-interpreted prose on the same paths, and a shell variable read across Bash calls is caught by one general check in any phase file.
+**Verified:** 2026-11-16T03:38:17Z, against branch `feat/v2.15-phase-63-gap` at `679648a` (three commits on top of the fourth verification commit `c5c642a`; `main` is at `4ac7ee4`; follow-up pull request #11 open, not merged; both CI runs on `679648a` green)
+**Status:** passed
+**Re-verification:** Yes — fifth round, after the fourth gap closure
+**Verifier model:** this round ran on Opus 5.5, not the configured Fable, because of an account rate limit.
+
+## Result in plain terms
+
+- **Gap 5 is closed.** With the session in a subfolder and a finding whose file name starts with `./` or `../`, the helper now asks git about the same file in all three questions, as 2.14.1 did. The two rows from last round now match 2.14.1: session in `dir`, finding `./y.ts`, `dir/y.ts` edited or staged afterwards: both keep the finding open; only the top-level `y.ts` edited: both approve. Same result on Python 3.9, 3.12, 3.13 and 3.14.
+- **Your D-19 promise holds.** Across about 2,700 comparisons of my own (four Python versions, odd file names, odd folder names, symlinks, case differences, git index settings), the helper never fingerprinted an edited or staged file from a subfolder. Every difference from 2.14.1 I found is one of the two D-19 shapes already on the result page: an edited file that 2.14.1 fingerprinted and the helper leaves out, or N-13 (a clean named file approved while a same-named file in the session folder was edited). At the repo top nothing differs from 2.14.1.
+- **Gaps 1 to 3 stay closed and gap 4 stays accepted.** Re-probed on four Python versions.
+- **The strengthened side-by-side test is a real safeguard.** I broke the helper three ways in a scratch copy and the test failed every time: putting the gap 5 defect back (38 differences, 15 of them wrong approvals: the executor's figures exactly), removing the D-19 fix, and putting the gap 3 defect back. Its D-19 allowance is as narrow as claimed.
+- **CI now shows the grid's figures.** Both CI runs print the two summary lines. On Linux: 549 name scenarios (508 agree, 35 D-19, 6 N-13, 0 unexpected) and 284 scenarios (269 agree, 15 D-19, 0 unexpected, **0 not creatable**). So the 18 scenarios this Mac cannot create did run in CI.
+- **Nothing else regressed.** Five situations match 2.14.1; Finalize is still 85 steps and 130,886 bytes; the stdlib-only gate reports 34 shipped files; the two test files pass under the default locale and `LC_ALL=C` on Python 3.12 and 3.9.
+- **The records are accurate.** Every item I checked in the final section of the result page is true now, and since `main` the page has only had lines added, all in that section.
+- **Score: 5 of 5. Status: passed.**
+- **Expected and not counted as gaps:** no 63-11-SUMMARY.md, no `## Merge` section, the `Follow-up pull request:` placeholder line, backlog entries not filed, ROADMAP/STATE/REQUIREMENTS not ticked, pull request #11 not merged.
+
+## Re-verification summary
+
+| Item | Round 1 (`4ac7ee4`) | Round 2 (`66b0429`) | Round 3 (`48b307f`) | Round 4 (`29e1664`) | Now (`679648a`) |
+|------|------|------|------|------|------|
+| Status | gaps_found | gaps_found | gaps_found | gaps_found | **passed** |
+| Score | 4/5 | 4/5 | 4/5 | 4/5 | **5/5** |
+| Gap 1: leading-dash file names (D-24) | open | closed | closed | closed | closed (re-probed) |
+| Gap 2: repo folder name ending in whitespace (D-25) | not found | open | closed | closed | closed (re-probed) |
+| Gap 3: per-file git checks run in the root path (D-26) | not found | not found | open | closed | closed (re-probed) |
+| Gap 4: 60-second limit per git call (D-27) | not noted | note | open, minor | accepted by name | accepted by name |
+| Gap 5: `./` file names from a subfolder (D-28) | absent | absent | absent | open (regression) | **closed** |
+
+### What I ran now and what I carried
+
+| Criterion | Now | How |
+|-----------|-----|-----|
+| 1 (same decisions as 2.14.1) | **Re-ran** | Everything in "Gap closure evidence", "Attack on the new rule", "The strengthened grid as a safeguard" and "Regression checks" below |
+| 2 (bad inputs stop; nothing written; restart works) | **Carried**, partial re-run | The diff since `c5c642a` touches only `_head_blobs`'s pathspec choice and two test files. Re-ran: the five-situation comparison (includes `one-rebuild`, `refused-close`, `fresh-shell-restart`, and the refusal lines) and all of `test_finalize_inputs.py` |
+| 3 (superseded prose removed, invariants kept) | **Carried** | `git diff c5c642a 679648a --stat` outside `.planning`: `finalize_inputs.py`, `test_finalize_inputs.py`, `test_finalize_parity_grid.py` only. No instruction file changed |
+| 4 (before/after counts, revert rule) | **Re-ran the counts**, carried the rest | 85 steps and 130,886 bytes at `679648a` |
+| 5 (the general cross-call check) | **Carried** | No phase file and no check file changed |
+
+I did not run the full suite (the main session's run on `679648a`: 6545 passed, 0 failed; CI as below).
+
+## Goal Achievement
+
+### Observable Truths (roadmap success criteria — the contract)
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| 1 | Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline | ✓ VERIFIED | Gaps 1, 2, 3 and 5 closed; gap 4 accepted (D-27). Every remaining difference I could produce is D-19 (with N-13), on the accepted list. Five situations match. |
+| 2 | Missing, malformed or stale Finalize inputs stop with a plain message; a failed or refused attempt writes no report and archives nothing; restart and retry work across fresh shell calls | ✓ VERIFIED (carried; partial re-run) | Five-situation comparison and its refusal lines identical to 2.14.1 at `679648a`; helper tests pass. |
+| 3 | Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host | ✓ VERIFIED (carried) | No file under this truth changed. |
+| 4 | Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit | ✓ VERIFIED (counts re-run) | `step_count.py --rev HEAD --json`: 85 steps (35 fences, 5 inline commands, 5 Write-tool writes, 40 paste sites). `plugins/vibe-check/scripts/footprint.py --rev HEAD --json`: Finalize 130,886 bytes. |
+| 5 | One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed | ✓ VERIFIED (carried) | No file under this truth changed. |
+
+**Score:** 5/5 truths verified
+
+### Deferred Items
+
+None.
+
+### How the comparison was made (all run by me, scratch only)
+
+Under the session scratch folder (`…/scratchpad/v6`): a fresh clone at `679648a`, and `git archive` copies of `dd8e4ab` (2.14.1) and `29e1664` (the pre-fix helper, as a control). Nothing in the working checkout was touched. `guard.py`, `carry_state.py`, `finalize_gate.py`, `batch_card.py` and `fixcommit.py` are byte-identical between `dd8e4ab` and `679648a`.
+
+- **2.14.1 side** (my own harness, written fresh this round, not the project's test code or its fixture script): the `^[A-Za-z0-9._/-]+$` filter, then one `/bin/sh -c` in the session folder running the dd8e4ab line 13 text with `<file>` substituted as written: `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"`, `blob=$(git rev-parse "HEAD:<file>")`, `git diff --quiet HEAD -- <file>` (unquoted, as in the text), `git diff --cached --quiet -- <file>`; kept only when all exit 0; then `carry_state.py finalize-counts` and `finalize_gate.py` from `dd8e4ab`. The guard's stdout is discarded; only its exit code counts, as the text says.
+- **Helper side:** `finalize_inputs.py` at `679648a` run as a command from the same session folder, same interpreter, same environment.
+- **An independent dirty check:** for every comparison the harness works out which file `HEAD:<name>` read, by git's own rule (a `./` or `../` name from the session folder, any other name from the top), and asks `git status -- ':(top,literal)<that file>'` whether it is edited or staged. A helper fingerprint of such a file from a subfolder is flagged whatever 2.14.1 did.
+- A case is "same" only when the fingerprint map, the three counts and the gate action are all equal.
+- I checked `fixtures/finalize_step1_2141.sh` against `git show dd8e4ab:plugins/vibe-check/phases/shared/90-finalize.md` lines 13–22 myself: same filter, same guard line, the same three git commands, kept only when all three exit 0, no change of folder. It is faithful (its only liberty, quoting `<file>`, cannot matter for names that pass the filter). My harness does not use it.
+
+### Gap closure evidence (step 1 of the request)
+
+**Gap 5, the rows from round 4** (repo with `y.ts`, `dir/y.ts`, `dir/deep/y.ts` and others with different content; fix-obsolete verdict on the blob `git rev-parse HEAD:<name>` gives in the session folder):
+
+| Session | Finding file | Change after the verdict | 2.14.1 | Helper at `679648a` | Pre-fix helper `29e1664` (control) |
+|---------|--------------|--------------------------|--------|---------------------|------------------------------|
+| `dir` | `./y.ts` | none | [0,0,0] `write` | same | same |
+| `dir` | `./y.ts` | `dir/y.ts` edited | [1,0,0] `outstanding-to-phase-5` | **same** | [0,0,0] `write` (wrong approval) |
+| `dir` | `./y.ts` | `dir/y.ts` staged | [1,0,0] `outstanding-to-phase-5` | **same** | [0,0,0] `write` (wrong approval) |
+| `dir` | `./y.ts` | top-level `y.ts` edited, `dir/y.ts` unchanged | [0,0,0] `write` | **same** | [1,0,0] (safe direction) |
+| `dir/deep` | `./y.ts`, `.//y.ts`, `./k.ts`, `./deep/../y.ts` | the session folder's file edited | [1,0,0] | **same** | [0,0,0] `write` |
+| `dir` | `./deep/y.ts`, `./n.ts`, `.//y.ts`, `./deep/../y.ts` | the file they name edited or staged | [1,0,0] | **same** | [0,0,0] `write` |
+
+**The matrix:** sessions top / `dir` / `dir/deep` × 19 names (`y.ts`, `./y.ts`, `../y.ts`, `dir/y.ts`, `./dir/y.ts`, `../dir/y.ts`, `./deep/y.ts`, `../repo/y.ts`, `../repo/dir/y.ts`, `./../y.ts`, `.//y.ts`, `./k.ts`, `n.ts`, `./n.ts`, `dir/../y.ts`, `dir/./y.ts`, `./deep/../y.ts`, `../../y.ts`, `../deep/y.ts`) × 9 changes (none; top `y.ts` edited / staged; `dir/y.ts` edited / staged; `dir/deep/y.ts` edited; `dir/n.ts`, `n.ts`, `dir/deep/k.ts` edited) = 513 comparisons.
+
+| Helper | Python | Same | D-19 shape | N-13 shape | Edited file fingerprinted from a subfolder | Other |
+|--------|--------|------|------------|------------|------|------|
+| `679648a` | 3.9.6, 3.12.12, 3.13.14, 3.14.5 (output byte-identical across the four) | 499 | 10 | 4 | **0** | 0 |
+| `29e1664` (control) | 3.14.5 | 474 | 10 | 4 | 12 | 13 (safe direction, same mechanism) |
+
+All 14 non-identical rows at `679648a` are plain names (`y.ts`, `n.ts`, `dir/y.ts`) with the session below the top. Every `./` and `../` name, from every session, gives the 2.14.1 result. **At the repo top every comparison is the same.**
+
+**Gaps 1, 2, 3, one probe each plus a twin, identical on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5:**
+
+| Probe | 2.14.1 | Helper |
+|-------|--------|--------|
+| Gap 1: top-level `-x.ts`, unchanged | [1,0,0] `outstanding-to-phase-5` | same |
+| Gap 1 control: `x.ts`, unchanged | [0,0,0] `write` | same |
+| Gap 2: repo `repo ` beside repo `repo`, real file edited | [1,0,0] `outstanding-to-phase-5` | same |
+| Gap 2: repo folder ending in a tab, unchanged | [0,0,0] `write` | same |
+| Gap 3: `core.worktree` → another repo, staged edit in the session's repo | [1,0,0] `outstanding-to-phase-5` | same |
+| Gap 3: folder name ending in a line break beside repo `repo`, real file edited | [1,0,0] `outstanding-to-phase-5` | same |
+
+**Is an edited file ever fingerprinted from a subfolder?** Not by the helper's mechanism, in any comparison I ran (about 2,700 across this section and the next, counting each Python version). The only edited files fingerprinted by both sides are ones git itself has been told to ignore (note N-17). **Does anything at the repo top differ from 2.14.1?** No.
+
+### Attack on the new rule (step 2 of the request)
+
+The rule: a name starting with `./` or `../` goes to the two checks as written; anything else gets one `../` per folder level. It is right exactly when git reads `HEAD:<name>` relative to the session folder for those names and from the top for all others. git's source (`resolve_relative_path` in `object-name.c`) applies the relative reading only to names starting with `./` or `../`, so `.` and `..` alone are read from the top. Every case below was run end to end against the literal 2.14.1 procedure on Python 3.14.5 (git 2.55.0, case-insensitive APFS).
+
+| Set-up | Runs | Result against 2.14.1 | D-19 promise held? |
+|--------|------|-----------------------|--------------------|
+| Session `dir`: `.//n.ts`, `.`, `..`, `./`, `./.`, `./-x.ts`, `./.../x`, `./..x/y`, `./dir/.`, `./dir`, `./x.ts/`, `../dir/n.ts`, `../repo/dir/n.ts`; session top: `.`, `./` | 3 to 5 each (clean; the file named and its twin edited, staged) | same in every run (the directory-naming forms fail or agree on both sides) | yes |
+| Session `dir/deep`: `./../n.ts`, `./../dir/n.ts`, `.././n.ts` | 5 each | same | yes |
+| `./` or `../` only in the middle (`dir/./n.ts`, `dir/../n.ts`, `dir//n.ts`), trailing `/.` (`dir/.`), trailing `/` (`x.ts/`) | 5 each | same (git cannot read these from HEAD; left out on both sides) | yes |
+| Plain names with dots: `.../x`, `..x/y` (folders `...` and `..x` exist at the top and in `dir`) | 5 each | top file edited: D-19 shape; twin in `dir` edited: N-13 shape; otherwise same | yes |
+| A name equal to the session folder (`dir`, `dir/`, session in `dir`; git gives a tree id) | 5 each | `dir/n.ts` edited: D-19 shape (2.14.1 checks `dir/dir`); otherwise same | yes |
+| Session folders named `*`, `?`, `[ab]`, `[`, `*x*`, `:x`, `:`, `a:b`, `--`, `-p` (and `a`, a control), names `y.ts`, `./y.ts`, `../y.ts`, six changes each | 216 | every `./` and `../` name the same; `y.ts`: D-19 shape (top edited) or N-13 shape (twin in the folder edited) | yes |
+| Session reached through a symlink from outside the repo, and through a symlink inside it (`ldir` → `dir`); `y.ts`, `./y.ts`, `../y.ts`, `./deep/y.ts` | 40 | `./` and `../` names the same; `y.ts` D-19 / N-13 shapes | yes |
+| Case: session folder typed `DIR` for `dir`; names `./y.ts`, `./Y.ts`, `y.ts`, `Y.ts`, `DIR/y.ts`, `dir/Y.ts` | 24 | same, except `y.ts` D-19 / N-13 shapes | yes |
+| Case twins across levels: top `Y.ts`, `dir/y.ts`, session `dir`, `./y.ts`, `./Y.ts`, `Y.ts`, `y.ts` | 12 | same, except `Y.ts` with `Y.ts` edited (D-19 shape) | yes |
+| Case collision: `dir/y.ts` and `dir/Y.ts` both committed (one file on this disk), session top and `dir` | 16 | `./` names the same; plain `dir/Y.ts`, `dir/y.ts` from `dir`: D-19 shape (git reports the named file modified) | yes |
+| `GIT_LITERAL_PATHSPECS`, `GIT_GLOB_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_ICASE_PATHSPECS` with `./y.ts`, `../y.ts`, `./deep/y.ts` from `dir` | 48 | same | yes |
+| `assume-unchanged` / `skip-worktree` on `y.ts` or `dir/y.ts`; sessions top and `dir`; `y.ts`, `./y.ts`, `dir/y.ts` | 72 | same, except plain names from `dir` in the D-19 shape | yes, see N-17 |
+| Intent-to-add entries (`z.ts`, `dir/z.ts` added with `-N`), sessions top and `dir` | 20 | same | yes |
+| Sparse checkout (only `/y.ts`; only `/dir/`), sessions top and `dir` | 18 | same, except `dir/y.ts` from `dir` edited (D-19 shape) | yes |
+
+Totals for this section: 595 runs; 512 the same; 83 differ, every one a plain name with the session below the top in the D-19 shape (2.14.1 fingerprints an edited file, the helper leaves it out) or the N-13 shape (the named file clean, a same-named file in the session folder edited). **No new mechanism. No helper fingerprint of an edited or staged file from a subfolder.**
+
+Not probed: a session folder whose name is not valid UTF-8 (this disk refuses it; CI's grid covers the folder-name case on Linux), Windows, a network disk.
+
+### The strengthened grid as a safeguard (step 3 of the request)
+
+| Question | Finding |
+|----------|---------|
+| Is the D-19 allowance as narrow as claimed? | Yes. Name-form grid (`nf_classify`): a difference is allowed only when the session is below the top, the name does not start with `./` or `../`, the file git reads from HEAD and the file the 2.14.1 checks address both exist and differ, the helper's whole outcome equals the exact D-19 prediction (map and decision), and either the named file (D-19) or the session folder's twin (N-13) is the one changed. First grid (`d19_difference`): session below the top, content edited, not a `./`/`../` name, 2.14.1 fingerprints exactly that file with its HEAD blob, the helper leaves exactly that file out, everything else equal, and both decisions as D-19 predicts. `test_session_relative_names_never_differ` and `test_no_difference_at_the_repo_top` add flat asserts. |
+| N-13 as asserted rows | Yes: three rows in `NF_D19_ROWS` (`sub` edited / staged with the session in `dir`; `deep` edited with the session in `dir/deep`), each asserting both maps and both decisions, plus at least 3 N-13 scenarios overall. |
+| Name forms my step 2 found that the grid lacks | Names that name a folder (`dir`, `dir/`, `./`, `.`), `.//`, `.../x`, `..x/y`, `./-x.ts`, session folders with pathspec characters, index flags. None of them broke the rule, so I do not count any as an obvious missing class; folder-naming names and `.//` would be the cheapest additions if the grid is ever widened. |
+| Always lift (gap 5 restored) | **Fails.** Name grid `470 agree, 35 D-19, 6 N-13, 38 unexpected`; failing: the agreement test, 9 regression rows, 18 `./`-name subtests; `--grid` exit 1. Against the actual pre-fix helper `29e1664` I counted 38 unexpected, **15 wrong approvals** — the executor's figures. |
+| Never lift (D-19 removed) | **Fails.** Both grids agree everywhere (549 and 266 agree, 0 D-19), so only the D-19 rows catch it: 7 name-grid and 7 first-grid D-19 subtests fail; `--grid` exit 1. |
+| Root as cwd (gap 3 restored) | **Fails.** Name grid 84 unexpected; first grid 18 unexpected (the records say 20 for their version of this mutant; mine also drops the D-19 lift, which is the pre-`08f0018` shape); `--grid` exit 1. |
+| Unmodified | pytest: 19 passed, 692 subtests; `--grid` exit 0. |
+| `--grid` exits 1 on any grid assertion failure | Yes for all three mutants. |
+| Not creatable on Linux must be empty | `test_everything_is_creatable_on_linux` asserts it on Linux. On this Mac 18 scenarios are not creatable (the folder name holding a byte that is not valid text), as before. |
+| **CI evidence** | `gh run view 43791899524 --log` (push) and `43791905432` (pull request), both on `679648a92c6a`, both `success`, Ubuntu, Python 3.14, git 2.56.1. Each warnings section prints `GridSummary: 549 name-form scenarios … 508 agree, 35 D-19, 6 D-19 second direction (N-13), 0 unexpected, 0 off the git model` and `GridSummary: 284 scenarios … 269 agree, 15 D-19, 0 known differences, 0 unexpected, 0 not creatable here`. Totals: `4588 passed, 2 skipped, 5 deselected, 2 warnings, 6464 subtests passed` (the two warnings are those lines). **So the 18 Mac-uncreatable scenarios ran on Linux in CI and agreed.** |
+
+### Regression checks (step 4; scratch clone at `679648a`)
+
+| Check | Command | Result | Status |
+|-------|---------|--------|--------|
+| 2.14.1 record reproducible | `finalize_capture.py verify --repo . --record docs/design/lean-v2.15/baseline/finalize-situations-v2.14.1.json` | `finalize baseline matches (5 situations)`, exit 0 | ✓ PASS |
+| Five situations, by commit | `finalize_capture.py compare … --driver helper --commit HEAD` on Python 3.14.5 and 3.9.6 | `finalize outcome fields match (5 situations, 7 walks)`, exit 0, both; refusal lines identical to 2.14.1 | ✓ PASS |
+| Five situations, by folder | the same with `--root plugins/vibe-check` | the same line, exit 0 | ✓ PASS |
+| Helper and grid tests, default locale | bare `pytest test_finalize_inputs.py test_finalize_parity_grid.py` (pytest on Python 3.12.12) | 143 passed, 893 subtests; 549: 508/35/6/0; 284: 254/12/0 unexpected/18 not creatable | ✓ PASS |
+| The same, `LC_ALL=C` | the same | 143 passed, same figures | ✓ PASS |
+| The same, Python 3.9.6 | `/usr/bin/python3 -m unittest test_finalize_inputs test_finalize_parity_grid`, default and `LC_ALL=C` | 143 tests OK, both, same figures | ✓ PASS |
+| Stdlib-only gate | `python3 -I .github/scripts/stdlib_only.py plugins/vibe-check` | `34 shipped .py files; third-party imports: none`, exit 0 | ✓ PASS |
+| Shipped-module count lock | `pytest .github/scripts/test_stdlib_only.py` | 21 passed | ✓ PASS |
+| Finalize steps | `step_count.py --rev HEAD --json` | 85 | ✓ PASS |
+| Finalize bytes | `plugins/vibe-check/scripts/footprint.py --rev HEAD --json` | 130,886 | ✓ PASS |
+| Files changed outside `.planning` since `c5c642a` | `git diff --stat` | `finalize_inputs.py`, `test_finalize_inputs.py`, `test_finalize_parity_grid.py` | ✓ PASS |
+
+### Records, checked against what is true now (step 5)
+
+`git diff 4ac7ee4 HEAD -- …/63-RESULT.md`: one hunk (`@@ -325,3 +325,94 @@`), 91 lines added, 0 removed, all after line 325, which is inside the post-merge section ("Correction after the merge" and its subsections). Additions only, as required.
+
+| Record | Claim | Check | Holds? |
+|--------|-------|-------|--------|
+| "Third correction" | the corrected sentence: the lift applied to every name in `08f0018`, wrong for `./`/`../` names, now given as written | code at `679648a` and my matrix | Yes |
+| "Fourth correction" | mechanism; session `dir`, `./y.ts`, `dir/y.ts` edited or staged: 2.14.1 and `main` open, helper approved; only top `y.ts` edited: helper kept open | my control run on `29e1664` | Yes |
+| "Fourth correction" | fix `7079ab0`: `./`/`../` names as written, every other name lifted; five situations still match; 85 steps, 130,886 bytes | code; my re-runs | Yes |
+| "Fourth correction" | pre-fix: 38 differences, 15 wrong approvals, all `./`/`../` names from a subfolder | my run of the name grid against `29e1664`: 38 unexpected, 15 wrong approvals | Yes |
+| "Fourth correction" | 17 name shapes, three session levels, 549 more scenarios; checks real git for which file each question reads | `NF_FORMS` + `NF_SECONDARY_FORMS` + `NF_REENTRY_FORMS` = 17 distinct; 315 + 180 + 54 = 549; `test_model_is_what_git_does` present | Yes |
+| "The side-by-side test", N-13 sentence | D-19's second direction described; `main` behaves so; held as D-19 rows | my matrix (4 N-13 shapes); `NF_D19_ROWS` has three such rows | Yes |
+| "The side-by-side test" | 833 scenarios; known-differences list empty | 284 + 549; `KNOWN_DIFFERENCES = ()` | Yes |
+| "The side-by-side test" | fails if anything is not creatable on Linux | `test_everything_is_creatable_on_linux`; CI prints 0 not creatable | Yes |
+| "The side-by-side test" | Linux container: all 833 created, none outside D-19 | not re-run by me; CI on Linux shows the same (0 unexpected, 0 not creatable, 0 off the git model) | Yes (by CI evidence) |
+| "The side-by-side test" | summary lines shown as warnings in test output | both CI logs | Yes |
+| "The side-by-side test" | timing: each grid 15 to 25 s | my runs 14 to 23 s | Yes |
+| 63-REPRO.md gap 5 section | mutation matrix: always lift 38, never lift 0 unexpected and D-19 rows fail, root as cwd 20 / 84 | mine: 38; never-lift as stated; root as cwd 18 / 84 (my mutant shape differs slightly) | Yes (minor count variance for one mutant) |
+| `finalize_inputs.py` docstring | `HEAD:<file>` relative for `./`/`../` names, from the top otherwise; per-form table | matches git's source rule and my runs | Yes (corrected since round 4) |
+
+### Differences from 2.14.1 found in the code, against the accepted list
+
+| Difference in the code | Accepted? |
+|------------------------|-----------|
+| Unreadable state file: shell's "Permission denied" line no longer shown | Yes — `## Your decision` item 1 |
+| Unsafe folder, branch or phase names stop the review (D-21) | Yes — item 2 |
+| Byte growth on every review path at phase end | Yes — item 3 |
+| Corrupted (non-UTF-8) state file on a C locale shows a different refusal line | Yes — item 4 |
+| Subfolder fix (D-19), both directions (N-13 written on the page) | Yes — D-19, D-28 |
+| Close out and fix loop keep the state path (D-20, D-23); inline Python isolated (D-22) | Yes |
+| 60-second limit per git call | Yes — D-27 |
+| ~~Leading-dash names~~, ~~folder name ending in whitespace~~, ~~per-file checks in the root path~~, ~~`./` names from a subfolder~~ | Removed by D-24, D-25, D-26, D-28: the helper matches 2.14.1 |
+
+### Required Artifacts
+
+| Artifact | Expected | Status | Details |
+|----------|----------|--------|---------|
+| `plugins/vibe-check/scripts/finalize_inputs.py` | the one helper call | ✓ VERIFIED | `_pathspec_for_blob` used by both `git diff` checks; all three per-file calls in the session folder |
+| `plugins/vibe-check/scripts/fixtures/finalize_step1_2141.sh` | the literal 2.14.1 step | ✓ VERIFIED | faithful; pinned |
+| `plugins/vibe-check/scripts/test_finalize_parity_grid.py` | the side-by-side test | ✓ VERIFIED | 833 scenarios; fails on all three mutants; CI prints its figures |
+| `plugins/vibe-check/scripts/test_finalize_inputs.py` | parity, exit codes, mutants | ✓ VERIFIED | `TestSessionRelativeNames` and the lift-every-name mutant added |
+| Other artifacts | as before | ✓ VERIFIED (carried; unchanged) | |
+
+### Key Link Verification
+
+| From | To | Via | Status |
+|------|----|-----|--------|
+| `finalize_inputs.py` | per-file git | `_git(..., cwd)` in the session folder | ✓ WIRED |
+| `finalize_inputs.py` | the D-19 lift | `_pathspec_for_blob(f, up)` in both `git diff` calls | ✓ WIRED (plain names lifted, `./`/`../` names as written; the three mutants fail the grid) |
+| `finalize_inputs.py` | `guard.py`, `carry_state.py`, `finalize_gate.py`, `batch_card.py` | in-process calls | ✓ WIRED (five situations re-run) |
+| `test_finalize_parity_grid.py` | the 2.14.1 text | `TestStep1ScriptIsPinned` | ✓ WIRED (carried; passes) |
+| CI workflow | the grid module | collected; summary lines in both logs | ✓ WIRED |
+
+### Data-Flow Trace, Spot-Checks, Probes
+
+Not applicable (no artifact renders dynamic data; no `scripts/*/tests/probe-*.sh` probes are declared). The comparisons above are the spot-checks.
+
+### Requirements Coverage
+
+| Requirement | Description | Status | Evidence |
+|-------------|-------------|--------|----------|
+| FINX-01 | Helpers on the single-writer path; same gate decisions and reports as the baseline | ✓ SATISFIED | Truth 1 |
+| FINX-02 | Bad inputs fail visibly; a failed attempt writes and archives nothing | ✓ SATISFIED | Truth 2 (carried, partial re-run) |
+| FINX-03 | Restart and retry across fresh shells | ✓ SATISFIED | Truth 2 |
+| FINX-04 | Superseded prose and locks removed; invariants kept | ✓ SATISFIED | Truth 3 (carried) |
+| FINX-05 | Before/after comparison; revert if no benefit | ✓ SATISFIED | Truth 4 |
+| XVAR-01 | One general check with a mutant | ✓ SATISFIED | Truth 5 (carried) |
+| XVAR-02 | Flagged files recorded with reproduction before change | ✓ SATISFIED | Truth 5 (carried) |
+
+No orphaned requirement.
+
+### Anti-Patterns Found
+
+| File | Pattern | Severity | Impact |
+|------|---------|----------|--------|
+| files changed since `c5c642a` | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` | none found | — |
+| `test_finalize_parity_grid.py` | the `--grid` exit-0-when-D-19-rows-vanish weakness from round 4 | resolved | `--grid` now runs the D-19 row tests; never-lift exits 1 |
+| `test_finalize_parity_grid.py` | no Linux assertion on the not-creatable list (round 4 warning) | resolved | `test_everything_is_creatable_on_linux` |
+
+### Notes (not gaps)
+
+- **N-1 to N-16** are carried from the earlier reports (N-7 is the accepted D-27; N-13 is now on the result page as part of D-19).
+- **N-17. Git index flags that hide edits.** With `assume-unchanged` or `skip-worktree` set on the file, git reports an edited file as unchanged, so both 2.14.1 and the helper fingerprint it and approve, at the top and from a subfolder alike. This is git doing what the user told it, identical to 2.14.1, and not the subfolder mechanism D-19 is about; not a difference.
+- **N-18. Names that name a folder** (`dir`, `dir/`, `./`, `.` where git resolves it) give a tree id rather than a file's blob. The verdict comparison then works on that id. Both sides behave identically except the plain-name D-19 shape; recorded only because the grid does not include such names.
+- **N-19. Root-as-cwd mutant count.** My version of that mutant gives 18 unexpected in the first grid where the records give 20; mine also removes the lift. Both fail the grid; the difference is in the mutant, not the test.
+
+### Human Verification Required
+
+None. Carried from the first report, as an observation and not a request: no live review was run, so a live model filling the three switch slots, pasting the printed state path and branching on `next` has been observed only in scripted walks. Under the standing rule a live or paid run needs its own approved proposal; this report does not ask for one.
+
+### Gaps Summary
+
+None open. Gap 5 is closed: the helper sends a `./` or `../` name to the two change checks as written, so all three git questions are about one file, as at 2.14.1, and plain names keep the D-19 lift. My own harness, independent of the project's tests, finds no difference from 2.14.1 outside D-19 (with N-13) on four Python versions, including the forms the request named to attack. The pre-fix helper fails the same harness, so the harness can see the defect. The strengthened grid fails on the three mutants it should, its D-19 allowance is narrow, and CI now prints its figures, including 0 not creatable on Linux. The records describe what is true.
+
+### Residual risk (my judgement, separate from the status)
+
+The per-file step is now literally 2.14.1's at the repo top. From a subfolder it differs only by a one-condition rule that follows git's own source rule for `HEAD:<name>` (`./` and `../` only). I attacked that rule from every angle the request named and found nothing outside D-19. The remaining exposure is new git versions changing how names are read (the grid's `test_model_is_what_git_does` would catch that in CI), and set-ups nobody has named. I put the chance of a further decision difference of this kind at about one in ten, lower than last round. The chance that one would touch a real review is very low, because every trigger found in five rounds has needed an unusual file name or folder set-up together with an edit after the fix verdict.
+
+---
+
+## History: fourth verification (2026-11-16T01:43:00Z, `29e1664`)
+
+**Status then:** gaps_found. **Score then:** 4/5. Gaps 1 to 3 closed, gap 4 accepted (D-27). One gap open then: gap 5 (blocking: `./` file names from a subfolder, a regression from the gap 3 fix; closed in round 5 by D-28 / `7079ab0`). The frontmatter of that round recorded the gap with its artifacts and fixes; the report of that round follows unchanged, with its headings moved one level down.
+
+That round's frontmatter `gaps:` entry, kept for the record:
+
+```yaml
 gaps:
   - truth: "Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline"
     status: partial
@@ -37,16 +308,9 @@ gaps:
       - "Grid: a fixture file with the same name at the top and in the session folder (for example `dir/x.ts` beside `x.ts`), `./y.ts` as a name with a session in `dir`, and named rows for (a), (b) and (c) with their 2.14.1 outcomes; a mutant that lifts every name must fail them."
       - "A ./ name case from a subfolder in `test_finalize_inputs.py` with fixed expected results."
       - "Records: correct the 'still read the file from the top' sentence in the result page's third correction, the 63-REPRO.md sentence about the ./x.ts row, and the helper docstring."
----
+```
 
-# Phase 63: Finalize extraction and cross-call variable check — Verification Report
-
-**Phase Goal:** Finalize's mechanical steps run through tested stdlib helpers and behave exactly as in 2.14.1, with less model-interpreted prose on the same paths, and a shell variable read across Bash calls is caught by one general check in any phase file.
-**Verified:** 2026-11-16T01:43:00Z, against branch `feat/v2.15-phase-63-gap` at `29e1664` (five commits on top of the third verification commit `38ed24f`; `main` is at `4ac7ee4`; follow-up pull request #11 open, not merged, both CI runs green on `29e1664`)
-**Status:** gaps_found
-**Re-verification:** Yes — fourth round, after the third gap closure
-
-## Result in plain terms
+### Result in plain terms
 
 - **Gap 3 is closed.** The three "is this file unchanged" git questions are asked in the session's own folder again, as at 2.14.1. All four rows I reported last round now give the 2.14.1 decision, on four Python versions. Nothing in that class disagrees in either direction.
 - **Gap 4 is settled.** The 60-second limit is still in the code and is on the result page as a sixth accepted difference, with your words quoted. It is no longer a gap.
@@ -59,7 +323,7 @@ gaps:
 - **Score: 4 of 5.**
 - **Expected and not counted as gaps:** no 63-11-SUMMARY.md, no `## Merge` section, the `Follow-up pull request:` placeholder line, backlog entries not filed, ROADMAP/STATE/REQUIREMENTS not ticked, pull request #11 not merged.
 
-## Re-verification summary
+### Re-verification summary
 
 | Item | Round 1 (`4ac7ee4`) | Round 2 (`66b0429`) | Round 3 (`48b307f`) | Now (`29e1664`) |
 |------|---------------------|---------------------|---------------------|-----------------|
@@ -71,7 +335,7 @@ gaps:
 | Gap 4: 60-second limit per git call (D-27) | not noted | note | open, minor | **accepted by name** |
 | Gap 5: `./` file names from a subfolder | absent | absent | absent | **open, blocking (regression from the gap 3 fix)** |
 
-### What I ran now and what I carried
+#### What I ran now and what I carried
 
 | Criterion | Now | How |
 |-----------|-----|-----|
@@ -83,9 +347,9 @@ gaps:
 
 The full local suite was not run by me (one was in progress in the working checkout, per instruction).
 
-## Goal Achievement
+### Goal Achievement
 
-### Observable Truths (roadmap success criteria — the contract)
+#### Observable Truths (roadmap success criteria — the contract)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
@@ -97,11 +361,11 @@ The full local suite was not run by me (one was in progress in the working check
 
 **Score:** 4/5 truths verified
 
-### Deferred Items
+#### Deferred Items
 
 None. Phase 65 (release gate) names nothing about this mechanism.
 
-### How the comparison was made (all run by me, scratch only)
+#### How the comparison was made (all run by me, scratch only)
 
 A fresh clone at `29e1664` and `git archive` copies of `dd8e4ab` (2.14.1), `4ac7ee4` (merged helper) and `48b307f` (round 3 helper), all under the session scratch folder. Nothing in the working checkout was touched. `guard.py`, `carry_state.py`, `finalize_gate.py`, `batch_card.py` and `fixcommit.py` are byte-identical between `dd8e4ab` and `29e1664`.
 
@@ -109,7 +373,7 @@ A fresh clone at `29e1664` and `git archive` copies of `dd8e4ab` (2.14.1), `4ac7
 - **Helper side:** `finalize_inputs.py` at `29e1664`, run as a command from the same session folder, same interpreter, same environment.
 - A case is "same" only when the fingerprint set, the three counts and the gate action are all equal.
 
-### Gap closure evidence (step 1 of the request)
+#### Gap closure evidence (step 1 of the request)
 
 **Gap 3, the four rows from round 3 and their neighbours. Identical on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5:**
 
@@ -124,7 +388,7 @@ A fresh clone at `29e1664` and `git archive` copies of `dd8e4ab` (2.14.1), `4ac7
 
 **Gap 2 (D-25):** 18 folder-name endings and the 24 neighbour cases: no disagreement. **Gap 1 (D-24):** the 24 file names: no disagreement. **Total: 72 cases per Python version, 0 disagreements, on four versions.**
 
-### Gap 5 in detail (new, blocking, a regression from the gap 3 fix)
+#### Gap 5 in detail (new, blocking, a regression from the gap 3 fix)
 
 **What differs.** git has two ways of reading a file name after `HEAD:`. A plain name (`dir/y.ts`) is read from the top of the repo wherever the session is. A name that starts with `./` or `../` is read relative to the session's folder. The helper's new rule adds `../` (once per folder level) to the name in the two "is it changed" checks, which assumes the first kind. For the second kind the fingerprint is taken from the session folder's file and the two checks look at a different file at the top.
 
@@ -150,7 +414,7 @@ The first three rows were run on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5 on th
 
 **The fix is small.** Tried in a scratch copy only: give the two checks the name unchanged when it starts with `./` or `../`, the lifted name otherwise. Every `./` row then equals 2.14.1 (369 comparisons: 269 the same, 96 D-19, 4 note N-13, 0 edited files fingerprinted). The grid result is unchanged by that fix (252 agree, 14 D-19, 0 unexpected), which is the evidence that the grid cannot currently see this gap.
 
-### The D-19 mechanism under attack (step 2 of the request)
+#### The D-19 mechanism under attack (step 2 of the request)
 
 "D-19" below means the accepted shape: session below the top, the file edited or staged, 2.14.1 fingerprints it, the helper leaves it out.
 
@@ -178,7 +442,7 @@ The first three rows were run on Python 3.9.6, 3.12.12, 3.13.14 and 3.14.5 on th
 
 Not probed: a folder name that is not valid UTF-8 as the session subfolder; Windows; a repo owned by another user; a network disk.
 
-### The side-by-side test as a safeguard (step 3 of the request)
+#### The side-by-side test as a safeguard (step 3 of the request)
 
 | Question | Finding |
 |----------|---------|
@@ -192,7 +456,7 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | Can the "not creatable here" list hide a real failure? | Only for the two axis values the test allows (a folder name with a byte that is not valid text; a file name ending in a line break), and only on a disk that refuses them; the test asserts both conditions and that at least 150 scenarios were created. On this Mac that is 18 scenarios, all the non-UTF-8 folder name. Weakness: nothing asserts the list is empty on Linux, so if CI's disk ever began refusing those names the 18 would stop running without any test failing. |
 | Did the 18 Linux-only scenarios run and pass in CI? | **The CI logs cannot show it.** Both runs on `29e1664` (43784252263 push, 43784256308 pull request) print only `4572 passed, 2 skipped, 5 deselected`; the two skips are `test_lanearchive.py` and `test_replay.py`, the five left-out tests are in `test_replay.py` and `test_footprint.py`. `pytest -q` prints no per-test line, the grid's own report is captured for a passing test, and no junit file is uploaded. What the logs do show: the module was collected and none of its tests failed or skipped. **My own run** in an Ubuntu 24.04 container (Python 3.12.3, git 2.43.0, clone at `29e1664`): `284 scenarios in 4.9 s: 272 agree, 12 D-19, 0 known differences, 0 unexpected, 0 not creatable here`. So the 18 run and agree on Linux; CI's Python 3.14 was not reproduced. |
 
-### Regression checks (step 4; run by me in the scratch clone at `29e1664`)
+#### Regression checks (step 4; run by me in the scratch clone at `29e1664`)
 
 | Check | Command | Result | Status |
 |-------|---------|--------|--------|
@@ -210,7 +474,7 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | Files changed under `plugins/`, `docs/`, `.github/` since `38ed24f` | `git diff --stat` | `finalize_inputs.py`, `test_finalize_inputs.py`, `fixtures/finalize_step1_2141.sh`, `test_finalize_parity_grid.py` | ✓ PASS |
 | CI on the follow-up pull request head | `gh pr view 11`, `gh run view` | open, not merged; head `29e1664`; both `offline-suite` runs success, every step success | ✓ PASS |
 
-### Records, checked against what is true now (step 5)
+#### Records, checked against what is true now (step 5)
 
 | Record | Claim | Check | Holds? |
 |--------|-------|-------|--------|
@@ -232,7 +496,7 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | 63-REMOVAL-LEDGER.md third and fourth items | mechanism, four cases, fix and test commits; the limit accepted | read | Yes |
 | `finalize_inputs.py` docstring | "git reads `HEAD:<file>` from the top of the work tree whatever the cwd" | false for `./` and `../` names | **No** |
 
-### Differences from 2.14.1 found in the code, against the accepted list
+#### Differences from 2.14.1 found in the code, against the accepted list
 
 | Difference in the code | Accepted? |
 |------------------------|-----------|
@@ -248,7 +512,7 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | ~~Leading-dash names~~, ~~folder name ending in whitespace~~, ~~per-file checks in the root path~~ | Removed by D-24, D-25, D-26: the helper matches 2.14.1 |
 | **A file name starting with `./` (or `../`), session in a subfolder: the fingerprint is read from the session folder's file and the two change checks from a file at the top; the decision differs both ways, including a wrong approval** | **No — not on the page; the opposite of what D-19 promises** |
 
-### Required Artifacts
+#### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
@@ -258,7 +522,7 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | `plugins/vibe-check/scripts/test_finalize_inputs.py` | parity, exit codes, mutants | ✓ VERIFIED | 118 tests in this file; no `./` name from a subfolder |
 | Other artifacts (cross-call check, guard tests, `90-finalize.md`, the moved passage, `finalize_capture.py`, the records) | as before | ✓ VERIFIED (carried; unchanged) | |
 
-### Key Link Verification
+#### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
@@ -270,11 +534,11 @@ Not probed: a folder name that is not valid UTF-8 as the session subfolder; Wind
 | `finalize_inputs.py` | `carry_state.py`, `finalize_gate.py`, `batch_card.py` | three in-process calls | ✓ WIRED (five situations re-run) |
 | CI workflow | the new test module | collected under `plugins/vibe-check/scripts`; not on the left-out list | ✓ WIRED (green on `29e1664`; per-scenario evidence not in the log) |
 
-### Data-Flow Trace, Spot-Checks, Probes
+#### Data-Flow Trace, Spot-Checks, Probes
 
 Not applicable (no artifact renders dynamic data; no `scripts/*/tests/probe-*.sh` probes are declared). The comparisons above are the spot-checks.
 
-### Requirements Coverage
+#### Requirements Coverage
 
 | Requirement | Description | Status | Evidence |
 |-------------|-------------|--------|----------|
@@ -288,7 +552,7 @@ Not applicable (no artifact renders dynamic data; no `scripts/*/tests/probe-*.sh
 
 No orphaned requirement.
 
-### Anti-Patterns Found
+#### Anti-Patterns Found
 
 | File | Pattern | Severity | Impact |
 |------|---------|----------|--------|
@@ -297,7 +561,7 @@ No orphaned requirement.
 | `test_finalize_parity_grid.py` `main --grid` | exits 0 when the D-19 rows vanish (lift removed) | Info | Only the pytest class catches that mutant; the records already say so |
 | files changed by the gap closure | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` | none found | — |
 
-### Notes (not gaps)
+#### Notes (not gaps)
 
 - **N-1 to N-12** are carried unchanged from the earlier reports (N-7 is now the accepted D-27).
 - **N-13. D-19 has a second direction that the page does not describe, and I did not report it in rounds 1 to 3.** Session in `dir`, finding file `x.ts` (the top-level file, unchanged), and a different file with the same name in the session folder (`dir/x.ts`) edited. 2.14.1 reads the name relative to the session folder, sees the edit to the wrong file and keeps the finding open; the helper reads the file the finding names, finds it unchanged and approves (`write`). Reproduced (4 of 369 comparisons; the same on the merged helper at `4ac7ee4`). This is the helper being right and 2.14.1 being strict by accident, it follows from the mechanism D-19 accepted ("reads the file from the repo root"), and it fits the promise as stated for this round ("a clean file still is" fingerprinted), so I have not graded it a gap. But it is a case where the helper approves and 2.14.1 does not, and the D-19 text shown to the owner describes only the other direction. One sentence on the result page would close it. The grid does not hold this direction either (same fixture blind spot).
@@ -305,17 +569,17 @@ No orphaned requirement.
 - **N-15. The folder-level query.** If `git rev-parse --show-prefix` fails the helper leaves every remaining file out. I found no natural set-up where it fails while 2.14.1's own root query succeeds; forced with a wrapper, the result is the safe direction.
 - **N-16. Gap 4 is recorded as an accepted difference, not as an override in this file's frontmatter.** An override here would be matched against the whole first criterion and would also mask gap 5.
 
-### Human Verification Required
+#### Human Verification Required
 
 None that blocks. Carried from the first report: no live review was run, so whether a live model fills the three switch slots, pastes the printed state path and branches on `next` as the scripted walks do has not been observed. Under the standing rule a live or paid run needs its own approved proposal; this report does not ask for one.
 
-### Gaps Summary
+#### Gaps Summary
 
 What this round was asked to check holds: gap 3 is closed on all four reproduced rows, gap 4 is accepted and recorded in the owner's words with the limit still in the code, gaps 1 and 2 stay closed, the two overclaiming audit rows are corrected, the owner-approved sections of the result page are untouched, and the side-by-side test is faithful to 2.14.1 and fails when it should.
 
 The attack on the replacement D-19 mechanism found one defect, introduced by the gap 3 fix and present only on pull request #11. Adding `../` to the file name is right for a name git reads from the top and wrong for a name git reads relative to the session folder (`./name`, `../name`). From a subfolder, with such a name, the helper fingerprints the session folder's file while checking a different file for changes: an edited file is fingerprinted and the review is approved where 2.14.1, and the helper on `main`, keep the finding open. The fix is one condition in the same function. The side-by-side test needs one more fixture file and three named rows to hold it, because today it cannot tell a helper with this defect from one without.
 
-### Residual risk (my judgement, separate from the status)
+#### Residual risk (my judgement, separate from the status)
 
 Four rounds, four exotic-input differences, all in the same thirty lines, and this time the new one was created by the fix for the last one and passed a 284-scenario test written to prevent exactly that. The lesson is that the grid is only as wide as its fixture repos: it varies folder names and git settings thoroughly, but file names and file layout thinly (one `./` name, no same-named files at two levels), and that is where this round's defect and note N-13 both sit. Once gap 5 is fixed and the grid has those rows, my estimate that a further decision difference of this kind remains is about one in six on macOS and Linux, lower than last round because the per-file step is now literally 2.14.1's at the repo top and I have attacked the subfolder path from every side I could name; the chance that any remaining one would touch a real review stays very low.
 
