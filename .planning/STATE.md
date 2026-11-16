@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T05:05:00.000Z"
-last_activity: 2026-11-15 -- Phase 65 planned (7 plans, 6 waves)
+last_updated: "2026-11-16T05:02:10.240Z"
+last_activity: 2026-11-16 -- 65-01 complete: WR-02 QUALIFYING (wrong close), owner granted the D-08 fix round (65-03 runs)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 22
+  completed_plans: 23
   percent: 50
 ---
 
@@ -20,19 +20,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 65 — release gate: orchestration equivalence and useful savings (Finalize extraction is the only included slice)
+**Current focus:** Phase 65: release-gate-orchestration-equivalence-and-useful-savings
 
 ## Current Position
 
-Phase: 65 (release-gate) — PLANNED, not started (Phase 64 complete as a recorded skip)
-Plan: 0 of 7 (65-01..65-07; Phase 64: no plans, recorded skip; Phase 63: 11 of 11 complete)
-Status: Ready to execute Phase 65 (plans 65-01..65-07; execute in the main checkout, not worktrees)
-Last activity: 2026-11-15 -- Phase 65 planned (7 plans, 6 waves)
+Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
+Plan: 2 of 7
+Status: Executing Phase 65
+Last activity: 2026-11-16 -- 65-01 complete: WR-02 QUALIFYING (wrong close), owner granted the D-08 fix round (65-03 runs)
 
 ## Operator Next Steps
 
 - `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); the live smoke needs the owner's approval in 65-02 before any spend
-- 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: reproduce WR-02 once, carry the rest (65 D-07)
+- 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: WR-02 reproduced in 65-01 as a wrong close and a regression from 2.14.1 (65-REPRO-WR02.md); owner go GRANTED 2026-11-16 for the one D-08 fix round (65-03); the 999.38 line "None is a regression from 2.14.1" needs correcting; WR-03/WR-04/SA-01/SA-03 carried
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
 ## Deferred Items
