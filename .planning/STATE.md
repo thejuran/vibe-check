@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: executing
-last_updated: "2026-11-14T20:31:01.161Z"
-last_activity: 2026-11-14 -- Phase 63 execution started
+status: "Ready to discuss Phase 64; Phase 63 closed 2026-11-15"
+stopped_at: "Phase 63 complete: Finalize extraction PASS, verification passed 5/5 on round 5, PR #10 (4ac7ee4) and follow-up PR #11 (b49d40a) merged with CI green on main; next is the Phase 64 discussion (a recorded skip or at most one family)"
+last_updated: "2026-11-16T03:55:02Z"
+last_activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 22
-  completed_plans: 11
-  percent: 25
+  completed_plans: 22
+  percent: 50
 ---
 
 # Project State
@@ -20,19 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 63: finalize-extraction-and-cross-call-variable-check
+**Current focus:** Phase 64 — optional bounded extension (conditional): a recorded skip or at most one family
 
 ## Current Position
 
-Phase: 63 (finalize-extraction-and-cross-call-variable-check) — EXECUTING
-Plan: 1 of 11
-Status: Executing Phase 63
-Last activity: 2026-11-14 -- Phase 63 execution started
+Phase: 64 (optional-bounded-extension, conditional) — NOT STARTED
+Plan: Not started (Phase 63: 11 of 11 complete)
+Status: Ready to discuss Phase 64; Phase 63 complete, merged and verified
+Last activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
 
 ## Operator Next Steps
 
-- Plan re-check for Phase 63 (two checks so far; every issue raised is addressed in the revisions), then `/bm:execute-phase 63` on branch `feat/v2.15-phase-63`; plans are `63-01`..`63-11` in `.planning/phases/63-finalize-extraction-and-cross-call-variable-check/`
-- Two owner pauses are planned: 63-09 (which flagged cross-call places are fixed, which pinned) and 63-11 (result page and the go to merge)
+- `/bm:discuss-phase 64`: record a skip, or select at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step); a recorded skip completes the phase
+- Before Phase 65's equivalence gate relies on them: close 999.34 WR-02/WR-03; weigh the 999.38 carry
+- No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
 ## Deferred Items
 
@@ -56,6 +58,10 @@ Carried from earlier:
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Closed | 999.12 cost visibility feasibility | Phase 62 done 2026-11-14: owner NO-GO (follows the note); accounting work stops, labelled byte and step counts are the evidence |
 | Backlog | 999.34 Phase 62 review carry (WR-01..WR-06, SA-01, SA-02 in 62-REVIEW.md) | Owner merged with them carried 2026-11-14; WR-02/WR-03 before Phase 65's gate relies on them; WR-06 needs a minimum-Python ruling; not scheduled |
+| Backlog | 999.35 Finalize card temp-file plumbing, with the fix loop's card (Phase 63 D-04) | Not scheduled; not a Phase 64 candidate |
+| Backlog | 999.36 Cross-call check: C2 exception and known limits | Not scheduled |
+| Backlog | 999.37 Finalize helper input gaps matched to 2.14.1 (D-06) | Not scheduled |
+| Backlog | 999.38 Phase 63 review carry (63-REVIEW.md, 63-REVIEW-2.md) | Owner accepted as carried at the go 2026-11-15; not scheduled |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
@@ -79,6 +85,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-15: Phase 63 complete. Finalize extraction PASS on its own (`c7d92c9`: 92 → 83 steps, 136,114 → 129,451 bytes); phase end after the owner-chosen fixes 85 steps, 130,886 bytes (plain review 193,267 vs 192,057; deep 270,219 vs 268,997). Owner "go" recorded on 63-RESULT.md; PR #10 squash-merged as 4ac7ee4 (main run 43771152210 green). Phase verification then found one gate-decision difference from 2.14.1 per round for four rounds (D-24 dash file names, D-25 root trimming, D-26 folder of the per-file checks, D-28 a regression from the D-26 fix); owner chose to match 2.14.1 and to add a permanent side-by-side test (833 scenarios); D-27 keeps the 60-second git limit as an accepted difference. Follow-up PR #11 squash-merged as b49d40a (main run 43800239296 green; grids 0 unexpected on Linux). Round 5 passed 5/5 (ran on Opus 5.5 because of a Fable rate limit). Backlog filed: 999.35–999.38. Next: /bm:discuss-phase 64.
 
 2026-11-14: Phase 63 plans revised after the first plan check (2 blockers, 7 warnings) and the new owner decision D-18 (the counting step's own one-line refusal stays on screen above the stop sentence, as in 2.14.1; not redirected to a side file). Still 11 plans in 9 waves. 63-06 now has three tasks (Finalize walks and locks; the other test modules; the instruction file and ledger) and its check is one chained command; the helper (63-02) writes only the 2.14.1 counting line to stderr and nothing otherwise; 63-08 compares the failed attempt's screen text like for like and keeps the restart situation's git data outside the walked folder; 63-09 lists the exact revert set and checks the six shared files at the extraction-only commit; 63-11 stops and reports if a revert is not clean; 63-05 takes its red list against a control run; 63-01 names the git calls' working directory and adds a subdirectory parity case. Research open questions marked resolved. No code changed, nothing pushed. Next: plan re-check.
 

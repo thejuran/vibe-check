@@ -31,6 +31,8 @@ Activated 2026-11-13 via `/bm:new-milestone` (research skipped; scope is the own
 
 Phase 62 complete 2026-11-14 (PR #9, `d0adb5b`): the 2.14.1 baseline is pinned under `docs/design/lean-v2.15/` (suite 3,886 passed; replay 170 runs, 0 differing; five Finalize situations; Finalize 92 model-run steps over 136,114 bytes), the offline suite runs in GitHub Actions on every push and pull request, and cost visibility is NO-GO (owner), so the milestone is judged on labelled byte and step counts. Review warnings are carried as backlog 999.34.
 
+Phase 63 complete 2026-11-15 (PR #10 `4ac7ee4`, follow-up PR #11 `b49d40a`): Finalize's gate inputs now come from one tested stdlib helper call; the extraction alone passes the improvement criterion (92 → 83 model-run steps, 136,114 → 129,451 bytes) and the five recorded situations match 2.14.1. One general check now catches shell values lost between Bash calls in every phase file; all nine reproduced places were fixed. A permanent side-by-side test runs the literal 2.14.1 Finalize step beside the helper (833 scenarios). Named differences the owner accepted are on `63-RESULT.md`. Validated: FINX-01..05, XVAR-01..02.
+
 ## Last Milestone: v2.14 Decision reliability (SHIPPED 2026-10-30 as 2.14.0; patched as 2.14.1)
 
 **Goal (met, with owner-accepted known limits):** close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy. The milestone met 16/16 requirements (STALE-01..06, DEFR-01..02, EVID-01..03, FINL-01..02, GATE-01..03). The audit is tech_debt: integration 8/9, flows 5/5. The suite ran 3821 passed with 0 failed. Replay against 2.13 gave 170 runs with 0 differing. This was not B3-measured. Candidate 47978aa was signed off by the owner (Decision 1 = B: README states C1). The release follows `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. Full record: [archive](milestones/v2.14-ROADMAP.md), [MILESTONES.md](MILESTONES.md).
@@ -489,4 +491,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-13 after v2.15 Lean orchestration milestone start*
+*Last updated: 2026-11-15 after Phase 63 (Finalize extraction and cross-call variable check)*

@@ -27,16 +27,16 @@
 
 ### Finalize extraction (FINX)
 
-- [ ] **FINX-01**: Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the baseline
-- [ ] **FINX-02**: Missing, malformed or stale Finalize inputs fail visibly with a plain message, and a failed or refused attempt writes no report and archives nothing
-- [ ] **FINX-03**: Finalize restart and retry work across fresh shell calls
-- [ ] **FINX-04**: Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host
-- [ ] **FINX-05**: Loaded prose and helper/tool steps on the same Finalize paths are compared before and after; the slice is reverted if it adds complexity without a demonstrated benefit against the BASE-04 criterion
+- [x] **FINX-01**: Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the baseline
+- [x] **FINX-02**: Missing, malformed or stale Finalize inputs fail visibly with a plain message, and a failed or refused attempt writes no report and archives nothing
+- [x] **FINX-03**: Finalize restart and retry work across fresh shell calls
+- [x] **FINX-04**: Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host
+- [x] **FINX-05**: Loaded prose and helper/tool steps on the same Finalize paths are compared before and after; the slice is reverted if it adds complexity without a demonstrated benefit against the BASE-04 criterion
 
 ### Cross-call variable check (XVAR)
 
-- [ ] **XVAR-01**: One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips
-- [ ] **XVAR-02**: Any phase file the check flags is recorded with its reproduction before it is changed
+- [x] **XVAR-01**: One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips
+- [x] **XVAR-02**: Any phase file the check flags is recorded with its reproduction before it is changed
 
 ### Optional bounded extension (EXT) — conditional
 
@@ -83,13 +83,13 @@ Which phases cover which requirements. Filled in during roadmap creation (2026-1
 | BASE-04 | Phase 62 | Complete |
 | CI-01 | Phase 62 | Complete |
 | CI-02 | Phase 62 | Complete |
-| FINX-01 | Phase 63 | Pending |
-| FINX-02 | Phase 63 | Pending |
-| FINX-03 | Phase 63 | Pending |
-| FINX-04 | Phase 63 | Pending |
-| FINX-05 | Phase 63 | Pending |
-| XVAR-01 | Phase 63 | Pending |
-| XVAR-02 | Phase 63 | Pending |
+| FINX-01 | Phase 63 | Complete |
+| FINX-02 | Phase 63 | Complete |
+| FINX-03 | Phase 63 | Complete |
+| FINX-04 | Phase 63 | Complete |
+| FINX-05 | Phase 63 | Complete |
+| XVAR-01 | Phase 63 | Complete |
+| XVAR-02 | Phase 63 | Complete |
 | EXT-01 | Phase 64 | Pending |
 | GATE-04 | Phase 65 | Pending |
 | GATE-05 | Phase 65 | Pending |
