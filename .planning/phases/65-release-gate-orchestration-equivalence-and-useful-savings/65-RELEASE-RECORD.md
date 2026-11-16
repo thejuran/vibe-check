@@ -219,3 +219,43 @@ No gate in this run produced a non-qualifying difference to carry (D-10). Standi
 - [63-RESULT.md](../63-finalize-extraction-and-cross-call-variable-check/63-RESULT.md)
 - [63-REVIEW.md](../63-finalize-extraction-and-cross-call-variable-check/63-REVIEW.md)
 - [63-REVIEW-2.md](../63-finalize-extraction-and-cross-call-variable-check/63-REVIEW-2.md)
+
+## Live smoke (D-01/D-02)
+
+Effective outcome: PASS
+
+Source: [65-LIVE-SMOKE.md](65-LIVE-SMOKE.md), its only run (the file has no `## Run N` re-run sections, so the top-level `## Verdict` is the last run), on `C: b073e31fb77f3f5ca32747f8c549ec552687b1be`, which equals `candidate:` in 65-CANDIDATE.md. Run 2026-11-16 under the owner-approved proposal (65-LIVE-SMOKE-PROPOSAL.md, `Status: APPROVED (owner, 2026-11-16)`): three fresh sessions on a sealed snapshot of C, all three VALID (every plugin path in every transcript under the snapshot; 0 under the repo or the cache).
+
+- S1, default review: the planted SQL-injection defect was flagged as row #1; both rows deferred with one `record-decisions` call; the Rerun ran pass 2 and the deferrals held.
+- S2, Close out with nothing open: one `finalize_inputs.py` call, `next = write-review-md`, REVIEW.md written with `**State format:** 53`, state archived, `review-closed` exit 0, the "Finalize stopped" sentence never printed.
+- S3, Close out through the decision card: the card listed both undecided rows, the typed defer was recorded, the inputs were re-run with a new BLOBFILE, `next = write-review-md`, REVIEW.md lists both deferred findings; the earlier REVIEW.md and archive were kept, not overwritten; `review-closed` exit 0.
+
+So the default review, Close out and Close out's decision card all ran live on C. The printed `STATE_FILE=` path was carried as the same literal in all three sessions. Carried items K1–K4 are in 65-LIVE-SMOKE.md `## Carried (D-10)`; none qualifies.
+
+## Unsupported fixtures and stated limits
+
+Stated limits, unchanged from 2.14 and listed in the README:
+- The range route (`A..B`) has thin test coverage (G3 route table).
+- Pause/resume has thin test coverage and no end-to-end walk, live or offline.
+- `--all` keeps no decisions between runs; each `--all` run starts fresh.
+
+User-visible items carried from the live smoke (not qualifying; 65-LIVE-SMOKE.md `## Carried`):
+- K1: after every finding is deferred in the fix loop, the Rerun pass has an empty card and the model may stop and ask instead of continuing. Decisions and state are saved; Close out then completes. One extra step, nothing lost. Listed as a Known limit in the release notes only (the README is part of the gated tree and was not changed).
+- K3: Close out can write REVIEW.md's audit-trail line naming the archive before the final archive name is known; in S3 the model corrected the line itself. Wording only; no state lost.
+- K2 (band rise between passes with no code change) is designed behaviour (same as Phase 61 C2) and never hides a finding; K4 is a harness retry, not user-visible.
+
+## Validation gaps and waivers
+
+Everything below was not proven live for 2.15.0. Each needs the owner's waiver at sign-off.
+- GSD, range, PR, incremental pass 2+ and `--all` reviews are proven offline only (D-02; G1–G3); the GSD route carries the WR-02 empty-phase-id stop, which is proven by tests only — waiver: pending owner sign-off (65-SIGNOFF.md)
+- The fix loop's fix-and-verify path is proven offline only (D-02; G1, G3 and the fix-verification run); the live smoke reached only its card and Rerun with deferrals — waiver: pending owner sign-off (65-SIGNOFF.md)
+- Pause/resume has no end-to-end walk, live or offline — waiver: pending owner sign-off (65-SIGNOFF.md)
+- No B3 or holdout measurement, so there are no 2.15 catch or false-alarm numbers; v2.11 remains the last measured result — waiver: pending owner sign-off (65-SIGNOFF.md)
+
+WR-02 is not carried: it was fixed before release (b281042) and is covered by tests inside G1 and G3.
+
+## Publish status
+
+GATE-04/05/06 "ships through the existing close workflow": pending close — see [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md).
+G12 (CI `offline-suite` green on the PR head): pending close — runbook step 4.
+Nothing has been pushed, tagged, merged or released from this phase.
