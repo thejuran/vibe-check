@@ -435,6 +435,57 @@ class TestSubdirectoryCwd(InputsCase):
         self.assertEqual(out, {})
 
 
+class TestSessionRelativeNames(InputsCase):
+    """A name starting with `./` or `../` is read by git relative to the
+    session folder in `HEAD:<name>` and in both pathspecs, so the three
+    2.14.1 calls address one file and the helper gives them the name as
+    written. Here `c.ts` exists at the top and as `sub/c.ts`, with different
+    content; the session is in `sub`."""
+
+    def setUp(self):
+        super().setUp()
+        write(self.repo, "c.ts", "top c\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "top c")
+        self.sub = os.path.join(self.repo, "sub")
+
+    def test_clean_session_file_is_fingerprinted(self):
+        out, rec = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
+        self.assertEqual(rec.calls[2:], [
+            ["rev-parse", "HEAD:./c.ts"],
+            ["diff", "--quiet", "HEAD", "--", "./c.ts"],
+            ["diff", "--cached", "--quiet", "--", "./c.ts"],
+        ])
+
+    def test_edited_session_file_is_not_fingerprinted(self):
+        write(self.repo, "sub/c.ts", "c2\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_staged_session_file_is_not_fingerprinted(self):
+        write(self.repo, "sub/c.ts", "staged\n")
+        git(self.repo, "add", "--", "sub/c.ts")
+        write(self.repo, "sub/c.ts", "c1\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_edit_to_the_same_named_top_file_does_not_matter(self):
+        write(self.repo, "c.ts", "top edited\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
+
+    def test_dot_dot_name_from_a_nested_subfolder(self):
+        deep = os.path.join(self.repo, "sub", "deep")
+        os.makedirs(deep)
+        out, _ = self.run_helper(state_for(["../c.ts"]), cwd=deep)
+        # `../c.ts` from `sub/deep` is `sub/c.ts`, and the guard (which
+        # resolves the name against the repo root) refuses it: outside.
+        self.assertEqual(out, {})
+        out, _ = self.run_helper(state_for(["./../c.ts"]), cwd=deep)
+        self.assertEqual(out, {})
+
+
 ROOT_AS_CWD = (
     ('        rev = _git(["rev-parse", "HEAD:" + f], cwd)\n',
      '        rev = _git(["rev-parse", "HEAD:" + f], root)\n'),

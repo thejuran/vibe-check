@@ -62,12 +62,14 @@ import sys
 import tempfile
 import time
 import unittest
+import warnings
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
 
 import carry_state  # noqa: E402  (fixture building only: record_decisions)
 import gitfixture  # noqa: E402  (helper_env isolation)
+import guard  # noqa: E402  (the dd8e4ab module; the name-form model's guard)
 
 SOURCE_COMMIT = "dd8e4ab"
 SOURCE_DOC = "plugins/vibe-check/phases/shared/90-finalize.md"
@@ -614,9 +616,12 @@ def run(argv, cwd, env, stdin_bytes=b""):
                           capture_output=True, timeout=CALL_TIMEOUT)
 
 
-def side_2141(state, state_path, files_dir, session, env, shell):
+def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
     """Step 1 through the 2.14.1 script for each last-pass fix verdict, then
-    the 2.14.1 counting command and gate."""
+    the 2.14.1 counting command and gate. With a `memo` dict, the counting
+    command and the gate (pure functions of the state bytes and the
+    fingerprint map) are run once per distinct input and their output
+    reused; step 1 always runs."""
     blobs = {}
     last = state["passes"][-1]
     for h, v in state["fix_verdicts"].items():
@@ -638,6 +643,16 @@ def side_2141(state, state_path, files_dir, session, env, shell):
         json.dump(blobs, fh)
     with open(state_path, "rb") as fh:
         state_bytes = fh.read()
+    key = (state_bytes, json.dumps(blobs, sort_keys=True))
+    if memo is not None and key in memo:
+        return dict(memo[key], blobs=blobs)
+    got = _counts_and_gate_2141(state_bytes, bp, session, env)
+    if memo is not None:
+        memo[key] = got
+    return dict(got, blobs=blobs) if "stop" not in got else got
+
+
+def _counts_and_gate_2141(state_bytes, bp, session, env):
     c = run([sys.executable, CARRY_STATE_PY, "finalize-counts", "--head-blobs",
              bp], session, env, state_bytes)
     if c.returncode != 0:
@@ -652,13 +667,13 @@ def side_2141(state, state_path, files_dir, session, env, shell):
             json.dumps({"flags": flags}).encode())
     if g.returncode != 0:
         return {"stop": "gate"}
-    return {"blobs": blobs,
-            "counts": [counts["outstanding_cw"], counts["unacknowledged_medium"],
+    return {"counts": [counts["outstanding_cw"], counts["unacknowledged_medium"],
                        counts["undecided_nv"]],
             "action": json.loads(g.stdout)["action"]}
 
 
-def side_helper(state_path, files_dir, session, env, helper=HELPER_PY):
+def side_helper(state_path, files_dir, session, env, helper=None):
+    helper = helper or HELPER_PY
     bp = os.path.join(files_dir, "blobs-helper.json")
     with open(bp, "w"):
         pass
@@ -694,7 +709,7 @@ def make_shim(top):
     return shim
 
 
-def run_one(index, sc, top, shim, shell="/bin/sh", helper=HELPER_PY):
+def run_one(index, sc, top, shim, shell="/bin/sh", helper=None):
     base = os.path.join(top, "s%04d" % index)
     files_dir = os.path.join(top, "f%04d" % index)
     os.makedirs(files_dir)
@@ -710,7 +725,7 @@ def run_one(index, sc, top, shim, shell="/bin/sh", helper=HELPER_PY):
     return sc, old, new, blob, None
 
 
-def run_grid(scenarios, shell="/bin/sh", helper=HELPER_PY, workers=None):
+def run_grid(scenarios, shell="/bin/sh", helper=None, workers=None):
     """[(scenario, 2.14.1 outcome, helper outcome, HEAD blob, not-creatable
     reason)] in scenario order; every temp folder is removed afterwards."""
     top = os.path.realpath(tempfile.mkdtemp(prefix="vc-grid-"))
@@ -729,11 +744,22 @@ def outcome(o):
     return None if o is None or "stop" in o else (o["counts"], o["action"])
 
 
+def session_relative(name):
+    """Does git read `HEAD:<name>` relative to the session folder? git does
+    so exactly when the name starts with `./` or `../`; any other name is
+    read from the top of the work tree."""
+    return name.startswith(("./", "../"))
+
+
 def d19_difference(sc, old, new, blob):
-    """True only for the D-19 shape: session in a subfolder, the file edited
-    or staged, 2.14.1 fingerprints it with its HEAD blob, the helper leaves
-    exactly that file out, and the two decisions follow from that."""
+    """True only for the D-19 shape: session in a subfolder, a plain file
+    name (one git reads from the top in `HEAD:<name>` but relative to the
+    session in the two checks), the file edited or staged, 2.14.1
+    fingerprints it with its HEAD blob, the helper leaves exactly that file
+    out, and the two decisions follow from that."""
     if sc.session not in BELOW_TOP or sc.content not in EDITED:
+        return False
+    if session_relative(sc.name):
         return False
     if "stop" in old or "stop" in new:
         return False
@@ -780,6 +806,452 @@ def report(results, seconds):
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------- #
+# The name-form grid: one file name at several folder levels.
+#
+# The repo holds `n.ts` at the top, in `dir` and in `dir/deep` (or only one
+# of them), each with different content, and the finding names it in one of
+# the NF_FORMS shapes. Full cross of: repo folder name x layout x content
+# (which of the files is changed, and how) x session folder x name form.
+# Every form passes the 2.14.1 character filter; the guard command decides
+# the rest on both sides.
+#
+# Each side is predicted from a model of git's own rules (`nf_blob_path`,
+# `nf_pathspec_path`), and `test_model_is_what_git_does` checks that model
+# against real git for every session and form, so the prediction is not an
+# assumption:
+#   2.14.1 fingerprints  iff the guard passes, `HEAD:<name>` names a file B,
+#                        the pathspec names a file D (git does not refuse
+#                        it) and D is unchanged;
+#   D-19 (the helper)    iff the guard passes, B exists and B is unchanged.
+# The two differ only where B != D, which is only a plain name (not
+# starting with `./` or `../`) with the session below the top: the 2.14.1
+# hole D-19 closed. There the difference is tolerated in its two exact
+# shapes, D-19 (B changed: 2.14.1 fingerprints an edited file, the helper
+# does not) and its second direction, note N-13 (B unchanged, the
+# same-named file in the session folder changed: 2.14.1 leaves B out by
+# accident, the helper fingerprints it). Everywhere else, and for every
+# `./` or `../` name, the two sides must agree exactly.
+# --------------------------------------------------------------------------- #
+NF_FILES = collections.OrderedDict((
+    ("top", ("n.ts", "n top\n")), ("sub", ("dir/n.ts", "n sub\n")),
+    ("deep", ("dir/deep/n.ts", "n deep\n")),
+))
+NF_ALWAYS = (("dir/deep/other.txt", "other\n"),)  # keeps `dir/deep` tracked
+NF_LAYOUTS = collections.OrderedDict((
+    ("all", ("top", "sub", "deep")), ("top-only", ("top",)),
+    ("sub-only", ("sub",)),
+))
+NF_SESSIONS = collections.OrderedDict((
+    ("root", ""), ("sub", "dir"), ("deeper", "dir/deep"),
+))
+# Forms crossed with every layout and every content: the shapes that name
+# an existing file from some session.
+NF_FORMS = ("n.ts", "./n.ts", "dir/n.ts", "./dir/n.ts", "./deep/n.ts")
+# Forms crossed with every session and NF_SECONDARY_CONTENTS of the `all`
+# layout: names git reads with `..` or `.` inside, names leaving the repo,
+# names that never exist, and deeper names.
+NF_SECONDARY_FORMS = ("./dir/../n.ts", "dir/deep/n.ts", "./dir/deep/n.ts",
+                      "../n.ts", "./../n.ts", "../dir/n.ts", "../../n.ts",
+                      "dir/../n.ts", "dir/./n.ts", "deep/n.ts")
+# With the repo folder itself named `dir`, a name leaving the repo and
+# coming back in (`../dir/...`) passes the guard, which resolves it against
+# the repo folder, while git resolves it against the session folder.
+NF_REENTRY_FORMS = ("../dir/n.ts", "../dir/deep/n.ts", "./../dir/n.ts")
+NF_STATES = ("edit", "staged", "staged-restored")
+NF_TARGETS = collections.OrderedDict((
+    ("all", (("top",), ("sub",), ("deep",), ("top", "sub"))),
+    ("top-only", (("top",),)), ("sub-only", (("sub",),)),
+))
+# Every target and every state at least once.
+NF_SECONDARY_CONTENTS = (((), "clean"), (("top",), "edit"), (("sub",), "edit"),
+                         (("sub",), "staged"), (("deep",), "staged-restored"),
+                         (("top", "sub"), "staged-restored"))
+NFScenario = collections.namedtuple(
+    "NFScenario", "root layout target state session form")
+
+
+def nf_contents(layout):
+    """(target, state) pairs for a layout; ((), "clean") is no change."""
+    out = [((), "clean")]
+    for target in NF_TARGETS[layout]:
+        for state in NF_STATES:
+            out.append((target, state))
+    return out
+
+
+def nf_scenarios():
+    rows = []
+    for layout in NF_LAYOUTS:
+        for target, state in nf_contents(layout):
+            for session in NF_SESSIONS:
+                for form in NF_FORMS:
+                    rows.append(NFScenario("repo", layout, target, state,
+                                           session, form))
+    for root, forms in (("repo", NF_SECONDARY_FORMS), ("dir", NF_REENTRY_FORMS)):
+        for target, state in NF_SECONDARY_CONTENTS:
+            for session in NF_SESSIONS:
+                for form in forms:
+                    rows.append(NFScenario(root, "all", target, state,
+                                           session, form))
+    return rows
+
+
+def nf_key(sc):
+    return "%s|%s|%s|%s|%s|%s" % (sc.root, sc.layout, "+".join(sc.target)
+                                  or "-", sc.state, sc.session, sc.form)
+
+
+def _git_normalise(path):
+    """Collapse `//`, `.` and `..` as git does for a session-relative name
+    and for a pathspec -> top-relative path, or None when it climbs above
+    the top (git refuses it)."""
+    out = []
+    for part in path.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not out:
+                return None
+            out.pop()
+        else:
+            out.append(part)
+    return "/".join(out)
+
+
+def nf_blob_path(prefix, form):
+    """The top-relative path `git rev-parse HEAD:<form>` reads in a session
+    whose `--show-prefix` is `prefix`, or None when git can name no path:
+    a `./` or `../` name is resolved from the session folder and normalised;
+    any other name is looked up from the top exactly as written, so an
+    empty, `.` or `..` part makes the lookup fail."""
+    if session_relative(form):
+        return _git_normalise(prefix + form)
+    if any(part in ("", ".", "..") for part in form.split("/")):
+        return None
+    return form
+
+
+def nf_pathspec_path(prefix, form):
+    """The top-relative path the pathspec `<form>` after `--` addresses in
+    that session (always read from the session folder), or None when git
+    refuses it (outside the repository, exit 128)."""
+    return _git_normalise(prefix + form)
+
+
+def nf_repo_files(layout):
+    return [NF_FILES[k][0] for k in NF_LAYOUTS[layout]]
+
+
+def nf_changed(sc):
+    return set() if sc.state == "clean" else {NF_FILES[k][0] for k in sc.target}
+
+
+def nf_guard_ok(root, form):
+    return guard.contained(root, form)[0]
+
+
+def nf_predict(sc, root):
+    """(2.14.1 fingerprints?, D-19 fingerprints?, B, D) for a scenario."""
+    prefix = NF_SESSIONS[sc.session] + "/" if NF_SESSIONS[sc.session] else ""
+    b = nf_blob_path(prefix, sc.form)
+    d = nf_pathspec_path(prefix, sc.form)
+    files = nf_repo_files(sc.layout)
+    changed = nf_changed(sc)
+    if not nf_guard_ok(root, sc.form) or b not in files:
+        return False, False, b, d
+    return (d is not None and d not in changed), (b not in changed), b, d
+
+
+def nf_build(root_name, layout, target, state, base, top):
+    """The repo for one (root name, layout, content) under `base` -> (repo,
+    {top-relative path: HEAD blob})."""
+    b = Builder(top)
+    os.makedirs(base)
+    repo = os.path.join(base, root_name)
+    files = collections.OrderedDict(NF_FILES[k] for k in NF_LAYOUTS[layout])
+    files.update(NF_ALWAYS)
+    b.init_repo(repo, files)
+    blobs = {}
+    for rel in files:
+        blobs[rel] = b.git(repo, "rev-parse", "HEAD:" + rel).decode().strip()
+    for k in target:
+        rel = NF_FILES[k][0]
+        path = os.path.join(repo, rel)
+        if state == "edit":
+            modify(path)
+        elif state == "staged":
+            modify(path)
+            b.git(repo, "add", "--", rel)
+        elif state == "staged-restored":
+            snap = snapshot_of(path)
+            modify(path)
+            b.git(repo, "add", "--", rel)
+            restore(path, snap)
+    return repo, blobs
+
+
+def nf_state(form, blob):
+    return fixture_state(form, "obsolete-head", blob)
+
+
+def nf_run(scenarios, helper=None, workers=None):
+    """[(scenario, 2.14.1 outcome, helper outcome, prediction)] in order.
+    One repo per (root name, layout, content); every temp folder is removed
+    afterwards."""
+    top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfgrid-"))
+    try:
+        shim = make_shim(top)
+        env = clean_env()
+        env["GIT_CEILING_DIRECTORIES"] = top
+        env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+        env["PYTHONIOENCODING"] = "utf-8:strict"
+        workers = workers or min(8, os.cpu_count() or 2)
+        repo_keys = []
+        for sc in scenarios:
+            k = (sc.root, sc.layout, sc.target, sc.state)
+            if k not in repo_keys:
+                repo_keys.append(k)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            built = list(pool.map(
+                lambda ik: nf_build(*ik[1], os.path.join(top, "r%03d" % ik[0]),
+                                    top),
+                enumerate(repo_keys)))
+            repos = dict(zip(repo_keys, built))
+            memo = {}
+
+            def one(index, sc):
+                repo, head = repos[(sc.root, sc.layout, sc.target, sc.state)]
+                fizz, d19, b, d = nf_predict(sc, repo)
+                session = os.path.join(repo, NF_SESSIONS[sc.session]) \
+                    if NF_SESSIONS[sc.session] else repo
+                files_dir = os.path.join(top, "f%04d" % index)
+                os.makedirs(files_dir)
+                blob = head.get(b) if b is not None else None
+                state = nf_state(sc.form, blob)
+                state_path = os.path.join(files_dir, "state.json")
+                with open(state_path, "w", encoding="utf-8") as fh:
+                    json.dump(state, fh)
+                old = side_2141(state, state_path, files_dir, session, env,
+                                "/bin/sh", memo)
+                new = side_helper(state_path, files_dir, session, env, helper)
+                return sc, old, new, (fizz, d19, b, d, blob)
+
+            futures = [pool.submit(one, i, sc) for i, sc in enumerate(scenarios)]
+            return [f.result() for f in futures]
+    finally:
+        shutil.rmtree(top, ignore_errors=True)
+
+
+def nf_expected(sc, fingerprinted, blob):
+    """The outcome a side must give: its map and its decision."""
+    if fingerprinted:
+        return {"blobs": {sc.form: blob}, "counts": WRITE[0], "action": WRITE[1]}
+    return {"blobs": {}, "counts": OPEN[0], "action": OPEN[1]}
+
+
+def nf_classify(results):
+    """-> dict of lists: agree, d19, n13, unexpected, model (2.14.1 side not
+    as the git model predicts: the model or the script is wrong)."""
+    out = {"agree": [], "d19": [], "n13": [], "unexpected": [], "model": []}
+    for sc, old, new, (fizz, d19, b, d, blob) in results:
+        if old != nf_expected(sc, fizz, blob):
+            out["model"].append((sc, old, new))
+        if old == new:
+            out["agree"].append(sc)
+            continue
+        hole = (sc.session != "root" and not session_relative(sc.form)
+                and b is not None and d is not None and b != d)
+        if hole and new == nf_expected(sc, d19, blob):
+            if b in nf_changed(sc):
+                out["d19"].append((sc, old, new))
+                continue
+            if d in nf_changed(sc):
+                out["n13"].append((sc, old, new))
+                continue
+        out["unexpected"].append((sc, old, new))
+    return out
+
+
+def nf_report(results, seconds):
+    c = nf_classify(results)
+    lines = ["%d name-form scenarios in %.1f s: %d agree, %d D-19, %d D-19 "
+             "second direction (N-13), %d unexpected, %d off the git model"
+             % (len(results), seconds, len(c["agree"]), len(c["d19"]),
+                len(c["n13"]), len(c["unexpected"]), len(c["model"]))]
+    for sc, old, new in c["unexpected"]:
+        lines.append("  DIFFERENT %s\n      2.14.1 %r\n      helper %r"
+                     % (nf_key(sc), old, new))
+    for sc, old, new in c["model"]:
+        lines.append("  OFF MODEL %s\n      2.14.1 %r" % (nf_key(sc), old))
+    return "\n".join(lines)
+
+
+def NF(root, layout, target, state, session, form):
+    return NFScenario(root, layout, tuple(target), state, session, form)
+
+
+# Gap 5 (found by the fourth verification round): a `./` or `../` name with
+# the session in a subfolder. 2.14.1 reads all three from the same
+# session-relative file, so these must agree, with these 2.14.1 outcomes.
+NF_REGRESSION_ROWS = (
+    # (a) the session folder's own file edited / staged: open.
+    (NF("repo", "all", ["sub"], "edit", "sub", "./n.ts"), OPEN),
+    (NF("repo", "all", ["sub"], "staged", "sub", "./n.ts"), OPEN),
+    (NF("repo", "all", ["sub"], "staged-restored", "sub", "./n.ts"), OPEN),
+    (NF("repo", "all", ["deep"], "edit", "deeper", "./n.ts"), OPEN),
+    (NF("repo", "all", ["deep"], "staged", "sub", "./deep/n.ts"), OPEN),
+    (NF("repo", "sub-only", ["sub"], "edit", "sub", "./n.ts"), OPEN),
+    # (b) only the same-named top-level file edited: the named file is clean.
+    (NF("repo", "all", ["top"], "edit", "sub", "./n.ts"), WRITE),
+    (NF("repo", "all", ["top"], "staged", "deeper", "./n.ts"), WRITE),
+    # (c) a name leaving the repo and coming back in, clean and edited.
+    (NF("dir", "all", [], "clean", "sub", "../dir/n.ts"), WRITE),
+    (NF("dir", "all", ["sub"], "edit", "sub", "../dir/n.ts"), OPEN),
+    # `../name` from a deeper folder names the parent folder's file.
+    (NF("repo", "all", [], "clean", "deeper", "./../n.ts"), WRITE),
+    (NF("repo", "all", ["sub"], "edit", "deeper", "./../n.ts"), OPEN),
+    # Clean controls.
+    (NF("repo", "all", [], "clean", "sub", "./n.ts"), WRITE),
+    (NF("repo", "all", [], "clean", "root", "./n.ts"), WRITE),
+    (NF("repo", "all", [], "clean", "sub", "n.ts"), WRITE),
+)
+
+# The D-19 rows of this grid: (scenario, 2.14.1 outcome, helper outcome).
+NF_D19_ROWS = (
+    # D-19: session in `dir`, the top-level n.ts (the file the finding
+    # names) edited: 2.14.1 checks `dir/n.ts`, fingerprints the edited file
+    # and approves; the helper keeps the finding open.
+    (NF("repo", "all", ["top"], "edit", "sub", "n.ts"), WRITE, OPEN),
+    (NF("repo", "all", ["top"], "staged", "deeper", "n.ts"), WRITE, OPEN),
+    (NF("repo", "top-only", ["top"], "staged-restored", "sub", "n.ts"), WRITE,
+     OPEN),
+    (NF("repo", "all", ["sub"], "edit", "deeper", "dir/n.ts"), WRITE, OPEN),
+    # D-19's second direction (verification note N-13), part of the
+    # accepted mechanism: the top-level n.ts is unchanged and a different,
+    # same-named `dir/n.ts` is edited. 2.14.1 checks that other file, sees
+    # the edit and keeps the finding open by accident; the helper checks the
+    # file the finding names, finds it clean and approves. `main` does the
+    # same.
+    (NF("repo", "all", ["sub"], "edit", "sub", "n.ts"), OPEN, WRITE),
+    (NF("repo", "all", ["sub"], "staged", "sub", "n.ts"), OPEN, WRITE),
+    (NF("repo", "all", ["deep"], "edit", "deeper", "n.ts"), OPEN, WRITE),
+)
+
+
+class TestNameFormGrid(unittest.TestCase):
+    """The name-form grid, run once for the class."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scenarios = nf_scenarios()
+        start = time.time()
+        cls.results = nf_run(cls.scenarios)
+        cls.seconds = time.time() - start
+        cls.by_scenario = {r[0]: r for r in cls.results}
+        cls.classes = nf_classify(cls.results)
+        cls.summary = nf_report(cls.results, cls.seconds)
+        show_summary(cls.summary)
+
+    def test_every_form_passes_the_2141_character_filter(self):
+        for form in NF_FORMS + NF_SECONDARY_FORMS + NF_REENTRY_FORMS:
+            self.assertRegex(form, r"^[A-Za-z0-9._/-]+$")
+
+    def test_named_rows_are_in_the_grid(self):
+        names = set(self.scenarios)
+        for sc, _ in NF_REGRESSION_ROWS:
+            self.assertIn(sc, names)
+        for sc, _, _ in NF_D19_ROWS:
+            self.assertIn(sc, names)
+
+    def test_model_is_what_git_does(self):
+        """For each session and form, the file `HEAD:<form>` reads and the
+        file the pathspec addresses are what nf_blob_path and
+        nf_pathspec_path say, by real git."""
+        top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfmodel-"))
+        try:
+            repo, head = nf_build("repo", "all", (), "clean",
+                                  os.path.join(top, "b"), top)
+            by_blob = {v: k for k, v in head.items()}
+            env = clean_env()
+            env["GIT_CEILING_DIRECTORIES"] = top
+            for session, rel in NF_SESSIONS.items():
+                cwd = os.path.join(repo, rel) if rel else repo
+                prefix = rel + "/" if rel else ""
+                for form in NF_FORMS + NF_SECONDARY_FORMS + NF_REENTRY_FORMS:
+                    with self.subTest(session=session, form=form):
+                        rev = run(["git", "rev-parse", "--verify", "-q",
+                                   "HEAD:" + form], cwd, env)
+                        got_b = by_blob.get(rev.stdout.decode().strip()) \
+                            if rev.returncode == 0 else None
+                        want_b = nf_blob_path(prefix, form)
+                        self.assertEqual(got_b, want_b
+                                         if want_b in head else None)
+                        ls = run(["git", "ls-files", "--full-name", "--",
+                                  form], cwd, env)
+                        want_d = nf_pathspec_path(prefix, form)
+                        if want_d is None:
+                            self.assertEqual(ls.returncode, 128)
+                        else:
+                            self.assertEqual(ls.returncode, 0)
+                            got = ls.stdout.decode().splitlines()
+                            self.assertEqual(got, [want_d] if want_d in head
+                                             else [])
+        finally:
+            shutil.rmtree(top, ignore_errors=True)
+
+    def test_2141_side_is_what_the_git_model_predicts(self):
+        self.assertEqual(self.classes["model"], [], self.summary)
+
+    def test_every_scenario_agrees_except_d19(self):
+        self.assertEqual(self.classes["unexpected"], [], self.summary)
+
+    def test_session_relative_names_never_differ(self):
+        for sc, old, new, _ in self.results:
+            if session_relative(sc.form):
+                with self.subTest(scenario=nf_key(sc)):
+                    self.assertEqual(new, old)
+
+    def test_no_difference_at_the_repo_top(self):
+        for sc, old, new, _ in self.results:
+            if sc.session == "root":
+                with self.subTest(scenario=nf_key(sc)):
+                    self.assertEqual(new, old)
+
+    def test_regression_rows_give_the_2141_decision(self):
+        for sc, expected in NF_REGRESSION_ROWS:
+            with self.subTest(scenario=nf_key(sc)):
+                _, old, new, _ = self.by_scenario[sc]
+                self.assertEqual(outcome(old), expected)
+                self.assertEqual(new, old)
+
+    def test_d19_rows_differ_exactly_as_decided(self):
+        for sc, want_old, want_new in NF_D19_ROWS:
+            with self.subTest(scenario=nf_key(sc)):
+                _, old, new, (_, _, _, _, blob) = self.by_scenario[sc]
+                self.assertIsNotNone(blob)
+                self.assertEqual(outcome(old), want_old)
+                self.assertEqual(outcome(new), want_new)
+                self.assertEqual(old["blobs"], {sc.form: blob}
+                                 if want_old == WRITE else {})
+                self.assertEqual(new["blobs"], {sc.form: blob}
+                                 if want_new == WRITE else {})
+        self.assertGreaterEqual(len(self.classes["d19"]), 4)
+        self.assertGreaterEqual(len(self.classes["n13"]), 3)
+
+
+def show_summary(text):
+    """Print a grid's summary line and also raise it as a GridSummary
+    warning: `pytest -q` hides the print of a passing test but lists the
+    warnings at the end of its output, so the line reaches the CI log."""
+    print("\n" + text)
+    warnings.warn(text.splitlines()[0], GridSummary, stacklevel=2)
+
+
+class GridSummary(UserWarning):
+    """The grid's one-line summary, surfaced in the pytest output."""
+
+
 class TestParityGrid(unittest.TestCase):
     """The grid, run once for the class (about 20-30 seconds)."""
 
@@ -791,7 +1263,7 @@ class TestParityGrid(unittest.TestCase):
         cls.seconds = time.time() - start
         cls.by_scenario = {r[0]: r for r in cls.results}
         cls.classes = classify(cls.results)
-        print("\n" + report(cls.results, cls.seconds))
+        show_summary(report(cls.results, cls.seconds))
 
     def test_grid_covers_every_pair(self):
         self.assertGreaterEqual(len(self.scenarios), 150)
@@ -817,6 +1289,14 @@ class TestParityGrid(unittest.TestCase):
                 "%s not creatable: %s" % (key_of(sc), why))
         created = len(self.results) - len(self.classes["not_creatable"])
         self.assertGreaterEqual(created, 150)
+
+    def test_everything_is_creatable_on_linux(self):
+        """On Linux (the CI machine) every scenario must be built and run, so
+        none can stop running there without a failure."""
+        if not sys.platform.startswith("linux"):
+            return
+        self.assertEqual(self.classes["not_creatable"], [],
+                         report(self.results, self.seconds))
 
     def test_regression_rows_give_the_2141_decision(self):
         for sc, expected in REGRESSION_ROWS:
