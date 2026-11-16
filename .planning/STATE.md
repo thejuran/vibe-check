@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "Phase 65 planned (7 plans, 5 waves); ready to execute Phase 65"
-stopped_at: "Phase 65 planned: 65-01 WR-02 repro, 65-02 smoke proposal, 65-03 conditional WR-02 fix, 65-04 candidate, 65-05 gates, 65-06 live smoke, 65-07 sign-off; next is /bm:execute-phase 65"
-last_updated: "2026-11-16T04:31:12Z"
-last_activity: 2026-11-15 -- Phase 65 planned (7 plans)
+status: executing
+last_updated: "2026-11-16T04:54:41.463Z"
+last_activity: 2026-11-15 -- Phase 65 planned (7 plans, 5 waves)
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 29
   completed_plans: 22
-  percent: 75
+  percent: 50
 ---
 
 # Project State
