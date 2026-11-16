@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T05:02:10.240Z"
-last_activity: 2026-11-16 -- 65-01 complete: WR-02 QUALIFYING (wrong close), owner granted the D-08 fix round (65-03 runs)
+last_updated: "2026-11-16T05:05:04.000Z"
+last_activity: "2026-11-16 -- 65-02 complete: owner APPROVED the three-session live smoke (est. $20-30, not a cap); runs in 65-06 after the free gates pass"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 23
+  completed_plans: 24
   percent: 50
 ---
 
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Executing Phase 65
-Last activity: 2026-11-16 -- 65-01 complete: WR-02 QUALIFYING (wrong close), owner granted the D-08 fix round (65-03 runs)
+Last activity: 2026-11-16 -- 65-02 complete: owner APPROVED the three-session live smoke (est. $20-30, not a cap); runs in 65-06 after the free gates pass
 
 ## Operator Next Steps
 
-- `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); the live smoke needs the owner's approval in 65-02 before any spend
+- `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); live smoke APPROVED by the owner 2026-11-16 (65-LIVE-SMOKE-PROPOSAL.md: 3 sessions, default review + Close out, est. $20-30, not a cap); the one fix round is used by WR-02, so a qualifying smoke failure needs a D-09 owner go
 - 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: WR-02 reproduced in 65-01 as a wrong close and a regression from 2.14.1 (65-REPRO-WR02.md); owner go GRANTED 2026-11-16 for the one D-08 fix round (65-03); the 999.38 line "None is a regression from 2.14.1" needs correcting; WR-03/WR-04/SA-01/SA-03 carried
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
@@ -84,6 +84,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: Phase 65 plan 02 complete. 65-LIVE-SMOKE-PROPOSAL.md written (3c26d68) and APPROVED by the owner via AskUserQuestion in the main session, selection "Approve (Recommended)" (368ba54): three fresh sessions on the candidate (S1 review + defer, S2 Close out, S3 Close out via the decision card), one invalid-run retry, est. $20-30, an estimate not a cap. GSD, range, PR, incremental, `--all` and the fix loop stay offline-only and go to the waiver list at sign-off. Nothing run or spent yet; the smoke runs in 65-06 after the free gates pass. Next: 65-03 (WR-02 fix).
 
 2026-11-15: Phase 63 complete. Finalize extraction PASS on its own (`c7d92c9`: 92 → 83 steps, 136,114 → 129,451 bytes); phase end after the owner-chosen fixes 85 steps, 130,886 bytes (plain review 193,267 vs 192,057; deep 270,219 vs 268,997). Owner "go" recorded on 63-RESULT.md; PR #10 squash-merged as 4ac7ee4 (main run 43771152210 green). Phase verification then found one gate-decision difference from 2.14.1 per round for four rounds (D-24 dash file names, D-25 root trimming, D-26 folder of the per-file checks, D-28 a regression from the D-26 fix); owner chose to match 2.14.1 and to add a permanent side-by-side test (833 scenarios); D-27 keeps the 60-second git limit as an accepted difference. Follow-up PR #11 squash-merged as b49d40a (main run 43800239296 green; grids 0 unexpected on Linux). Round 5 passed 5/5 (ran on Opus 5.5 because of a Fable rate limit). Backlog filed: 999.35–999.38. Next: /bm:discuss-phase 64.
 
