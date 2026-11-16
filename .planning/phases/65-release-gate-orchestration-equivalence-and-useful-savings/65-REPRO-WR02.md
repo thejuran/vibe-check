@@ -87,3 +87,34 @@ Compared with 2.14.1: different failure: under the same fresh-shell standard 2.1
 Owner go: GRANTED (owner, 2026-11-16)
 
 Owner selection (verbatim, AskUserQuestion in the main session): "go (Recommended)" — run 65-03 (test-first WR-02 fix), then build the candidate with the fix. This consumes the one D-08 fix round; any later gate failure needs the owner's explicit go for a second round (D-09).
+
+## Fix
+
+Fix round: RAN — the one D-08 round (plan 65-03), test-first. RED `976e3fe`, GREEN `b281042`.
+
+- **What changed.** `05-state.md`: the GSD state-key block's first line is now `[ -n "${PHASE_ID}" ] || { echo "Review halted — the phase id is empty; nothing was scored." >&2; exit 1; }`, before any path is bound. One sentence after the block says `${PHASE_ID}` is the literal printed after `PHASE_ID=` by `00-scope.md` and must be substituted. `00-scope.md`: the phase-folder block now also runs `PHASE_ID=$(basename "$PHASE_DIR")` and `printf 'PHASE_ID=%s\n'`, and the prose names that printed literal. The D-21 unsafe-name guard line is byte-identical. Nothing else under `plugins/` changed apart from the two test files.
+- **Tests (in `plugins/vibe-check/scripts/`).** `test_pasted_name_guard.py`: `TestStateFileGuard` bad cases `gsd empty-id` and `gsd unset-id` (exit 1, no `STATE_FILE=`/`LEGACY_STATE_FILE=` line, stderr exactly the halt sentence); `test_without_the_empty_id_refusal_the_shared_file_returns`; `TestPhaseIdPrinted.test_the_phase_id_is_printed_and_carried` (flat and milestone-nested `02-b`: `PHASE_ID=02-b` printed, and when substituted the state block prints `STATE_FILE=.turingmind/state/format-53/02-b.json`). `test_cross_call_vars.py`: record row `WR-02` (disposition `reproduced; fixed by 65-03`) with fixture `TestRepro63.test_wr02_empty_phase_id` (phase B's Close out chain, run without the id typed in, classifies `stop`; the control with `02-b` typed in reaches `stop-no-state`); `TestCrossFile.test_mutant_phase_id_sentence_removed_trips`; `test_x1_phase_dir` now expects the `PHASE_ID=` line.
+- **Before (RED, unfixed text).** 8 failed: the two empty-id subtests, the shared-file mutant test, the two `TestPhaseIdPrinted` subtests, `test_mutant_phase_id_sentence_removed_trips`, `test_x1_phase_dir`, and `test_wr02_empty_phase_id` (`'wrong-file' != 'stop'`, the same class Walk B recorded).
+- **Mutants (each applied to the fixed files, then restored).** Refusal line removed: 4 failed (both empty-id subtests, the shared-file test, `test_wr02_empty_phase_id`). `printf 'PHASE_ID=` removed from `00-scope.md`: 4 failed (both `TestPhaseIdPrinted` subtests, the cross-file whole-tree check, `test_x1_phase_dir`). The `PHASE_ID=` substitute sentence removed from `05-state.md`: 2 failed (the cross-file whole-tree check and its mutant test). Restored: `test_pasted_name_guard.py` + `test_cross_call_vars.py` 86 passed.
+- **After evidence.** The Walk A part of `wr02_repro.py` on the fixed tree (`env -i`, no `PHASE_ID`): exit 1, stdout empty, stderr `Review halted — the phase id is empty; nothing was scored.`. Walk B can no longer run as written: phase A's block prints no `STATE_FILE=` line, so the script stops at its first `printed_literal` call. 2.14.1 unchanged (exit 0, prints nothing).
+- **Suite.** Main checkout, repo root, `pytest -q -p no:cacheprovider plugins/vibe-check/scripts .github/scripts docs/design/lean-v2.15/tools -rs`: `4599 passed, 2 warnings, 6481 subtests passed in 355.40s`. 0 failed, 0 errors, 0 skipped.
+
+**Correction for 65-07 (backlog 999.38).** ROADMAP.md 999.38 says none of its items are regressions from 2.14.1. That is wrong for WR-02. Under the fresh-shell standard, 2.14.1 fails closed ("No prior review passes."). The candidate before this fix closed phase B on phase A's state. WR-02 was a regression, and it is now fixed by `b281042`. 65-07 owns ROADMAP.md and should carry this correction. This plan did not edit ROADMAP.md.
+
+## Named growth from the fix
+
+Counted at `976e3fe` (the commit before the fix) and `b281042` (the fix) with `footprint.py --rev` and `step_count.py --rev --mode <m>`.
+
+| File | Δ bytes | Δ steps | Commit | Reason |
+|------|---------|---------|--------|--------|
+| `plugins/vibe-check/phases/review/00-scope.md` | +149 (20468 → 20617) | 0 | `b281042` | WR-02: print `PHASE_ID=` where the phase folder is resolved, and name the printed literal in the prose |
+| `plugins/vibe-check/phases/review/05-state.md` | +346 (20353 → 20699) | 0 | `b281042` | WR-02: refuse an empty phase id before the GSD key is bound, plus one substitute-the-literal sentence |
+
+No new Bash fence: both lines go into existing fences, so `model_run_steps` and every other `step_count` total are unchanged on all six paths. Both files load on every path, so each path grows by the same +495 bytes (+141 tokens@3.5):
+
+- finalize: 130886 → 131381 bytes; 85 → 85 steps
+- review-plain: 193267 → 193762 bytes; 38 → 38 steps
+- deep-plain: 270219 → 270714 bytes; 44 → 44 steps
+- review-all: 286385 → 286880 bytes; 47 → 47 steps
+- deep-all: 363337 → 363832 bytes; 53 → 53 steps
+- fix-loop: 256444 → 256939 bytes; 114 → 114 steps
