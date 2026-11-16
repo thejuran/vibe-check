@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T05:27:30.000Z"
-last_activity: "2026-11-16 -- 65-04 complete: release candidate C = b073e31 (plugin 2.15.0 + README; recorded in 65-CANDIDATE.md); suite on the edited tree 4126 passed (scripts-folder form), 0 failed/skipped; Dependabot alerts disabled (403), 0 open Dependabot PRs, stdlib-only"
+last_updated: "2026-11-16T06:25:00.000Z"
+last_activity: "2026-11-16 -- 65-05 complete: G1-G11 PASS on candidate C = b073e31 (65-RELEASE-RECORD.md); suite 4126 scripts-form / 4599 repo-root, 0 failed/skipped; replay 170 runs 0 differing, REGRESSED 0; Finalize 136,114 -> 131,381 bytes, 92 -> 85 steps; review-path growth +0.54-0.89% bytes and +2 steps, fully itemised; G12 (CI on PR head) pending close"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 26
+  completed_plans: 27
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Executing Phase 65
-Last activity: 2026-11-16 -- 65-04 complete: release candidate C = b073e31 (plugin 2.15.0 + README; recorded in 65-CANDIDATE.md); suite on the edited tree 4126 passed (scripts-folder form), 0 failed/skipped; Dependabot alerts disabled (403), 0 open Dependabot PRs, stdlib-only
+Last activity: 2026-11-16 -- 65-05 complete: G1-G11 PASS on candidate C = b073e31 (65-RELEASE-RECORD.md); suite 4126 scripts-form / 4599 repo-root, 0 failed/skipped; replay 170 runs 0 differing, REGRESSED 0; Finalize 136,114 -> 131,381 bytes, 92 -> 85 steps; review-path growth +0.54-0.89% bytes and +2 steps, fully itemised; G12 (CI on PR head) pending close
 
 ## Operator Next Steps
 
