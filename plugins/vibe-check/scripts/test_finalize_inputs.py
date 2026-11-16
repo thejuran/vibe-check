@@ -189,10 +189,35 @@ class TestFingerprints(InputsCase):
         _, rec = self.run_helper(state_for(["src/a.ts"]))
         self.assertEqual(rec.calls, [
             ["rev-parse", "--show-toplevel"],
+            ["rev-parse", "--show-prefix"],
             ["rev-parse", "HEAD:src/a.ts"],
             ["diff", "--quiet", "HEAD", "--", "src/a.ts"],
             ["diff", "--cached", "--quiet", "--", "src/a.ts"],
         ])
+
+    def test_exact_git_calls_from_a_nested_subfolder(self):
+        """From `<repo>/src/deep` the two `git diff` checks name the file
+        from the top with one `../` per level; `HEAD:<file>` is already
+        read from the top."""
+        os.makedirs(os.path.join(self.repo, "src", "deep"))
+        deep = os.path.join(self.repo, "src", "deep")
+        out, rec = self.run_helper(state_for(["src/a.ts"]), cwd=deep)
+        self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
+        self.assertEqual(rec.calls, [
+            ["rev-parse", "--show-toplevel"],
+            ["rev-parse", "--show-prefix"],
+            ["rev-parse", "HEAD:src/a.ts"],
+            ["diff", "--quiet", "HEAD", "--", "../../src/a.ts"],
+            ["diff", "--cached", "--quiet", "--", "../../src/a.ts"],
+        ])
+
+    def test_prefix_query_failing_leaves_every_file_out(self):
+        out, rec = self.run_helper(
+            state_for(["src/a.ts", "src/b.ts"]),
+            fail=lambda a: a[:2] == ["rev-parse", "--show-prefix"])
+        self.assertEqual(out, {})
+        self.assertEqual(rec.calls, [["rev-parse", "--show-toplevel"],
+                                     ["rev-parse", "--show-prefix"]])
 
 
 class TestVerdictSelection(InputsCase):
@@ -347,13 +372,6 @@ class TestValidationBeforeGit(InputsCase):
 class TestParityGaps(InputsCase):
     """Inputs where the helper could be stricter than 2.14.1 and is not (D-06)."""
 
-    def test_gap_leading_dash_path_is_fingerprinted(self):
-        write(self.repo, "-x.ts", "dash\n")
-        git(self.repo, "add", "--", "-x.ts")
-        git(self.repo, "commit", "-q", "-m", "dash")
-        out, _ = self.run_helper(state_for(["-x.ts"]))
-        self.assertEqual(out, {"-x.ts": self.blob("-x.ts")})
-
     def test_gap_at_pass_true_matches_pass_one(self):
         s = load_fixture()
         s["passes"] = s["passes"][:1]
@@ -417,6 +435,124 @@ class TestSubdirectoryCwd(InputsCase):
         self.assertEqual(out, {})
 
 
+class TestSessionRelativeNames(InputsCase):
+    """A name starting with `./` or `../` is read by git relative to the
+    session folder in `HEAD:<name>` and in both pathspecs, so the three
+    2.14.1 calls address one file and the helper gives them the name as
+    written. Here `c.ts` exists at the top and as `sub/c.ts`, with different
+    content; the session is in `sub`."""
+
+    def setUp(self):
+        super().setUp()
+        write(self.repo, "c.ts", "top c\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "top c")
+        self.sub = os.path.join(self.repo, "sub")
+
+    def test_clean_session_file_is_fingerprinted(self):
+        out, rec = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
+        self.assertEqual(rec.calls[2:], [
+            ["rev-parse", "HEAD:./c.ts"],
+            ["diff", "--quiet", "HEAD", "--", "./c.ts"],
+            ["diff", "--cached", "--quiet", "--", "./c.ts"],
+        ])
+
+    def test_edited_session_file_is_not_fingerprinted(self):
+        write(self.repo, "sub/c.ts", "c2\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_staged_session_file_is_not_fingerprinted(self):
+        write(self.repo, "sub/c.ts", "staged\n")
+        git(self.repo, "add", "--", "sub/c.ts")
+        write(self.repo, "sub/c.ts", "c1\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {})
+
+    def test_edit_to_the_same_named_top_file_does_not_matter(self):
+        write(self.repo, "c.ts", "top edited\n")
+        out, _ = self.run_helper(state_for(["./c.ts"]), cwd=self.sub)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
+
+    def test_dot_dot_name_from_a_nested_subfolder(self):
+        deep = os.path.join(self.repo, "sub", "deep")
+        os.makedirs(deep)
+        out, _ = self.run_helper(state_for(["../c.ts"]), cwd=deep)
+        # `../c.ts` from `sub/deep` is `sub/c.ts`, and the guard (which
+        # resolves the name against the repo root) refuses it: outside.
+        self.assertEqual(out, {})
+        out, _ = self.run_helper(state_for(["./../c.ts"]), cwd=deep)
+        self.assertEqual(out, {})
+
+
+ROOT_AS_CWD = (
+    ('        rev = _git(["rev-parse", "HEAD:" + f], cwd)\n',
+     '        rev = _git(["rev-parse", "HEAD:" + f], root)\n'),
+    ('_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
+     '_git(["diff", "--quiet", "HEAD", "--", f], root)'),
+    ('_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
+     '_git(["diff", "--cached", "--quiet", "--", f], root)'),
+)
+
+
+class TestSessionRepository(InputsCase):
+    """The three per-file checks read the session's own repository, as at
+    2.14.1, even when the repo root text names another place. With git's
+    `core.worktree` pointing elsewhere, `--show-toplevel` names that other
+    folder; running the checks there (the merged helper's way) reads a
+    different repository or none. `test_finalize_parity_grid.py` holds the
+    same rows against the literal 2.14.1 step."""
+
+    def root_as_cwd(self):
+        """A copy of finalize_inputs running the three checks in the root
+        path with the name as given (the merged helper's form)."""
+        with open(MODULE_PATH, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for old, new in ROOT_AS_CWD:
+            self.assertIn(old, text, "mutant text must be present")
+            text = text.replace(old, new, 1)
+        spec = importlib.util.spec_from_loader("finalize_inputs_root_cwd",
+                                               loader=None)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__file__ = MODULE_PATH
+        exec(compile(text, MODULE_PATH, "exec"), mod.__dict__)
+        return mod
+
+    def other_tree(self, as_repo):
+        other = os.path.join(self.tmp, "other")
+        for rel in ("src/a.ts", "src/b.ts", "sub/c.ts"):
+            with open(os.path.join(self.repo, rel), "r", encoding="utf-8") as fh:
+                write(other, rel, fh.read())
+        if as_repo:
+            git(other, "init", "-q", "-b", "main")
+            git(other, "add", "-A")
+            git(other, "commit", "-q", "-m", "other")
+        return other
+
+    def test_core_worktree_at_another_repo_staged_edit_is_not_fingerprinted(self):
+        blob = self.blob("src/a.ts")
+        other = self.other_tree(as_repo=True)
+        write(self.repo, "src/a.ts", "staged\n")
+        git(self.repo, "add", "--", "src/a.ts")
+        git(self.repo, "config", "core.worktree", other)
+        s = state_for(["src/a.ts"])
+        out, _ = self.run_helper(s)
+        self.assertEqual(out, {})
+        out, _ = self.run_helper(s, module=self.root_as_cwd())
+        self.assertEqual(out, {"src/a.ts": blob})
+
+    def test_core_worktree_at_a_plain_folder_clean_file_is_fingerprinted(self):
+        blob = self.blob("src/a.ts")
+        other = self.other_tree(as_repo=False)
+        git(self.repo, "config", "core.worktree", other)
+        s = state_for(["src/a.ts"])
+        out, _ = self.run_helper(s)
+        self.assertEqual(out, {"src/a.ts": blob})
+        out, _ = self.run_helper(s, module=self.root_as_cwd())
+        self.assertEqual(out, {})
+
+
 class TestMutants(InputsCase):
     """Each guard removed in turn lets its own case through."""
 
@@ -448,7 +584,7 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", f], root)',
+        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
@@ -460,24 +596,26 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", f], root)',
+        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
 
-    def test_mutant_checks_in_session_folder_fingerprint_edit_from_subfolder(self):
+    def test_mutant_name_read_from_session_folder_fingerprints_edit_from_subfolder(self):
+        """Without the `../` lift the check is 2.14.1's: from `sub`, the name
+        means `sub/sub/c.ts` and an edited file passes (D-19)."""
         sub = os.path.join(self.repo, "sub")
         write(self.repo, "sub/c.ts", "c2\n")
         s = state_for(["sub/c.ts"])
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--quiet", "HEAD", "--", f], root)',
+            '_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
             '_git(["diff", "--quiet", "HEAD", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
 
-    def test_mutant_index_check_in_session_folder_fingerprints_staged_file(self):
+    def test_mutant_index_name_read_from_session_folder_fingerprints_staged_file(self):
         sub = os.path.join(self.repo, "sub")
         write(self.repo, "sub/c.ts", "staged\n")
         git(self.repo, "add", "--", "sub/c.ts")
@@ -486,10 +624,27 @@ class TestMutants(InputsCase):
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--cached", "--quiet", "--", f], root)',
+            '_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
             '_git(["diff", "--cached", "--quiet", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
+
+    def test_mutant_lifting_every_name_fingerprints_an_edited_dot_slash_file(self):
+        """Gap 5: lifting a `./` name too makes the two checks read the
+        same-named file at the top while the blob came from the session
+        folder's file, so an edited file is fingerprinted."""
+        write(self.repo, "c.ts", "top c\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "top c")
+        sub = os.path.join(self.repo, "sub")
+        write(self.repo, "sub/c.ts", "c2\n")
+        s = state_for(["./c.ts"])
+        out, _ = self.run_helper(s, cwd=sub)
+        self.assertEqual(out, {})
+        mod = self.mutant('    if f.startswith(("./", "../")):\n        return f\n',
+                          "")
+        out, _ = self.run_helper(s, cwd=sub, module=mod)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
 
     def test_mutant_unconditional_root_query_calls_git_with_no_candidates(self):
         s = state_for(["src/a.ts"], at_pass=1)
@@ -854,6 +1009,7 @@ class TestResultMutants(ResultCase):
 CARRY_STATE_PY = os.path.join(SCRIPTS_DIR, "carry_state.py")
 BATCH_CARD_PY = os.path.join(SCRIPTS_DIR, "batch_card.py")
 FINALIZE_GATE_PY = os.path.join(SCRIPTS_DIR, "finalize_gate.py")
+GUARD_PY = os.path.join(SCRIPTS_DIR, "guard.py")  # unchanged since dd8e4ab
 OWNER_SENTENCES = ("uncertain about Finalize", "Finalize stopped")
 NOT_UTF8 = b'{"passes": "\xff\xfe"}'
 
@@ -1038,6 +1194,266 @@ class TestCliResult(CliCase):
                                   stdin_path=sp)
         self.assertEqual((code, err), (0, b""))
         self.assertIsInstance(json.loads(out), dict)
+
+
+# The 2.14.1 guard line, run by a shell exactly as written in step 1:
+#   python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"
+# `$0` is this interpreter, `$1` guard.py, `$2` the file. `$(...)` drops the
+# trailing line breaks of git's output and nothing else, so a repo folder
+# whose name ends in a space or a tab keeps it.
+GUARD_LINE_2141 = '"$0" "$1" --root "$(git rev-parse --show-toplevel)" --path "$2"'
+
+
+def run_in(repo, args):
+    return subprocess.run(args, cwd=repo, stdin=subprocess.DEVNULL,
+                          capture_output=True, timeout=120)
+
+
+def fingerprint_2141(repo, name):
+    """The blob 2.14.1 step 1 puts in $BLOBFILE for `name`, run in the session
+    folder `repo`, or None: the PATH_RE pre-filter, the guard line through
+    /bin/sh, then the three git calls, kept only when all exit 0."""
+    if not finalize_inputs.PATH_RE.match(name):
+        return None
+    guard = run_in(repo, ["/bin/sh", "-c", GUARD_LINE_2141, sys.executable,
+                          GUARD_PY, name])
+    if guard.returncode != 0:
+        return None
+    rev = run_in(repo, ["git", "rev-parse", "HEAD:" + name])
+    if rev.returncode != 0:
+        return None
+    for check in (["git", "diff", "--quiet", "HEAD", "--", name],
+                  ["git", "diff", "--cached", "--quiet", "--", name]):
+        if run_in(repo, check).returncode != 0:
+            return None
+    return rev.stdout.decode().strip()
+
+
+def repo_at(path):
+    """A fresh repo at exactly `path` (any folder name), on main, with local
+    identity; returns `path` unchanged."""
+    os.makedirs(path)
+    git(path, "init", "-q", "-b", "main")
+    git(path, "config", "user.name", "t")
+    git(path, "config", "user.email", "t@t")
+    git(path, "config", "commit.gpgsign", "false")
+    return path
+
+
+class TestGuardCommandParity(CliCase):
+    """The containment check as 2.14.1 ran it: a COMMAND, not a function.
+
+    2.14.1 (dd8e4ab) `phases/shared/90-finalize.md` step 1 "HEAD
+    fingerprints" validated each finding's file with
+
+        python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"
+
+    and required exit 0. argparse reads a `--path` value that looks like an
+    option (most names starting with `-`) as an option, exits 2, and the file
+    is left out. Which names it refuses depends on the Python version
+    (observed: 3.14 accepts `-1.ts`; 3.9, 3.12 and 3.13 refuse it), so each
+    side here runs under the same interpreter, `sys.executable`.
+
+    The 2.14.1 side is `fingerprint_2141`: the literal per-file procedure,
+    with the guard command run through a shell so `--root` is exactly what
+    `$(git rev-parse --show-toplevel)` gives. It never calls the helper."""
+
+    LEADING_DASH = ("-x.ts", "-d/x.ts", "--", "-", "-x", "-hx", "--root",
+                    "--path", "-h", "--help", "--ro", "--pa", "--pathx",
+                    "-1", "-1.5", "-.5", "-1.ts", "-1e5", "-1_0")
+    CONTROLS = ("x.ts", "sub/-x.ts", "d-/x.ts")
+
+    def commit_names(self, names):
+        for name in names:
+            write(self.repo, name, name + "\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "names")
+
+    def fingerprint_2141(self, name):
+        """The blob 2.14.1 step 1 puts in $BLOBFILE for `name`, or None."""
+        return fingerprint_2141(self.repo, name)
+
+    def test_parity_leading_dash_names_match_the_2141_guard_command(self):
+        names = self.LEADING_DASH + self.CONTROLS
+        self.commit_names(names)
+        old, new = {}, {}
+        for name in names:
+            blob = self.fingerprint_2141(name)
+            if blob is not None:
+                old[name] = blob
+            new.update(finalize_inputs.head_blobs(state_for([name]),
+                                                  cwd=self.repo))
+        # The 2.14.1 side really ran: controls kept, the gap's names refused,
+        # and the rule is not "starts with -" (`-` and `-1` are accepted).
+        for name in self.CONTROLS + ("-", "-1"):
+            self.assertIn(name, old)
+        for name in ("-x.ts", "-d/x.ts", "--", "--root", "--path", "-h",
+                     "--help"):
+            self.assertNotIn(name, old)
+        self.assertEqual(new, old)
+
+    def test_parity_names_in_a_repo_folder_ending_in_a_space(self):
+        """The same names in a repo whose folder name ends in a space: the
+        root 2.14.1 passes keeps the space, so the controls are kept."""
+        self.repo = repo_at(os.path.join(self.tmp, "named", "repo "))
+        names = ("x.ts", "sub/-x.ts", "-x.ts", "-")
+        self.commit_names(names)
+        old, new = {}, {}
+        for name in names:
+            blob = self.fingerprint_2141(name)
+            if blob is not None:
+                old[name] = blob
+            new.update(finalize_inputs.head_blobs(state_for([name]),
+                                                  cwd=self.repo))
+        for name in ("x.ts", "sub/-x.ts", "-"):
+            self.assertIn(name, old)
+        self.assertNotIn("-x.ts", old)
+        self.assertEqual(new, old)
+
+    def test_parity_leading_dash_path_is_not_fingerprinted(self):
+        """End to end for `-x.ts` with a fix-obsolete verdict on unchanged
+        code: 2.14.1 leaves the finding open and does not write."""
+        self.commit_names(["-x.ts"])
+        state = fix_obsolete_state(self.blob("-x.ts"))
+        row(state, ARCH_HASH)["file"] = "-x.ts"
+        sp = self.new_path(state)
+        # 2.14.1: the blob file step 1 writes, then the counts and the gate.
+        blob = self.fingerprint_2141("-x.ts")
+        old_bp = self.new_path({} if blob is None else {"-x.ts": blob})
+        c_code, c_out, _ = self.old_counts(sp, old_bp)
+        self.assertEqual(c_code, 0)
+        counts = json.loads(c_out)
+        flags = dict({"state_file_present": True,
+                      "outstanding_cw": counts["outstanding_cw"],
+                      "unacknowledged_medium": counts["unacknowledged_medium"],
+                      "undecided_nv": counts["undecided_nv"]}, **INTERACTIVE)
+        g_code, g_out, _ = self.old_gate(flags)
+        self.assertEqual(g_code, 0)
+        gate = json.loads(g_out)
+        self.assertEqual(
+            [counts["outstanding_cw"], counts["unacknowledged_medium"],
+             counts["undecided_nv"]], [1, 0, 0])
+        self.assertEqual(gate["action"], "outstanding-to-phase-5")
+        # The helper on the same state gives the same counts and decision,
+        # writes an empty fingerprint map and no report.
+        bp = self.empty()
+        code, out, err = self.cli(argv_for(sp, bp))
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        self.assertEqual(got["counts"], counts)
+        self.assertEqual({"action": got["action"], "reason": got["reason"]},
+                         gate)
+        self.assertEqual(got["next"], "finalize-card")
+        self.assertIsNone(got["report"])
+        with open(bp, "r", encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh), {})
+
+
+class TestRepoFolderNameParity(CliCase):
+    """The repo root as 2.14.1 passed it, for a repo folder whose name ends
+    in whitespace. `$(git rev-parse --show-toplevel)` drops the trailing
+    line breaks of git's output and nothing else, so `.../repo ` (ending in
+    a space) stays `.../repo `. Each case runs the whole Finalize input
+    step both ways, end to end, from the repo folder: the 2.14.1 side is
+    `fingerprint_2141` (the guard line through /bin/sh) and the three
+    2.14.1 commands; the helper side is the CLI. A clean `x.ts` carries a
+    last-pass fix-obsolete verdict on its HEAD blob."""
+
+    def repo_with_x(self, path, content="x1\n"):
+        repo = repo_at(path)
+        write(repo, "x.ts", content)
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "x")
+        return repo
+
+    def state_on_x(self, repo):
+        state = fix_obsolete_state(self.blob("x.ts", cwd=repo))
+        row(state, ARCH_HASH)["file"] = "x.ts"
+        return state
+
+    def decide_2141(self, repo, sp):
+        """(blob map, [cw, medium, nv], gate) as 2.14.1 gives them with the
+        session in `repo`."""
+        blob = fingerprint_2141(repo, "x.ts")
+        blobs = {} if blob is None else {"x.ts": blob}
+        self.repo = repo
+        c_code, c_out, _ = self.old_counts(sp, self.new_path(blobs))
+        self.assertEqual(c_code, 0)
+        counts = json.loads(c_out)
+        flags = dict({"state_file_present": True,
+                      "outstanding_cw": counts["outstanding_cw"],
+                      "unacknowledged_medium": counts["unacknowledged_medium"],
+                      "undecided_nv": counts["undecided_nv"]}, **INTERACTIVE)
+        g_code, g_out, _ = self.old_gate(flags)
+        self.assertEqual(g_code, 0)
+        three = [counts["outstanding_cw"], counts["unacknowledged_medium"],
+                 counts["undecided_nv"]]
+        return blobs, three, json.loads(g_out)
+
+    def decide_helper(self, repo, sp):
+        bp = self.empty()
+        code, out, err = self.cli(argv_for(sp, bp), cwd=repo)
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        with open(bp, "r", encoding="utf-8") as fh:
+            blobs = json.load(fh)
+        c = got["counts"]
+        three = [c["outstanding_cw"], c["unacknowledged_medium"],
+                 c["undecided_nv"]]
+        return blobs, three, {"action": got["action"],
+                              "reason": got["reason"]}
+
+    def test_parity_folder_ending_in_a_space_or_a_tab(self):
+        for label, folder in (("space", "repo "), ("tab", "repo\t")):
+            with self.subTest(ending=label):
+                repo = self.repo_with_x(os.path.join(self.tmp, label, folder))
+                sp = self.new_path(self.state_on_x(repo))
+                old = self.decide_2141(repo, sp)
+                # 2.14.1 fingerprints the clean file and writes.
+                self.assertEqual(old[0], {"x.ts": self.blob("x.ts", cwd=repo)})
+                self.assertEqual((old[1], old[2]["action"]),
+                                 ([0, 0, 0], "write"))
+                self.assertEqual(self.decide_helper(repo, sp), old)
+
+    def test_parity_other_folder_name_endings(self):
+        """Further endings: other whitespace (2.14.1 keeps it in the root)
+        and line breaks (2.14.1 drops them, so the root names another folder
+        and the file is left out). A leading space is kept by both."""
+        endings = (("no-break space", "repo\u00a0", "write"),
+                   ("carriage return", "repo\r", "write"),
+                   ("vertical tab", "repo\x0b", "write"),
+                   ("form feed", "repo\x0c", "write"),
+                   ("leading space", " repo", "write"),
+                   ("line break", "repo\n", "outstanding-to-phase-5"),
+                   ("two line breaks", "repo\n\n", "outstanding-to-phase-5"),
+                   ("space, line break", "repo \n", "outstanding-to-phase-5"))
+        for label, folder, action in endings:
+            with self.subTest(ending=label):
+                try:
+                    repo = self.repo_with_x(os.path.join(self.tmp, label,
+                                                         folder))
+                except OSError:
+                    self.skipTest("the filesystem refuses " + repr(folder))
+                sp = self.new_path(self.state_on_x(repo))
+                old = self.decide_2141(repo, sp)
+                self.assertEqual(old[2]["action"], action)
+                self.assertEqual(self.decide_helper(repo, sp), old)
+
+    def test_folder_ending_in_a_space_beside_its_trimmed_name_is_not_approved(self):
+        """`repo ` beside a second repo `repo` holding the same `x.ts`; the
+        real `x.ts` is edited after the verdict. 2.14.1 leaves the finding
+        open; a root trimmed to `repo` would read the neighbour and write."""
+        base = os.path.join(self.tmp, "pair")
+        repo = self.repo_with_x(os.path.join(base, "repo "))
+        self.repo_with_x(os.path.join(base, "repo"))
+        sp = self.new_path(self.state_on_x(repo))
+        write(repo, "x.ts", "x2 edited after the verdict\n")
+        old = self.decide_2141(repo, sp)
+        self.assertEqual((old[0], old[1], old[2]["action"]),
+                         ({}, [1, 0, 0], "outstanding-to-phase-5"))
+        new = self.decide_helper(repo, sp)
+        self.assertNotEqual(new[2]["action"], "write")
+        self.assertEqual(new, old)
 
 
 class TestCliRefusals(CliCase):
@@ -1834,7 +2250,8 @@ class TestImportSet(unittest.TestCase):
                 names.add(node.module)
         siblings = {"batch_card", "carry_state", "finalize_gate", "fixcommit",
                     "guard"}
-        self.assertEqual(names - siblings, {"json", "os", "subprocess", "sys"})
+        self.assertEqual(names - siblings,
+                         {"io", "json", "os", "subprocess", "sys"})
         self.assertEqual(names & siblings, siblings)
 
     def test_only_path_re_is_taken_from_fixcommit(self):

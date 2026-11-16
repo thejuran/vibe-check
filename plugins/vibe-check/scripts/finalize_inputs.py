@@ -44,8 +44,12 @@ WHAT IT TRANSCRIBES. Step 1 ("HEAD fingerprints") of Finalize mode in
   `stable_hash` (rows only; absorbed `members[]` are not searched). That
   finding's `file` comes from the reviewed diff and may be attacker-authored,
   so it is validated BEFORE any git call: it must match `PATH_RE`
-  (`^[A-Za-z0-9._/-]+$`, imported from fixcommit.py) AND be contained under
-  `git rev-parse --show-toplevel` (`guard.contained`). Then three git calls:
+  (`^[A-Za-z0-9._/-]+$`, imported from fixcommit.py) AND pass the guard
+  command `guard.py --root <git rev-parse --show-toplevel> --path <file>`
+  with exit 0 (`guard.main`, run in-process with its output dropped). The
+  command's argument parsing is part of the check: a name argparse reads as
+  an option (most names starting with `-`) exits 2 and is left out, as at
+  2.14.1. Then three git calls:
 
       git rev-parse HEAD:<file>
       git diff --quiet HEAD -- <file>
@@ -61,27 +65,63 @@ Omission is how the map tells `carry_state.py finalize-counts` "unbound", and
 that helper fails closed for an absent file. A wrongly shaped state gives `{}`.
 With no last-pass fix verdicts no git command runs at all.
 
-WORKING DIRECTORY. The repo root is found from the caller's `cwd` (None =
-this process's cwd, the session's working directory); the three per-file
-checks then run from that root, so the finding's root-relative file name means
-the same file in all three. git reads `HEAD:<file>` from the root whatever the
-cwd, but reads the pathspec after `--` relative to the cwd: run from a
-subfolder, `sub/c.ts` would mean `sub/sub/c.ts`, match nothing and exit 0, and
-a file with unsaved or staged edits would be fingerprinted. The 2.14.1
-instructions ran the checks in the session's folder and had that gap; this
-helper deliberately does not.
+WORKING DIRECTORY. Every git call runs in the caller's `cwd` (None = this
+process's cwd, the session's working directory), as at 2.14.1, so git finds
+the session's own repository there, with its settings (`core.worktree`) and
+`GIT_*` variables applied exactly as they were. The repo root text is used
+only as the containment check's `--root`.
+
+WHICH FILE EACH CALL READS. Rule: the two `git diff` checks must address the
+same file `git rev-parse HEAD:<file>` read the blob from. git's own rules
+(checked against real git by test_finalize_parity_grid.py):
+
+  - `HEAD:<file>` for a name starting with `./` or `../` is read relative
+    to the cwd and normalised (`.`, `..` and `//` collapsed; refused when it
+    climbs above the top). For any other name it is looked up from the top
+    exactly as written: no normalisation, so a name with an empty, `.` or
+    `..` part (`dir/../x.ts`, `dir/./x.ts`, `dir//x.ts`) names nothing and
+    rev-parse fails, at the top and in a subfolder alike.
+  - A pathspec after `--` is always read relative to the cwd and normalised
+    the same way; one climbing above the top makes git exit 128.
+
+So, cwd at the top: every name addresses the same file in all three calls
+and the helper's calls are 2.14.1's own. cwd in a subfolder `s/`:
+
+  name form                  HEAD:<file> reads     2.14.1 checks     helper checks
+  plain `x.ts`, `d/x.ts`     top `x.ts`, `d/x.ts`  `s/x.ts`, `s/d/x.ts`  `../x.ts` (the file read)
+  `./x.ts`, `./d/../x.ts`    `s/x.ts`              `s/x.ts`          `./x.ts` as written
+  `../x.ts`, `./../x.ts`     the parent's `x.ts`   the same file     as written
+  `d/../x.ts`, `d/./x.ts`    nothing (fails)       (not reached)     (not reached)
+  climbing above the top     nothing (fails)       (not reached)     (not reached)
+
+For a plain name 2.14.1 read the blob from the top but checked a different
+file, so from a subfolder a file with unsaved or staged edits could be
+fingerprinted (and, the other way round, a clean file left out because a
+same-named file in the cwd was edited). The helper closes that hole (owner
+decision D-19): it asks git for the cwd's place in the work tree (`git
+rev-parse --show-prefix`) and puts one `../` per folder level before the
+name; rev-parse succeeding means the name has no `.`/`..`/empty part, so
+the lifted name is exactly the file read. A `./` or `../` name has no such
+hole at 2.14.1 (git resolves it from the cwd in all three calls), so the
+helper passes it as written and matches 2.14.1. Lifting it too would read
+the blob from one file and check another (the gap-5 regression). At the top
+the prefix is empty and the calls are exactly the 2.14.1 ones. Pathspec
+magic (`:/`) is not used: `GIT_LITERAL_PATHSPECS` turns it off. The guard
+resolves every name against the repo root, so `../` names pass it only when
+they come back into the repo (`../<repo folder name>/...`).
 
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders.
 
-I/O: stdlib imports exactly {json, os, subprocess, sys}, plus the siblings
-`batch_card`, `carry_state` and `finalize_gate` (called in-process), `guard`
-(containment) and `fixcommit` (the PATH_RE constant only; never
+I/O: stdlib imports exactly {io, json, os, subprocess, sys}, plus the
+siblings `batch_card`, `carry_state` and `finalize_gate` (called in-process),
+`guard` (the containment command, `main`) and `fixcommit` (the PATH_RE constant only; never
 validate_paths). Every `subprocess.run` is an argv list with
 `timeout=GIT_TIMEOUT` and no shell. git's stderr is captured and discarded,
 never returned or printed.
 """
 
+import io
 import json
 import os
 import subprocess
@@ -92,7 +132,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (the report data, decisions_report)
 import carry_state  # noqa: E402  (the counts, finalize_counts)
 import finalize_gate  # noqa: E402  (the gate decision)
-import guard  # noqa: E402  (the ONE containment source)
+import guard  # noqa: E402  (the ONE containment source, as a command)
 from fixcommit import PATH_RE  # noqa: E402  (pre-filter constant only)
 
 GIT_TIMEOUT = 60
@@ -134,11 +174,14 @@ def _ok(result):
 
 
 def _toplevel(cwd):
-    """The repo root as git prints it, or "" (which guard.contained refuses)."""
+    """The repo root as `$(git rev-parse --show-toplevel)` gives it, or ""
+    (which guard.contained refuses). Command substitution drops the trailing
+    line breaks and nothing else, so a folder name ending in a space, a tab
+    or `\\r` keeps it: trimming more would check a different folder."""
     result = _git(["rev-parse", "--show-toplevel"], cwd)
     if not _ok(result):
         return ""
-    return result[1].strip()
+    return result[1].rstrip("\n")
 
 
 def _candidate_files(state):
@@ -163,21 +206,68 @@ def _candidate_files(state):
     return files
 
 
+def _guard_command_accepts(root, f):
+    """Would `python3 guard.py --root <root> --path <f>` exit 0?
+
+    2.14.1 ran the containment check as that command, so argparse first
+    reads `<f>`: a value that looks like an option (most names starting
+    with `-`, by this interpreter's rules) makes it exit 2 and the file is
+    left out. This runs the same `guard.main` in-process, its stdout and
+    stderr captured and dropped, so the rule cannot drift from the
+    command's."""
+    saved = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = io.StringIO()
+    try:
+        return guard.main(["--root", root, "--path", f]) == 0
+    finally:
+        sys.stdout, sys.stderr = saved
+
+
+def _up_to_top(cwd):
+    """`../` once per folder level between `cwd` and the top of its work
+    tree ("" at the top), from `git rev-parse --show-prefix`, or None when
+    git cannot say. Only the levels are counted, so no folder name is ever
+    put into a pathspec."""
+    result = _git(["rev-parse", "--show-prefix"], cwd)
+    if not _ok(result):
+        return None
+    levels = [part for part in result[1].rstrip("\n").split("/") if part]
+    return "../" * len(levels)
+
+
+def _pathspec_for_blob(f, up):
+    """The pathspec, read from the session folder, that names the same file
+    `git rev-parse HEAD:<f>` read. git reads `HEAD:<f>` relative to the
+    session folder when `f` starts with `./` or `../`, as it reads every
+    pathspec, so the name as written is that file. Any other `f` is read
+    from the top of the work tree, so it is lifted there with `up` (one
+    `../` per folder level). See WORKING DIRECTORY above."""
+    if f.startswith(("./", "../")):
+        return f
+    return up + f
+
+
 def _head_blobs(state, cwd):
     files = _candidate_files(state)
     if not files:
         return {}
     root = _toplevel(cwd)
+    up = None
     blobs = {}
     for f in files:
-        if not PATH_RE.match(f) or not guard.contained(root, f)[0]:
+        if not PATH_RE.match(f) or not _guard_command_accepts(root, f):
             continue
-        rev = _git(["rev-parse", "HEAD:" + f], root)
+        if up is None:
+            up = _up_to_top(cwd)
+            if up is None:
+                break
+        rev = _git(["rev-parse", "HEAD:" + f], cwd)
         if not _ok(rev):
             continue
-        if not _ok(_git(["diff", "--quiet", "HEAD", "--", f], root)):
+        spec = _pathspec_for_blob(f, up)
+        if not _ok(_git(["diff", "--quiet", "HEAD", "--", spec], cwd)):
             continue
-        if not _ok(_git(["diff", "--cached", "--quiet", "--", f], root)):
+        if not _ok(_git(["diff", "--cached", "--quiet", "--", spec], cwd)):
             continue
         blob = rev[1].strip()
         if blob:

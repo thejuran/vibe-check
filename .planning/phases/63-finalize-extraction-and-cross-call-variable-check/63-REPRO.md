@@ -552,3 +552,292 @@ The helper reads the file itself as strict UTF-8 and prints `refused: state is n
 
 `test_codex_collect.py::TestCodexCollectExecutable::test_abnormal_exit_is_a_timeout_skip` failed with `'124' != '3'` in 3 of the first 6 runs on this branch's pull request (runs 43765243417, 43766691154 attempts 1 and 2). It is the suite's first launch of node, under a 2-second test cap. To see whether the branch caused it, five green runs of code from before the phase were re-run on the same day: 43614339306, 43613884499 and 43611870373 (`main`) and 43611421379 passed; 43611416017 (`1659a99`, the Phase 62 branch) failed with the identical error. So the flake exists in pre-phase code and shows on that day's runners. Fix, test-only: the class starts node once, untimed, before its timed runs, so the cap measures the stub and not node's cold start. No shipped file and no timing constant changed. That the cause is a cold start is the best-supported explanation (always the first node launch), not a proven one; the pull request's runs after the fix are the check.
 
+
+## Leading-dash file names (D-24), 2026-11-15
+
+Found by phase verification after PR #10 merged (63-VERIFICATION.md, gap 1). Owner decision D-24: match 2.14.1.
+
+**Mechanism, confirmed on the real `guard.py`** (byte-identical to `dd8e4ab`). The 2.14.1 step 1 text (`dd8e4ab:plugins/vibe-check/phases/shared/90-finalize.md` line 13) validates each finding's file with `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` and requires exit 0. For `-x.ts`:
+
+```
+$ python3 guard.py --root <dir> --path "-x.ts"
+usage: guard.py [-h] --root ROOT --path PATH
+guard.py: error: argument --path: expected one argument
+exit 2
+$ python3 guard.py --root <dir> --path "x.ts"
+contained
+exit 0
+```
+
+argparse reads the value as an option, so the file was left out of `$BLOBFILE`. The merged helper called `guard.contained()` in-process, which skips the argument parsing.
+
+**End to end, before the fix** (temp repo; state = the phase-45 loop fixture with the medium dismissed and the warning row's file set to the name, carrying a last-pass fix-obsolete verdict whose `verified_blob` is the file's HEAD blob, code unchanged; 2.14.1 side = the literal per-file procedure, then the `dd8e4ab` `carry_state.py finalize-counts` and `finalize_gate.py` commands; helper side = `finalize_inputs.py` at `c1541b1`; same output on Python 3.14.5 and 3.9.6):
+
+| File | guard exit | 2.14.1 counts | 2.14.1 gate | 2.14.1 fingerprints | helper counts | helper gate | helper fingerprints |
+|---|---|---|---|---|---|---|---|
+| `x.ts` | 0 | [0,0,0] | `write` | `x.ts` | [0,0,0] | `write` | `x.ts` |
+| `-x.ts` | 2 | [1,0,0] | `outstanding-to-phase-5` | none | [0,0,0] | `write` | `-x.ts` |
+
+After the fix (`72a2f94`) the `-x.ts` row on the helper side is [1,0,0], `outstanding-to-phase-5`, no fingerprints, on both interpreters; `x.ts` is unchanged.
+
+**Name matrix.** 51 names, each compared under Python 3.14.5 and 3.9.6 (102 comparisons), from the repo root (so the D-19 subfolder difference does not apply). 2.14.1 side: the PATH_RE pre-filter (`^[A-Za-z0-9._/-]+$`), then the guard command and the three git commands run through `bash -c` with the name pasted into the command text as the fence writes it; a file counts as fingerprinted only when all exit 0. Helper side: `finalize_inputs.head_blobs` on a one-finding state, same interpreter. Names are shown JSON-escaped; "yes" means fingerprinted.
+
+| # | Name | 2.14.1 procedure, Python 3.14.5 | 2.14.1, Python 3.9.6 | Helper before fix (3.14 / 3.9) | Helper after fix (3.14 / 3.9) |
+|---|---|---|---|---|---|
+| 1 | control `x.ts` | yes | yes | yes / yes | yes / yes |
+| 2 | leading - top `-x.ts` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 3 | leading - in subfolder file `sub/-x.ts` | yes | yes | yes / yes | yes / yes |
+| 4 | folder starts with - `-d/x.ts` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 5 | -- `--` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 6 | - alone `-` | yes | yes | yes / yes | yes / yes |
+| 7 | -x single `-x` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 8 | --root `--root` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 9 | --path `--path` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 10 | -h `-h` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 11 | --help `--help` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 12 | --ro (abbrev of --root) `--ro` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 13 | --pa (abbrev of --path) `--pa` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 14 | --pathx `--pathx` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 15 | -1 (negative int) `-1` | yes | yes | yes / yes | yes / yes |
+| 16 | -1.5 (negative float) `-1.5` | yes | yes | yes / yes | yes / yes |
+| 17 | -.5 (negative float) `-.5` | yes | yes | yes / yes | yes / yes |
+| 18 | -1.ts `-1.ts` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 19 | -1_0 `-1_0` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 20 | -1e5 `-1e5` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 21 | -2/x.ts (folder -2) `-2/x.ts` | yes | no (guard exit 2) | yes / yes | yes / no |
+| 22 | -hx `-hx` | no (guard exit 2) | no (guard exit 2) | yes / yes | no / no |
+| 23 | --= `--=x` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 24 | space `a b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 25 | leading space dash ` -x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 26 | equals `a=b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 27 | --root=x `--root=x` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 28 | double quote `a\"b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 29 | single quote `a'b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 30 | dollar `$x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 31 | backtick ``a`b.ts`` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 32 | backslash `a\\b.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 33 | newline inside `a\nb.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 34 | trailing newline `t.ts\n` | yes | yes | yes / yes | yes / yes |
+| 35 | leading colon `:x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 36 | HEAD: like `HEAD:x.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 37 | star `*.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 38 | question `a?.ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 39 | bracket `[a].ts` | no (PATH_RE) | no (PATH_RE) | no / no | no / no |
+| 40 | abs inside repo `<ROOT>/x.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 41 | abs outside repo `/etc/hosts` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 42 | dotdot inside `sub/../x.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 43 | dotdot outside `../x.ts` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 44 | ./ prefix `./x.ts` | yes | yes | yes / yes | yes / yes |
+| 45 | directory `sub` | yes | yes | yes / yes | yes / yes |
+| 46 | missing at HEAD `missing.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 47 | symlink in repo `link.ts` | yes | yes | yes / yes | yes / yes |
+| 48 | symlink out of repo `outlink` | no (guard exit 1) | no (guard exit 1) | no / no | no / no |
+| 49 | .git/config `.git/config` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 50 | double slash `sub//c.ts` | no (rev-parse 128) | no (rev-parse 128) | no / no | no / no |
+| 51 | trailing slash `sub/` | yes | yes | yes / yes | yes / yes |
+
+**Result.** Before the fix: 28 disagreements (12 under 3.14.5, 16 under 3.9.6). Every one has the same mechanism: the 2.14.1 guard command exits 2 while parsing its arguments, and the helper fingerprints the file. After the fix: 0 of 102. No disagreement with a different mechanism was found in either direction.
+
+**The rule is not "starts with `-`".** `-` alone and negative-number-like names (`-1`, `-1.5`, `-.5`) are accepted by the command. Names such as `-1.ts`, `-1_0`, `-1e5` and `-2/x.ts` are accepted under Python 3.14.5 and refused under 3.9.6, because newer argparse treats more names as negative numbers. So the fix uses the command's own parser under the interpreter that runs the helper (the same `python3` the 2.14.1 fence called), rather than a hand-written prefix test.
+
+**Same on both sides, noted only.** A directory name (`sub`, `sub/`) is fingerprinted with its tree id by both. A name ending in a newline (`t.ts\n`) passes PATH_RE on both sides because Python's `$` matches before a final newline; whether a model checking the prose regex would have accepted it cannot be determined from the text. Neither is a disagreement and neither was changed.
+
+**Fix (`72a2f94`).** The per-file check calls `guard.main(["--root", root, "--path", f])` in-process, with its stdout and stderr captured and dropped, and keeps the file only on exit 0. This is the command's own code path, including argparse, so the two cannot drift. No subprocess was added per finding. Test first at `c1541b1`: `test_finalize_inputs.py::TestGuardCommandParity` (22 names compared with the real guard command run as a subprocess, plus the `-x.ts` end-to-end run against the 2.14.1 counting and gate commands). Both tests failed on the unfixed helper and pass after the fix.
+
+**Mutation checks** (scratch copy). Putting the old `guard.contained(root, f)[0]` line back fails both new tests. Replacing the test's 2.14.1-side subprocess with the helper's in-process `guard.contained` check fails both tests, with the unfixed helper and with the fixed one: the 2.14.1 side really runs the command.
+
+## Repo folder names ending in whitespace (D-25), 2026-11-15
+
+Found by phase re-verification (63-VERIFICATION.md, "The new gap in detail"). Present since PR #10 merged; not caused by the D-24 fix. Owner's D-24 ruling (match 2.14.1) applied by the main session as D-25.
+
+**Mechanism, confirmed.** 2.14.1 step 1 passes `--root "$(git rev-parse --show-toplevel)"`. Command substitution removes every trailing `\n` and nothing else: no spaces, tabs or `\r`, and the bytes go through untouched. The helper's `_toplevel` returned `result[1].strip()`, which also removes spaces, tabs, `\r`, `\x0b`, `\x0c` and Unicode whitespace (no-break space, em space, ideographic space) from both ends. With the root trimmed, `guard.main` checks a folder that does not exist (file refused, finding stays open) or, when a repo of the trimmed name sits beside it, the neighbour (the helper's three git calls then run there too).
+
+**End to end, before the fix** (helper at `5fe021c`, which is the unfixed helper; 2.14.1 side = the PATH_RE filter, the `dd8e4ab` guard line run through a real shell from the repo folder, the three git calls in the same folder, then the `dd8e4ab` `carry_state.py finalize-counts` and `finalize_gate.py`; state = the phase-45 loop fixture, medium dismissed, warning row on a clean committed `x.ts` with a last-pass fix-obsolete verdict on its HEAD blob). Identical on Python 3.9.6 (bash), 3.12.12 (bash), 3.13.14 (bash) and 3.14.5 (bash and zsh). Scratch script, temp folders only, removed afterwards.
+
+| Repo folder (session in it) | 2.14.1 | Helper before fix | Same? |
+|---|---|---|---|
+| `repo` (control) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `my repo` (space inside) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| ` repo` (leading space) | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo ` (trailing space) | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + tab | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + no-break space | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\r` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\x0b` / + `\x0c` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + em space / + ideographic space | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo` + `\n`, + `\n\n`, + ` \n`, + `\r\n` | [1,0,0] `outstanding-to-phase-5` | [1,0,0] `outstanding-to-phase-5` | yes (both name another folder) |
+| `repo ` beside a repo `repo` with the same `x.ts`; real `x.ts` edited after the verdict | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` | **no (wrong approval)** |
+| `repo` + tab, same neighbour set-up | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` | **no (wrong approval)** |
+| `repo` reached through a symlink | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo` reached through `other/../repo` | [0,0,0] `write` | [0,0,0] `write` | yes |
+| `repo ` reached through a symlink | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| `repo ` reached through `other/../repo ` | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` | **no** |
+| folder name with byte `\xff` | not testable: APFS refuses the name (`Errno 92 Illegal byte sequence`) | | |
+
+After the fix (`92ae038`) all 21 rows are the same on both sides, on the four interpreters, under bash and under zsh.
+
+**Audit of every post-processing site in `finalize_inputs.py`.** "Shell" is what the 2.14.1 fence or prose step did with the same output.
+
+| Site | 2.14.1 | Helper | Match? | Can a difference change a fingerprint, count or gate decision? |
+|---|---|---|---|---|
+| `_toplevel`: root text from `git rev-parse --show-toplevel` | `$(...)`: every trailing `\n` removed, nothing else | was `.strip()` (both ends, all whitespace); now `.rstrip("\n")` | was **no**; now yes | **Yes** (reproduced above). Fixed. |
+| Leading whitespace of the root | kept | kept: git prints an absolute path, so the string starts with `/` and no folder-name character is ever at the front; probed with ` repo` | yes | No |
+| Trailing `\r` of the root | kept | was removed; now kept | was **no**; now yes | Yes (reproduced). Fixed by the same change. |
+| Several trailing `\n` (folder name ending in line breaks) | all removed | `.rstrip("\n")` removes all | yes | No (both give another folder; probed) **Correction 2026-11-15 (gap 3): wrong when a folder exists at the trimmed name.** The trim matches, but the helper also ran its three per-file git calls in that folder, so a neighbour at the trimmed name was read instead of the session's repository: a wrong approval with a neighbour repo and an edited file, a finding left open with a plain-folder neighbour. Only nothing at the trimmed name was probed. See "Per-file git checks in the session's repository (gap 3, D-26)" below. |
+| Decoding of git's output, `os.fsdecode` (UTF-8 + surrogateescape on macOS) | bytes passed through the shell into `guard.py`'s argv, which Python decodes with the same filesystem encoding and error handler | `os.fsdecode`, then `guard.main` re-encodes in `realpath` | yes on macOS | Not on macOS: a non-UTF-8 folder name cannot exist on APFS. On a Linux host with a non-UTF-8 legacy locale, argv decoding and `fsdecode` could in principle differ; not probed (no such host) |
+| `_ok(result)` empty root on a git failure | `$(...)` gives `""`, guard refuses an empty root | returns `""`, guard refuses | yes | No |
+| Blob id, `rev[1].strip()` | the model reads `git rev-parse "HEAD:<file>"` output and writes it with the Write tool | `.strip()` | yes | No: the output is only hex digits and a line break, so `.strip()` and dropping the line break give the same text |
+| `if blob:` | n/a (rev-parse exit 0 always prints an id) | skip empty | yes | No |
+| Finding file name `f` | passed verbatim as `"<file>"` | passed verbatim to `guard.main` and git argv; no strip, no case change | yes | No |
+| `os.path.realpath` / containment compare | inside `guard.py`, unchanged since `dd8e4ab` | the same `guard.main` | yes | No (same code) |
+| `guard.contained` `root.strip()` blank check | same code | same code | yes | No: only decides "blank or not"; a root ending in a space is not blank |
+| Case handling | none | none | yes | No |
+| Symlinked path, `..` in the path | git prints the resolved root on both sides | same | yes | No (probed) |
+| Folder the three per-file git calls run in | the session folder | the root (accepted D-19 difference) | no, by owner decision | Not this mechanism; unchanged **Correction 2026-11-15 (gap 3): this row stopped too early.** D-19 covers reading the file from the top of the same repository. When the root text is not the session's repository (a folder name ending in a line break beside a folder of the trimmed name; `core.worktree` pointing elsewhere) the decision differed from 2.14.1 in both directions. Fixed at `08f0018`; see "Per-file git checks in the session's repository (gap 3, D-26)" below. |
+| State file decoding | stdin text, locale-dependent | strict UTF-8 | named difference (row 10 of the change list) | Not this mechanism; unchanged |
+
+No disagreement with a different mechanism was found.
+
+**Correction 2026-11-15 (gap 3).** True of the cases this audit ran. A different mechanism existed: the folder the three per-file git calls ran in (the two rows corrected above). The third verification round found it; see the section below.
+
+**Fix (`92ae038`).** `_toplevel` returns `result[1].rstrip("\n")`: the trailing line breaks are removed, exactly as `$(...)` does; nothing else changed. Test first at `5fe021c`: `test_finalize_inputs.py::TestRepoFolderNameParity` (folder ending in a space and in a tab, end to end against the 2.14.1 commands with fixed expectations `{"x.ts": <blob>}`, [0,0,0], `write`; eight further endings; `repo ` beside `repo`, asserting the helper does not write and equals 2.14.1's [1,0,0] `outstanding-to-phase-5`) and `TestGuardCommandParity::test_parity_names_in_a_repo_folder_ending_in_a_space`. `TestGuardCommandParity`'s 2.14.1 side (`fingerprint_2141`) now runs the guard line `"$0" "$1" --root "$(git rev-parse --show-toplevel)" --path "$2"` through `/bin/sh` instead of trimming the root in Python. On the unfixed helper: 2 tests and 6 subtests failed (space, tab, no-break space, `\r`, `\x0b`, `\x0c`); the line-break and leading-space subtests passed, as they should.
+
+Also corrected in the same test commit: the `TestGuardCommandParity` docstring now says what was observed (3.14 accepts `-1.ts`; 3.9, 3.12 and 3.13 refuse it), not "3.13+".
+
+**Mutation checks** (scratch copy of the scripts folder; only the new tests selected).
+
+| Mutant | Result |
+|---|---|
+| Helper `.strip()` restored | 8 failures: the new `TestGuardCommandParity` case, the neighbouring-repo test, and 6 subtests (space, tab, no-break space, `\r`, `\x0b`, `\x0c`) |
+| Helper `.rstrip()` (all trailing whitespace) | the same 8 failures |
+| Helper removes one trailing `\n` only | 3 subtests fail (`\n`, `\n\n`, ` \n` endings) |
+| Helper `.strip()` AND the test's 2.14.1 side trimming in Python with `.strip()` | still 8 failures. The space/tab and neighbouring-repo tests fail on their fixed expectations. The `TestGuardCommandParity` case's helper-versus-2.14.1 comparison cannot see the bug in this mutant (both sides give `{}`); it fails only on its own fixed check that the clean files are kept (`'x.ts' not found in {}`) |
+| Test's 2.14.1 side `.strip()` only, helper fixed | 7 failures: the test notices its own 2.14.1 side is wrong |
+
+In a whole-file run of each mutant, 3 more failures appear (`TestNextVocabularyProse`): those tests read the phase prose by path and cannot find it from the scratch copy; they fail the same way with no mutation applied in that location, and they pass in the worktree.
+
+**Runs after the fix.** `test_finalize_inputs.py`: 114 passed (pytest, Python 3.12.12 venv, default locale and `LC_ALL=C`; `/usr/bin/python3 -m pytest`, 3.9.6, default and `LC_ALL=C`); `python3.12`, `python3.13`, `python3.14 -m unittest test_finalize_inputs`: 114 tests OK each, default locale and `LC_ALL=C`. `test_finalize_card.py`, `test_carry_state.py`, `test_confirmed_fix.py`, `test_cross_call_vars.py`: 500 passed. `docs/design/lean-v2.15/tools`: 355 passed. `finalize_capture.py verify`: `finalize baseline matches (5 situations)`. `finalize_capture.py compare --driver helper --commit HEAD`: `finalize outcome fields match (5 situations, 7 walks)` on Python 3.14.5 and 3.9.6. `stdlib_only.py plugins/vibe-check`: `34 shipped .py files; third-party imports: none`.
+
+## Per-file git checks in the session's repository (gap 3, D-26), 2026-11-15
+
+Found by the third verification round (63-VERIFICATION.md, "Gap 3 in detail"). Present since PR #10 merged; not caused by the D-24 or D-25 fixes. Owner decision D-26, in the owner's words: "Fix gap 3 + add the side-by-side test (Recommended)".
+
+**Mechanism, confirmed.** 2.14.1 step 1 gave the root text from `$(git rev-parse --show-toplevel)` to the guard command only, then ran `git rev-parse "HEAD:<file>"`, `git diff --quiet HEAD -- <file>` and `git diff --cached --quiet -- <file>` in the session folder. Since D-19 the helper ran those three calls with `cwd=root`. When the root text does not name the session's repository, git there reads another repository or none:
+- a repo folder whose name ends in `\n` (`$(...)` drops it, so the root text names the folder of the trimmed name) with a folder or repo at the trimmed name;
+- `core.worktree` pointing elsewhere: `--show-toplevel` names the configured work tree, and git run there does not find the session's `.git` (or finds a different repository).
+
+**Reproduction.** The side-by-side test below, run against the helper at `38ed24f` (the pre-fix helper; scratch copy beside the current sibling modules): 284 scenarios, 232 agree, 14 D-19, **20 disagree**. All 20 have this mechanism (the folder the per-file checks address):
+
+| Scenario (ending \| neighbour \| session \| setting \| name \| content \| verdict) | 2.14.1 | Helper before the fix |
+|---|---|---|
+| `lf` \| repo-same \| root \| none \| `x.ts` \| edit \| obsolete-head (verifier case a) | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` |
+| `lf` \| folder \| root \| none \| `x.ts` \| clean \| obsolete-head (case b) | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` |
+| plain \| none \| root \| worktree-folder \| `x.ts` \| clean \| obsolete-head (case c) | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` |
+| plain \| none \| root \| worktree-repo \| `x.ts` \| staged \| obsolete-head (case d) | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` |
+| `lflf` and `space-lf` \| repo-same \| root \| none \| `x.ts` \| edit | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` |
+| `lf` \| repo-diff \| root \| none \| `x.ts` \| clean | [0,0,0] `write` | [1,0,0] (blob read from the neighbour) |
+| `lf` \| repo-diff \| root \| none \| `x.ts` \| edit | [1,0,0] | [1,0,0], neighbour's blob in the map |
+| `lflf` \| repo-diff \| root \| `GIT_PREFIX` \| `dir/y.ts` \| staged-restored | `{}` | neighbour's blob in the map (same counts) |
+| `space-lf` \| repo-diff \| sub \| `GIT_ICASE_PATHSPECS` \| `-1.ts` \| untracked | `{}` | neighbour's blob in the map (same counts) |
+| worktree-folder with `dir`, `dir/`, `-1.ts`, `nl.ts⏎`, `link.ts` (no-break-space folder), `x.ts` (tab folder), all clean | [0,0,0] `write` | [1,0,0] `outstanding-to-phase-5` |
+| worktree-repo, and `GIT_DIR`+`GIT_WORK_TREE` elsewhere, with `./x.ts`, clean | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` (cwd-relative `HEAD:./x.ts` read in the other folder) |
+| `nbsp` \| none \| inside `.git` \| worktree-repo \| `nl.ts⏎` \| staged-restored \| obsolete-head | [1,0,0] `outstanding-to-phase-5` | [0,0,0] `write` |
+| `lflf` \| repo-same \| deeper \| literal pathspecs \| `x.ts` \| untracked \| obsolete-old | `{}`, [1,0,0] | neighbour's blob in the map, [1,0,0] |
+
+One more row failed only the D-19 assertion: `lf` \| repo-same \| sub \| none \| `x.ts` \| edit. The pre-fix helper read the neighbour from the subfolder and fingerprinted the edited file, the very thing D-19 rules out; it happened to agree with 2.14.1, which fingerprints it too (D-19 shape).
+
+**Fix (`08f0018`).** The three calls run in the session folder (`_git(..., cwd)`), so git's own repository discovery, `core.worktree` and every `GIT_*` variable apply exactly as at 2.14.1. The root text stays the guard command's `--root`, as at 2.14.1. D-19 is kept by `_up_to_top`: `git rev-parse --show-prefix` in the session folder, its `/`-separated parts counted, one `../` per part prefixed to the name in the two `git diff` calls (`HEAD:<file>` is already read from the top; `HEAD:./x` would be cwd-relative, and the grid's `./x.ts` row agrees with 2.14.1 because both read it in the session folder) *[Note added 2026-11-16, gap 5: this holds only with the session at the repo top. From a subfolder the helper at `08f0018` gave the two checks `.././x.ts` (the top-level file) while `HEAD:./x.ts` read the subfolder's file, so the checks and the blob addressed different files. The grid's `./x.ts` row agreed only because no fixture subfolder held an `x.ts`: `HEAD:./x.ts` failed there on both sides. See "File names read from the session folder (gap 5, D-28)" below.]*. At the top the prefix is empty and the three calls are exactly 2.14.1's. Probed on git 2.55.0 before choosing: `../` pathspecs work under `GIT_LITERAL_PATHSPECS`, `GIT_ICASE_PATHSPECS` and `GIT_NOGLOB_PATHSPECS`; the `:/` top magic does NOT (under `GIT_LITERAL_PATHSPECS=1`, `git diff --quiet HEAD -- :/x.ts` exits 0 on an edited file, which would fingerprint it), so magic is not used. With `core.worktree` pointing elsewhere and the session in the folder holding `.git`, `--show-prefix` prints an empty line (`--show-cdup` prints the absolute work-tree path, which is why the prefix is counted instead). The character filter admits no `:`, so no file name can carry pathspec magic itself. The prefix query runs once, only after the first file passes the guard; if it fails, every file is left out (the fail-closed omission). The containment check still takes the textual root, so D-24 and D-25 behaviour is unchanged (their grid rows and `TestGuardCommandParity`, `TestRepoFolderNameParity` pass).
+
+**The side-by-side test** (`plugins/vibe-check/scripts/test_finalize_parity_grid.py`, first at `d2d604c`, further rows at `06fd54e` and `ace05a8`).
+- *2.14.1 side:* `plugins/vibe-check/scripts/fixtures/finalize_step1_2141.sh`, the `dd8e4ab` `90-finalize.md` lines 13–22 per-file procedure (the `^[A-Za-z0-9._/-]+$` filter applied with Python `re.match`, the guard line `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "$f"`, `blob=$(git rev-parse "HEAD:$f")`, the two `git diff` calls, the blob kept only when all exit 0), run through `/bin/sh` in the session folder with `python3` on PATH resolving to the test's interpreter; then `carry_state.py finalize-counts` and `finalize_gate.py` as commands. The verdict-to-file selection (last-pass verdicts, first matching row) is the test's Python, as the step's prose describes it. `.sh` is not a shipped `.py` module: the stdlib gate still reports 34 files.
+- *Pin:* `TestStep1ScriptIsPinned` reads `dd8e4ab:plugins/vibe-check/phases/shared/90-finalize.md` with `git show`, requires the script's eight command lines to be exactly the expected scaffold plus the filter pattern and the four commands found verbatim (backtick-quoted) in lines 13–22, in order, and requires `guard.py`, `carry_state.py`, `finalize_gate.py` and `fixcommit.py` to hash to their `dd8e4ab` blobs (they do; `batch_card.py` too, though only the helper uses it).
+- *Grid design:* seven axes: folder-name ending (plain, space, tab, `\r`, no-break space, `\n`, `\n\n`, space+`\n`, byte `\xff`); what sits at the trimmed name (nothing, plain folder, repo with the same files, repo with different files); session (top, `dir`, `dir/deep é`, a folder outside the repo, inside `.git`); setting (none, `core.worktree` to a folder / a repo, `GIT_DIR` absolute / relative, `GIT_DIR`+`GIT_WORK_TREE` on the repo / elsewhere, `GIT_CEILING_DIRECTORIES` at the parent / the repo, `core.quotepath=true`, linked worktree, symlinked path, path through `..`, `GIT_LITERAL_PATHSPECS`, `GIT_ICASE_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_PREFIX`, no git on PATH); file name (`x.ts`, `dir/y.ts`, `-x.ts`, `-1.ts`, `dir`, `dir/`, missing, symlink in, symlink out, `a b.ts`, `dir/../x.ts`, `./x.ts`, `.git/config`, `nl.ts⏎`); content (clean, edit, staged, staged then working copy restored, deleted, untracked); verdict (obsolete on HEAD's blob, obsolete on a stale blob, at an earlier pass, `applied`). A deterministic greedy covering array (seed 63) covers every valid pair of axis values (a plain folder name has no trimmed neighbour), 253 rows, plus 32 named rows (the three rounds' cases and the further gap 3 rows) and 7 D-19 rows: 284 scenarios after de-duplication. 8 worker threads; each scenario in its own temp folder, every `GIT_*` variable dropped, global/system config off, `GIT_CEILING_DIRECTORIES` at the temp root; all removed afterwards.
+- *Allowed differences:* only the D-19 shape (session below the repo folder, file edited/staged/staged-restored/deleted, 2.14.1 fingerprints exactly that file with its HEAD blob, the helper leaves exactly it out, and the decisions follow: `write` vs `outstanding-to-phase-5` for a verdict on HEAD's blob, both open otherwise); 7 named D-19 rows assert both sides exactly. `KNOWN_DIFFERENCES` is empty and shrink-only: an entry must still be found with exactly its recorded outcomes.
+- *Not creatable here:* scenarios whose folder name holds the byte `\xff` (APFS: `Errno 92 Illegal byte sequence`): 18 on this Mac, counted and asserted to be only that axis value (or the line-break file name), not skipped. A filesystem that accepts them (Linux CI) runs them and they must agree.
+- *Not exercised:* D-27's 60-second limit (no scenario makes git slow).
+- *Result after the fix:* 284 scenarios, 252 agree, 14 D-19, 0 known, 0 unexpected, 18 not creatable; about 23–33 s for the grid on this Mac (Python 3.14.5 driver: 23.0 s alone, ~32 s with other load); the module (grid + pin + bash re-run of the named rows) about 30–60 s under pytest. The 14 D-19 rows include one with `GIT_DIR`+`GIT_WORK_TREE` on the repo and the session inside `.git`: git then treats `.git` as a subfolder of the work tree, 2.14.1's pathspec misses, and the helper lifts it, so D-19 applies there too; the test counts the session inside `.git` as "below the repo folder" for that reason.
+
+**Mutation matrix** (helper mutants in scratch copies of `plugins/vibe-check`; grid counts from `test_finalize_parity_grid.py --grid <mutant>`, failures from `pytest -k TestParityGrid` on Python 3.12.12):
+
+| Mutant | Grid | Tests failing |
+|---|---|---|
+| none | 0 unexpected | 0 (6 passed) |
+| in-process `guard.contained` instead of the command (gap 1) | 7 unexpected | agreement test + regression row `-x.ts` |
+| `.strip()` on the root (gap 2) | 9 unexpected | agreement test + regression row space-ending |
+| root as cwd for the three checks (gap 3, the pre-fix form) | 20 unexpected | agreement test + 11 regression rows + D-19 row `lf`/sub |
+| fingerprints every candidate (no filter, guard or diff checks) | 77 unexpected, 0 D-19 | agreement test + 12 regression rows + all 7 D-19 rows |
+| fingerprints nothing | 76 unexpected | agreement test + 12 regression rows |
+| D-19 lift removed (2.14.1 pathspec) | 0 unexpected, 0 D-19 | the D-19 test: all 7 rows |
+| drops one final `\n` only | 14 unexpected | agreement test + regression row `lf`/none |
+
+Pin mutants (edit applied to the worktree script, pin class run, original bytes restored and checked): delete the `--cached` check; `":/$f"` in the diff check; `rev-parse` moved after the diff checks; pattern admitting a space; root piped through `tr`; `HEAD:./$f`; an extra line. Each fails `test_script_lines_are_the_dd8e4ab_commands`; unedited passes.
+
+**Triage of what the grid found.** Before the fix: the 20 rows above and the D-19 row, all the gap 3 mechanism, fixed together; 19 of the 20 rows are named in `REGRESSION_ROWS` with their 2.14.1 outcome (`06fd54e`, `ace05a8`); the twentieth (`core.worktree` at a folder, `-1.ts`) is left to the pairwise grid because its 2.14.1 outcome depends on the Python version (argparse refuses `-1.ts` before 3.14). After the fix: none outside the D-19 shape. No new mechanism, so `KNOWN_DIFFERENCES` is empty and nothing awaits an owner decision.
+
+**Also in `test_finalize_inputs.py`.** `TestSessionRepository` (both `core.worktree` directions, each with a root-as-cwd mutant that must flip the result); `TestFingerprints::test_exact_git_calls` now includes `rev-parse --show-prefix`; `test_exact_git_calls_from_a_nested_subfolder` (`../../src/a.ts` in the two diff calls); `test_prefix_query_failing_leaves_every_file_out`. The two D-19 mutants now remove the `../` lift and were renamed `test_mutant_name_read_from_session_folder_fingerprints_edit_from_subfolder` and `test_mutant_index_name_read_from_session_folder_fingerprints_staged_file`.
+
+The mutation matrix above was run on the test file at `06fd54e` (25 named rows); `ace05a8` adds 7 named rows from the same grid, so the grid counts are unchanged and each helper mutant fails at least the tests listed.
+
+**Runs after the fix (2026-11-15).** `test_finalize_parity_grid.py` + `test_finalize_inputs.py`: 127 passed, 0 skipped (pytest on Python 3.12.12, default locale and `LC_ALL=C`; `/usr/bin/python3 -m pytest`, 3.9.6, default and `LC_ALL=C`); `python3.13` and `python3.14 -m unittest`: 127 tests OK, default and `LC_ALL=C` (D-19 rows: 14 on 3.12 and 3.14, 12 on 3.9 and 3.13, where argparse refuses `-1.ts` on both sides alike). After `ace05a8`: the grid file again on 3.12 (pytest), 3.9 (pytest, both locales) and 3.13 (unittest): passed. `test_finalize_card.py`, `test_carry_state.py`, `test_confirmed_fix.py`, `test_cross_call_vars.py`: 500 passed. `.github/scripts/test_stdlib_only.py` + `docs/design/lean-v2.15/tools`: 376 passed. `finalize_capture.py verify`: `finalize baseline matches (5 situations)`; `compare --driver helper` by commit (Python 3.14.5 and 3.9.6) and by folder: `finalize outcome fields match (5 situations, 7 walks)`. `stdlib_only.py plugins/vibe-check`: `34 shipped .py files; third-party imports: none` (the `.sh` fixture and `test_*.py` are not counted). `left_out_guard.py check-list`: `left-out list matches the recorded five`; the new tests record no skip (junit `skipped="0"`). `step_count.py --rev HEAD`: 85 Finalize steps; `footprint.py --rev HEAD`: Finalize 130,886 bytes (unchanged). Not checked here: the Linux CI run (a filesystem that can create the `\xff` folder rows, dash as `/bin/sh`, fewer cores); the full suite (left to the main session and CI).
+
+## File names read from the session folder (gap 5, D-28), 2026-11-16
+
+Found by the fourth verification round (63-VERIFICATION.md, "Gap 5 in detail"). A regression made by the gap 3 fix (`08f0018`), present only on the unmerged follow-up pull request: `main` (`4ac7ee4`) and the helper at `48b307f` do not have it. It breaks D-19, which the owner already decided, so it was fixed without a new owner decision (D-28; the owner was told).
+
+**Mechanism, confirmed with real git** (git 2.55.0; the per-form table below). `08f0018` put `up` (one `../` per folder level from `git rev-parse --show-prefix`) in front of every name in the two `git diff` calls, on the premise that `HEAD:<file>` is read from the top. That premise holds only for a name that does not start with `./` or `../`. git resolves `HEAD:./y.ts` and `HEAD:../y.ts` from the session folder, so from `dir` the blob came from `dir/y.ts` while the checks were given `.././y.ts`, the top-level `y.ts`: the blob and the change checks addressed different files.
+
+**Reproduction** (the strengthened grid, `TestNameFormGrid`, run against the helper at `4f89006`, which is `08f0018`'s `_head_blobs`): 549 scenarios, 470 agree, 35 D-19, 6 D-19 second direction (N-13), **38 differ**, every one a `./` or `../` name with the session below the top; 15 are wrong approvals. Layout `all` = `n.ts`, `dir/n.ts`, `dir/deep/n.ts` committed with different content; fix-obsolete verdict on the blob `HEAD:<name>` gives in the session folder; key = repo folder name | layout | changed file(s) | how | session | name.
+
+| Scenario | 2.14.1 | Helper at `4f89006` |
+|---|---|---|
+| repo \| all \| sub \| edit / staged / staged-restored \| `dir` \| `./n.ts` (verifier case a) | [1,0,0] `outstanding-to-phase-5` | **[0,0,0] `write`** |
+| repo \| sub-only \| sub \| edit / staged / staged-restored \| `dir` \| `./n.ts` | [1,0,0] | **[0,0,0] `write`** |
+| repo \| all \| deep \| edit / staged / staged-restored \| `dir/deep` \| `./n.ts`, and from `dir` \| `./deep/n.ts` | [1,0,0] | **[0,0,0] `write`** |
+| repo \| all \| sub \| edit / staged \| `dir` \| `./dir/../n.ts`; deep \| staged-restored \| `dir/deep` \| `./dir/../n.ts` | [1,0,0] | **[0,0,0] `write`** |
+| repo \| all \| top \| edit / staged / staged-restored \| `dir`, `dir/deep` \| `./n.ts` (verifier case b) | [0,0,0] `write` | [1,0,0] (safe) |
+| repo \| all \| top+sub \| edit / staged / staged-restored \| `dir/deep` \| `./n.ts` | [0,0,0] `write` | [1,0,0] (safe) |
+| repo \| all \| top \| edit \| `dir`, `dir/deep` \| `./dir/../n.ts`; top+sub \| staged-restored \| `dir/deep` \| `./dir/../n.ts` | [0,0,0] `write` | [1,0,0] (safe) |
+| dir \| all \| clean, top edit, deep staged-restored, … \| `dir` \| `../dir/n.ts`, `./../dir/n.ts`, `../dir/deep/n.ts` (verifier case c: the lifted name leaves the repo and git refuses it) | [0,0,0] `write` | [1,0,0] (safe) |
+
+**Per-form semantics** (task 2; each claim checked with real git 2.55.0 by `TestNameFormGrid::test_model_is_what_git_does` for every session and form, and in a scratch probe with more forms). git's rules: `HEAD:<name>` is resolved from the session folder and normalised (`.`, `..`, `//` collapsed; refused when it climbs above the top) exactly when the name starts with `./` or `../`; any other name is looked up from the top as written, with no normalisation, so an empty, `.` or `..` part makes it name nothing (`HEAD:dir/../x.ts`, `HEAD:dir/./x.ts`, `HEAD:dir//x.ts` all fail, at the top and in a subfolder). A pathspec after `--` is always resolved from the session folder and normalised the same way; above the top git exits 128. The guard command resolves every name against the repo root, so a `../` name passes it only when it comes back into the repo (`../<repo folder name>/…`).
+
+| Name form | Session at the top: `HEAD:` / both 2.14.1 checks | Session in `dir`: `HEAD:` reads | 2.14.1 checks (`dir/` + name) | Helper checks | "Matches 2.14.1" / "D-19" means |
+|---|---|---|---|---|---|
+| `n.ts` | `n.ts` / `n.ts` | `n.ts` | `dir/n.ts` | `../n.ts` = `n.ts` | the plain-name hole: D-19 (`n.ts` changed) and N-13 (`dir/n.ts` changed) |
+| `dir/n.ts` | `dir/n.ts` / `dir/n.ts` | `dir/n.ts` | `dir/dir/n.ts` (absent: always passes) | `../dir/n.ts` | the hole: D-19 only |
+| `./n.ts` | `n.ts` / `n.ts` | `dir/n.ts` | `dir/n.ts` | `./n.ts` = `dir/n.ts` | no hole: must equal 2.14.1 |
+| `./dir/n.ts` | `dir/n.ts` / `dir/n.ts` | `dir/dir/n.ts` (absent: fails) | — | — | must equal 2.14.1 |
+| `./dir/../n.ts` | `n.ts` / `n.ts` | `dir/n.ts` | `dir/n.ts` | as written | must equal 2.14.1 |
+| `./deep/n.ts` (from `dir`) | absent / — | `dir/deep/n.ts` | `dir/deep/n.ts` | as written | must equal 2.14.1 |
+| `../n.ts`, `./../n.ts` | fails (above the top) / exit 128 | `n.ts` | `n.ts` | as written | guard refuses (outside the root) on both sides |
+| `../dir/n.ts` (repo folder `dir`) | fails / exit 128 | `dir/n.ts` | `dir/n.ts` | as written | guard passes (`<root>/../dir/n.ts` is `<root>/n.ts`); must equal 2.14.1 |
+| `../dir/n.ts` (repo folder `repo`) | fails | `dir/n.ts` | `dir/n.ts` | as written | guard refuses on both sides |
+| `dir/../n.ts`, `dir/./n.ts` | fails (no normalisation) / pathspec normalised | fails | — | — | left out on both sides |
+| `../../n.ts` | fails | fails (above the top) | exit 128 | — | left out on both sides |
+| `deep/n.ts`, `dir/deep/n.ts` | plain names: as `dir/n.ts` (looked up from the top) | | | | `dir/deep/n.ts` is the hole (D-19 only); `deep/n.ts` names nothing |
+
+So "matches 2.14.1" for a `./` or `../` name means the same three calls with the same name (git addresses one file in all three); "D-19" applies only to a plain name with the session below the top, where 2.14.1 read the blob from the top and checked `<prefix><name>`.
+
+**Fix (`7079ab0`).** `_pathspec_for_blob(f, up)`: a name starting with `./` or `../` is given to the two checks as written; any other name gets `up + f`. Why this and not deriving a top-relative path: it is the principle "the checks address the file the blob was read from", expressed with git's own resolution. For a `./`/`../` name git resolves the pathspec exactly as it resolved `HEAD:<name>` (same session-relative normalisation, confirmed above), so the name as written is that file, and the three calls are then literally 2.14.1's. For any other name, `rev-parse HEAD:<name>` succeeding means the name has no empty, `.` or `..` part, so `up + name` is exactly the file read. Deriving the path by re-implementing git's normalisation in the helper would reach the same files with more code that could drift from git (`//`, a trailing `/`, an empty result giving an empty pathspec). Tried as a scratch variant (normalise `<prefix><name>` and lift it): see the matrix row "ALT" below.
+
+**Strengthened grid** (`TestNameFormGrid`, first at `4f89006`, where it failed as above). One name at up to three levels (`n.ts` at the top, in `dir`, in `dir/deep`, each with different content); layouts `all`, `top-only`, `sub-only`; sessions top, `dir`, `dir/deep`; content: clean, or one of unsaved edit / staged edit / staged edit with the working copy restored applied to the top file, the `dir` file, the `dir/deep` file, or top and `dir` together. Full cross for the five forms that name an existing file somewhere (`n.ts`, `./n.ts`, `dir/n.ts`, `./dir/n.ts`, `./deep/n.ts`): 3 layouts' contents (13 + 4 + 4) × 3 sessions × 5 = 315. Ten further forms (`./dir/../n.ts`, `dir/deep/n.ts`, `./dir/deep/n.ts`, `../n.ts`, `./../n.ts`, `../dir/n.ts`, `../../n.ts`, `dir/../n.ts`, `dir/./n.ts`, `deep/n.ts`) × 3 sessions × six contents covering every target and every state: 180. With the repo folder itself named `dir`, three re-entering forms (`../dir/n.ts`, `../dir/deep/n.ts`, `./../dir/n.ts`) × 3 sessions × the same six contents: 54. Total 549 (17 distinct names); one repo per (folder name, layout, content), shared by its sessions and forms; the 2.14.1 counting and gate commands memoised per (state bytes, fingerprint map), step 1 always run. Every form passes the 2.14.1 character filter (asserted). Each side is predicted from the git model above, and the test asserts the 2.14.1 side equals the prediction for all 549 (so the model and the script are both checked) and that the model equals real git for every session × form. A difference is tolerated only when the session is below the top, the name is plain, the model says `HEAD:` and the checks address different files, and the helper's result is exactly the D-19 prediction; it is then D-19 (the file read was changed) or N-13 (only the session folder's same-named file was changed). Named rows: 15 regression rows (cases a, b, c, `./../n.ts` refused by the guard, clean controls) that must agree with fixed 2.14.1 outcomes, and 7 D-19 rows with both outcomes asserted, 3 of them N-13. Separate assertions: no `./` or `../` name ever differs; nothing differs at the repo top. `KNOWN_DIFFERENCES` stays empty: the grid found no difference with a new mechanism.
+
+**Also.** `test_finalize_inputs.py::TestSessionRelativeNames` (five tests: clean `./c.ts` from `sub` fingerprinted with the exact calls; `sub/c.ts` edited, staged-then-restored: left out; top `c.ts` edited: still fingerprinted; `../c.ts` and `./../c.ts` refused by the guard), and `TestMutants::test_mutant_lifting_every_name_fingerprints_an_edited_dot_slash_file`. The first grid's `d19_difference` now also requires a plain name. The first grid asserts "not creatable here" is empty on Linux. Both grids print their summary and raise it as a `GridSummary` warning: CI runs `pytest -q … -rs --junitxml=…` and keeps only the log (no junit upload), `-q` hides a passing test's print, but the warnings section is printed on success, so the two summary lines reach the CI log without a workflow change (the left-out guard reads only the last `… passed …` line, which a warning count does not disturb: its failure pattern is `failed|errors?`). `--grid [helper.py]` now runs every assertion of both grid classes and exits 1 on any failure (with the `../` lift removed it exited 0 before).
+
+**Mutation matrix** (scratch copies of `plugins/vibe-check/scripts` with `finalize_inputs.py` changed, run through `test_finalize_parity_grid.py --grid <copy>/finalize_inputs.py` on Python 3.14.5; 2026-11-16):
+
+| Mutant | First grid (284) | Name-form grid (549) | `--grid` exit | Tests failing |
+|---|---|---|---|---|
+| none (the fix) | 252 agree, 14 D-19, 0 unexpected | 508 agree, 35 D-19, 6 N-13, 0 unexpected | 0 | none |
+| always lift (gap 5 restored) | 0 unexpected | **38 unexpected** | 1 | agreement, regression rows, `./`/`../` names never differ |
+| never lift (pre-D-19) | 0 unexpected, 0 D-19 | 549 agree, 0 D-19 | 1 | D-19 rows (both grids) |
+| root as cwd (gap 3) | 20 unexpected | 84 unexpected | 1 | agreement (both), regression rows, D-19 rows, `./` names |
+| `.strip()` on the root (gap 2) | 9 unexpected | 0 unexpected | 1 | agreement, regression rows (first grid) |
+| in-process `guard.contained` (gap 1) | 7 unexpected | 0 unexpected | 1 | agreement, regression rows (first grid) |
+| fingerprint every validated file | 23 unexpected, 0 D-19 | 69 unexpected | 1 | agreement (both), regression rows, D-19 rows, nothing differs at the top, `./` names |
+| fingerprint nothing | 76 unexpected | 129 unexpected | 1 | agreement (both), regression rows, D-19 rows, nothing differs at the top, `./` names |
+| ALT, not a defect: normalise `<prefix><name>` for a `./`/`../` name in the helper and lift it | 252 agree, 14 D-19, 0 unexpected | 508 agree, 35 D-19, 6 N-13, 0 unexpected | 0 | none: the same files as the fix, so the grid cannot tell the two apart; the fix was kept for the reasons above |
+
+Every defect mutant above makes `--grid` exit 1 and fails at least one named-row assertion. "never lift" leaves the agreement tests passing on both grids (it is 2.14.1's own behaviour) and is caught only by the D-19 rows, as intended.
+
+**Runs after the fix (2026-11-16, at `7079ab0`).** `test_finalize_parity_grid.py` + `test_finalize_inputs.py`: 143 passed, default locale and `LC_ALL=C`, on Python 3.12.12 (pytest), 3.9.6 (`/usr/bin/python3 -m pytest`), 3.13.14 and 3.14.5 (`-m unittest`, 143 tests OK). Grid summaries: name-form 549, 508 agree, 35 D-19, 6 N-13, 0 unexpected, 0 off the git model on all four; first grid 284, 0 unexpected, 18 not creatable, with 254 agree / 12 D-19 on 3.9, 3.12 and 3.13 and 252 / 14 on 3.14 (argparse's reading of `-1.ts` differs by version on both sides alike). Linux (Docker `python:3.12`, Python 3.12.16, git 2.47.3, non-root user, a clone at `7079ab0`): `--grid` exit 0, 16 tests OK; unittest default and `LC_ALL=C` 143 OK; `pytest==9.0.3 -q -rs` as CI runs it: 143 passed, and its warnings section shows both summary lines (`284 scenarios … 272 agree, 12 D-19, 0 known differences, 0 unexpected, 0 not creatable here`; `549 name-form scenarios … 0 unexpected, 0 off the git model`). Wall time on this Mac: the grid file alone about 37 s at low load and 55 s with a load average near 12 from other work (each grid 15–25 s); the two files together 63–87 s; on Linux the grid file's two grids took 6–9 s each. `test_finalize_card.py`, `test_carry_state.py`, `test_confirmed_fix.py`, `test_cross_call_vars.py`: 500 passed. `docs/design/lean-v2.15/tools`: 355 passed. `.github/scripts/test_stdlib_only.py`: 21 passed. `stdlib_only.py plugins/vibe-check`: `34 shipped .py files; third-party imports: none`. `left_out_guard.py check-list`: `left-out list matches the recorded five`. `finalize_capture.py verify`: `finalize baseline matches (5 situations)`; `compare --driver helper` by commit (Python 3.14.5 and 3.9.6) and by folder: `finalize outcome fields match (5 situations, 7 walks)`. `step_count.py --rev HEAD --mode finalize`: 85 steps; `footprint.py --rev HEAD`: Finalize 130,886 bytes (unchanged; no instruction file changed). The full suite was not run.
