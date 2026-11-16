@@ -66,3 +66,22 @@ Under the fresh-shell standard 2.14.1 fails closed (a stop, nothing written); it
 - `/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/1848eafc-2bdb-4e56-aba7-e76f98c7c01e/scratchpad/wr02_repro.py`
 - sha256 `78e0d2fd7173c3728ea34b424ef6fdc18a0252fa363bde2f027b565df0fa1732`
 - Run: `python3 wr02_repro.py <repo-root> <out.json>`; raw result `wr02_result.json` alongside it.
+
+## Verdict
+
+Verdict: QUALIFYING — wrong close — owner D-08 go required
+
+If a GSD review runs its state-key step without the phase name typed in, every phase in the repo saves its progress to one file, so closing out phase B can write an APPROVED report for phase B built from phase A's findings and decisions, and any review pass on phase B replaces phase A's saved progress.
+
+Compared with 2.14.1: different failure: under the same fresh-shell standard 2.14.1 prints no path, so its close-out stops with "No prior review passes." and writes nothing; the candidate's new printed `STATE_FILE=` line is what turns the empty id into a shared file and a wrong close.
+
+- **What:** WR-02 — an empty phase id gives every GSD phase the same saved-progress file, `.turingmind/state/format-53/.json`.
+- **Mechanism:** `05-state.md`'s GSD fence binds `STATE_FILE` from `${PHASE_ID}`, which no fence sets (`00-scope.md:125` sets it in prose only); the unsafe-name guard passes an empty value and the fence prints the shared key; later fences use the printed literal as instructed. `statepath.py::_resolve_gsd` would refuse the empty id but is not called.
+- **User impact:** wrong close (an APPROVED REVIEW.md for one phase from another phase's review) and lost saved progress for the earlier phase. It needs the model to run the fence without typing the phase name in, which no live run has been seen to do (Realism caveat).
+- **Class verdict:** qualifying (wrong close; data loss alongside) under the four-class rule; it is a regression from 2.14.1 under the fresh-shell standard.
+- **Reopens if:** the owner declines the fix round (then it is carried as a named known limit), or a fix lands and its before/after case or mutant shows phase B still reading phase A's file.
+- **Backlog:** 999.38
+
+## Owner go
+
+Owner go: PENDING
