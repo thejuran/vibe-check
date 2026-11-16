@@ -84,4 +84,6 @@ Compared with 2.14.1: different failure: under the same fresh-shell standard 2.1
 
 ## Owner go
 
-Owner go: PENDING
+Owner go: GRANTED (owner, 2026-11-16)
+
+Owner selection (verbatim, AskUserQuestion in the main session): "go (Recommended)" — run 65-03 (test-first WR-02 fix), then build the candidate with the fix. This consumes the one D-08 fix round; any later gate failure needs the owner's explicit go for a second round (D-09).
