@@ -189,10 +189,35 @@ class TestFingerprints(InputsCase):
         _, rec = self.run_helper(state_for(["src/a.ts"]))
         self.assertEqual(rec.calls, [
             ["rev-parse", "--show-toplevel"],
+            ["rev-parse", "--show-prefix"],
             ["rev-parse", "HEAD:src/a.ts"],
             ["diff", "--quiet", "HEAD", "--", "src/a.ts"],
             ["diff", "--cached", "--quiet", "--", "src/a.ts"],
         ])
+
+    def test_exact_git_calls_from_a_nested_subfolder(self):
+        """From `<repo>/src/deep` the two `git diff` checks name the file
+        from the top with one `../` per level; `HEAD:<file>` is already
+        read from the top."""
+        os.makedirs(os.path.join(self.repo, "src", "deep"))
+        deep = os.path.join(self.repo, "src", "deep")
+        out, rec = self.run_helper(state_for(["src/a.ts"]), cwd=deep)
+        self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
+        self.assertEqual(rec.calls, [
+            ["rev-parse", "--show-toplevel"],
+            ["rev-parse", "--show-prefix"],
+            ["rev-parse", "HEAD:src/a.ts"],
+            ["diff", "--quiet", "HEAD", "--", "../../src/a.ts"],
+            ["diff", "--cached", "--quiet", "--", "../../src/a.ts"],
+        ])
+
+    def test_prefix_query_failing_leaves_every_file_out(self):
+        out, rec = self.run_helper(
+            state_for(["src/a.ts", "src/b.ts"]),
+            fail=lambda a: a[:2] == ["rev-parse", "--show-prefix"])
+        self.assertEqual(out, {})
+        self.assertEqual(rec.calls, [["rev-parse", "--show-toplevel"],
+                                     ["rev-parse", "--show-prefix"]])
 
 
 class TestVerdictSelection(InputsCase):
@@ -410,6 +435,73 @@ class TestSubdirectoryCwd(InputsCase):
         self.assertEqual(out, {})
 
 
+ROOT_AS_CWD = (
+    ('        rev = _git(["rev-parse", "HEAD:" + f], cwd)\n',
+     '        rev = _git(["rev-parse", "HEAD:" + f], root)\n'),
+    ('_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
+     '_git(["diff", "--quiet", "HEAD", "--", f], root)'),
+    ('_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
+     '_git(["diff", "--cached", "--quiet", "--", f], root)'),
+)
+
+
+class TestSessionRepository(InputsCase):
+    """The three per-file checks read the session's own repository, as at
+    2.14.1, even when the repo root text names another place. With git's
+    `core.worktree` pointing elsewhere, `--show-toplevel` names that other
+    folder; running the checks there (the merged helper's way) reads a
+    different repository or none. `test_finalize_parity_grid.py` holds the
+    same rows against the literal 2.14.1 step."""
+
+    def root_as_cwd(self):
+        """A copy of finalize_inputs running the three checks in the root
+        path with the name as given (the merged helper's form)."""
+        with open(MODULE_PATH, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for old, new in ROOT_AS_CWD:
+            self.assertIn(old, text, "mutant text must be present")
+            text = text.replace(old, new, 1)
+        spec = importlib.util.spec_from_loader("finalize_inputs_root_cwd",
+                                               loader=None)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__file__ = MODULE_PATH
+        exec(compile(text, MODULE_PATH, "exec"), mod.__dict__)
+        return mod
+
+    def other_tree(self, as_repo):
+        other = os.path.join(self.tmp, "other")
+        for rel in ("src/a.ts", "src/b.ts", "sub/c.ts"):
+            with open(os.path.join(self.repo, rel), "r", encoding="utf-8") as fh:
+                write(other, rel, fh.read())
+        if as_repo:
+            git(other, "init", "-q", "-b", "main")
+            git(other, "add", "-A")
+            git(other, "commit", "-q", "-m", "other")
+        return other
+
+    def test_core_worktree_at_another_repo_staged_edit_is_not_fingerprinted(self):
+        blob = self.blob("src/a.ts")
+        other = self.other_tree(as_repo=True)
+        write(self.repo, "src/a.ts", "staged\n")
+        git(self.repo, "add", "--", "src/a.ts")
+        git(self.repo, "config", "core.worktree", other)
+        s = state_for(["src/a.ts"])
+        out, _ = self.run_helper(s)
+        self.assertEqual(out, {})
+        out, _ = self.run_helper(s, module=self.root_as_cwd())
+        self.assertEqual(out, {"src/a.ts": blob})
+
+    def test_core_worktree_at_a_plain_folder_clean_file_is_fingerprinted(self):
+        blob = self.blob("src/a.ts")
+        other = self.other_tree(as_repo=False)
+        git(self.repo, "config", "core.worktree", other)
+        s = state_for(["src/a.ts"])
+        out, _ = self.run_helper(s)
+        self.assertEqual(out, {"src/a.ts": blob})
+        out, _ = self.run_helper(s, module=self.root_as_cwd())
+        self.assertEqual(out, {})
+
+
 class TestMutants(InputsCase):
     """Each guard removed in turn lets its own case through."""
 
@@ -441,7 +533,7 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", f], root)',
+        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
@@ -453,24 +545,26 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", f], root)',
+        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
 
-    def test_mutant_checks_in_session_folder_fingerprint_edit_from_subfolder(self):
+    def test_mutant_name_read_from_session_folder_fingerprints_edit_from_subfolder(self):
+        """Without the `../` lift the check is 2.14.1's: from `sub`, the name
+        means `sub/sub/c.ts` and an edited file passes (D-19)."""
         sub = os.path.join(self.repo, "sub")
         write(self.repo, "sub/c.ts", "c2\n")
         s = state_for(["sub/c.ts"])
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--quiet", "HEAD", "--", f], root)',
+            '_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
             '_git(["diff", "--quiet", "HEAD", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
 
-    def test_mutant_index_check_in_session_folder_fingerprints_staged_file(self):
+    def test_mutant_index_name_read_from_session_folder_fingerprints_staged_file(self):
         sub = os.path.join(self.repo, "sub")
         write(self.repo, "sub/c.ts", "staged\n")
         git(self.repo, "add", "--", "sub/c.ts")
@@ -479,7 +573,7 @@ class TestMutants(InputsCase):
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--cached", "--quiet", "--", f], root)',
+            '_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
             '_git(["diff", "--cached", "--quiet", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})

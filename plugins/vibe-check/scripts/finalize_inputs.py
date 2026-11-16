@@ -65,15 +65,20 @@ Omission is how the map tells `carry_state.py finalize-counts` "unbound", and
 that helper fails closed for an absent file. A wrongly shaped state gives `{}`.
 With no last-pass fix verdicts no git command runs at all.
 
-WORKING DIRECTORY. The repo root is found from the caller's `cwd` (None =
-this process's cwd, the session's working directory); the three per-file
-checks then run from that root, so the finding's root-relative file name means
-the same file in all three. git reads `HEAD:<file>` from the root whatever the
-cwd, but reads the pathspec after `--` relative to the cwd: run from a
-subfolder, `sub/c.ts` would mean `sub/sub/c.ts`, match nothing and exit 0, and
-a file with unsaved or staged edits would be fingerprinted. The 2.14.1
-instructions ran the checks in the session's folder and had that gap; this
-helper deliberately does not.
+WORKING DIRECTORY. Every git call runs in the caller's `cwd` (None = this
+process's cwd, the session's working directory), as at 2.14.1, so git finds
+the session's own repository there, with its settings (`core.worktree`) and
+`GIT_*` variables applied exactly as they were. The repo root text is used
+only as the containment check's `--root`. git reads `HEAD:<file>` from the
+top of the work tree whatever the cwd, but reads the pathspec after `--`
+relative to the cwd: from a subfolder, `sub/c.ts` would mean `sub/sub/c.ts`,
+match nothing and exit 0, and a file with unsaved or staged edits would be
+fingerprinted. The 2.14.1 instructions had that gap; this helper does not
+(owner decision D-19): it asks git for the cwd's place in the work tree
+(`git rev-parse --show-prefix`) and puts one `../` per folder level before
+the name, so both `git diff` checks read the file from the top. At the top
+the prefix is empty and the calls are exactly the 2.14.1 ones. Pathspec
+magic (`:/`) is not used: `GIT_LITERAL_PATHSPECS` turns it off.
 
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders.
@@ -188,21 +193,38 @@ def _guard_command_accepts(root, f):
         sys.stdout, sys.stderr = saved
 
 
+def _up_to_top(cwd):
+    """`../` once per folder level between `cwd` and the top of its work
+    tree ("" at the top), from `git rev-parse --show-prefix`, or None when
+    git cannot say. Only the levels are counted, so no folder name is ever
+    put into a pathspec."""
+    result = _git(["rev-parse", "--show-prefix"], cwd)
+    if not _ok(result):
+        return None
+    levels = [part for part in result[1].rstrip("\n").split("/") if part]
+    return "../" * len(levels)
+
+
 def _head_blobs(state, cwd):
     files = _candidate_files(state)
     if not files:
         return {}
     root = _toplevel(cwd)
+    up = None
     blobs = {}
     for f in files:
         if not PATH_RE.match(f) or not _guard_command_accepts(root, f):
             continue
-        rev = _git(["rev-parse", "HEAD:" + f], root)
+        if up is None:
+            up = _up_to_top(cwd)
+            if up is None:
+                break
+        rev = _git(["rev-parse", "HEAD:" + f], cwd)
         if not _ok(rev):
             continue
-        if not _ok(_git(["diff", "--quiet", "HEAD", "--", f], root)):
+        if not _ok(_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)):
             continue
-        if not _ok(_git(["diff", "--cached", "--quiet", "--", f], root)):
+        if not _ok(_git(["diff", "--cached", "--quiet", "--", up + f], cwd)):
             continue
         blob = rev[1].strip()
         if blob:

@@ -194,13 +194,15 @@ ENDINGS = collections.OrderedDict((
     ("non-utf8", os.fsdecode(b"\xff")),
 ))
 NEIGHBOURS = ("none", "folder", "repo-same", "repo-diff")
-SESSIONS = ("root", "sub", "deeper", "outside")
+SESSIONS = ("root", "sub", "deeper", "outside", "inside-git")
 SETTINGS = ("none", "worktree-folder", "worktree-repo", "git-dir",
-            "git-dir-work-tree", "ceiling-parent", "ceiling-repo", "quotepath",
-            "linked-worktree", "symlink-path", "dotdot-path",
-            "literal-pathspecs", "icase-pathspecs", "git-prefix", "no-git")
+            "git-dir-relative", "git-dir-work-tree", "git-work-tree-other",
+            "ceiling-parent", "ceiling-repo", "quotepath", "linked-worktree",
+            "symlink-path", "dotdot-path", "literal-pathspecs",
+            "icase-pathspecs", "noglob-pathspecs", "git-prefix", "no-git")
 NAMES = ("x.ts", "dir/y.ts", "-x.ts", "-1.ts", "dir", "dir/", "missing.ts",
-         "link.ts", "out.ts", "a b.ts", "dir/../x.ts", "nl.ts\n")
+         "link.ts", "out.ts", "a b.ts", "dir/../x.ts", "./x.ts",
+         ".git/config", "nl.ts\n")
 CONTENTS = ("clean", "edit", "staged", "staged-restored", "deleted",
             "untracked")
 VERDICTS = ("obsolete-head", "obsolete-old", "earlier-pass", "applied")
@@ -221,8 +223,14 @@ FILES = collections.OrderedDict((
     ("-x.ts", "dash\n"), ("-1.ts", "digit dash\n"), ("a b.ts", "space\n"),
 ))
 LINKS = (("link.ts", "x.ts"), ("out.ts", "../outside.txt"))
-TARGETS = {"dir": "dir/y.ts", "dir/": "dir/y.ts", "dir/../x.ts": "x.ts"}
+# The file a content state changes for each name (`.git/config` itself is
+# never edited: that would break the repo, not test the name).
+TARGETS = {"dir": "dir/y.ts", "dir/": "dir/y.ts", "dir/../x.ts": "x.ts",
+           "./x.ts": "x.ts", ".git/config": "x.ts"}
 EDITED = ("edit", "staged", "staged-restored", "deleted")
+# Session folders that sit below the repo folder (D-19's "subfolder"). With
+# GIT_WORK_TREE naming the repo, `.git` itself is such a folder to git.
+BELOW_TOP = ("sub", "deeper", "inside-git")
 
 
 def key_of(sc):
@@ -333,6 +341,8 @@ D19_ROWS = (
     S("plain", "none", "sub", "none", "x.ts", "deleted", "obsolete-head"),
     S("plain", "none", "sub", "linked-worktree", "x.ts", "edit", "obsolete-head"),
     S("lf", "repo-same", "sub", "none", "x.ts", "edit", "obsolete-head"),
+    S("plain", "none", "inside-git", "git-dir-work-tree", "x.ts", "edit",
+      "obsolete-head"),
 )
 
 # Differences with a mechanism not yet ruled on by the owner. Shrink-only:
@@ -522,7 +532,7 @@ def build(sc, base, top, shim_path):
     if sc.setting == "linked-worktree":
         checkout = os.path.join(base, "wt")
         b.git(repo, "worktree", "add", "-q", checkout, "-b", "side")
-    elif sc.setting == "worktree-folder":
+    elif sc.setting in ("worktree-folder", "git-work-tree-other"):
         copy_tree(repo, other)
     elif sc.setting == "worktree-repo":
         b.init_repo(other, FILES, LINKS, extra)
@@ -541,9 +551,14 @@ def build(sc, base, top, shim_path):
         b.git(repo, "config", "core.quotepath", "true")
     elif sc.setting == "git-dir":
         env["GIT_DIR"] = os.path.join(repo, ".git")
+    elif sc.setting == "git-dir-relative":
+        env["GIT_DIR"] = ".git"
     elif sc.setting == "git-dir-work-tree":
         env["GIT_DIR"] = os.path.join(repo, ".git")
         env["GIT_WORK_TREE"] = repo
+    elif sc.setting == "git-work-tree-other":
+        env["GIT_DIR"] = os.path.join(repo, ".git")
+        env["GIT_WORK_TREE"] = other
     elif sc.setting == "ceiling-parent":
         env["GIT_CEILING_DIRECTORIES"] = base
     elif sc.setting == "ceiling-repo":
@@ -552,6 +567,8 @@ def build(sc, base, top, shim_path):
         env["GIT_LITERAL_PATHSPECS"] = "1"
     elif sc.setting == "icase-pathspecs":
         env["GIT_ICASE_PATHSPECS"] = "1"
+    elif sc.setting == "noglob-pathspecs":
+        env["GIT_NOGLOB_PATHSPECS"] = "1"
     elif sc.setting == "git-prefix":
         env["GIT_PREFIX"] = SUBFOLDER + "/"
     elif sc.setting == "no-git":
@@ -561,7 +578,9 @@ def build(sc, base, top, shim_path):
         view = os.path.join(base, "link")
         os.symlink(checkout, view)
     rel = {"root": "", "sub": SUBFOLDER, "deeper": DEEPER}.get(sc.session)
-    if rel is None:
+    if sc.session == "inside-git":
+        session = os.path.join(repo, ".git")
+    elif rel is None:
         session = os.path.join(base, "elsewhere")
         os.makedirs(session)
     elif sc.setting == "dotdot-path":
@@ -696,7 +715,7 @@ def d19_difference(sc, old, new, blob):
     """True only for the D-19 shape: session in a subfolder, the file edited
     or staged, 2.14.1 fingerprints it with its HEAD blob, the helper leaves
     exactly that file out, and the two decisions follow from that."""
-    if sc.session not in ("sub", "deeper") or sc.content not in EDITED:
+    if sc.session not in BELOW_TOP or sc.content not in EDITED:
         return False
     if "stop" in old or "stop" in new:
         return False
