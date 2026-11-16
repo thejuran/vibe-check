@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T05:18:01.078Z"
-last_activity: "2026-11-16 -- 65-03 complete: WR-02 fixed test-first in the one D-08 round (b281042; empty phase id stops at 05-state.md, 00-scope.md prints PHASE_ID=); suite 4599 passed, 0 skipped; +495 B every path, 0 steps"
+last_updated: "2026-11-16T05:27:30.000Z"
+last_activity: "2026-11-16 -- 65-04 complete: release candidate C = b073e31 (plugin 2.15.0 + README; recorded in 65-CANDIDATE.md); suite on the edited tree 4126 passed (scripts-folder form), 0 failed/skipped; Dependabot alerts disabled (403), 0 open Dependabot PRs, stdlib-only"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 25
+  completed_plans: 26
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Executing Phase 65
-Last activity: 2026-11-16 -- 65-03 complete: WR-02 fixed test-first in the one D-08 round (b281042; empty phase id stops at 05-state.md, 00-scope.md prints PHASE_ID=); suite 4599 passed, 0 skipped; +495 B every path, 0 steps
+Last activity: 2026-11-16 -- 65-04 complete: release candidate C = b073e31 (plugin 2.15.0 + README; recorded in 65-CANDIDATE.md); suite on the edited tree 4126 passed (scripts-folder form), 0 failed/skipped; Dependabot alerts disabled (403), 0 open Dependabot PRs, stdlib-only
 
 ## Operator Next Steps
 
