@@ -45,8 +45,27 @@ then the `GIT_*` keys dropped) and `GIT_CEILING_DIRECTORIES` at the temp root.
 Names reach git and the shell only as separate arguments; nothing derived
 from a scenario is run as code.
 
-Run directly (`python3 test_finalize_parity_grid.py --grid`) to print the
-scenario count, the not-creatable list and the wall time.
+`TestNameFormGrid` adds what the first grid lacked (verification round 4,
+gap 5): the same file name at the top, in the session subfolder and one
+level deeper, with different content, named in `./`, `../`, `dir/`,
+`./dir/`, `dir/../`, `../dir/`, `dir/./` and other forms, crossed with the
+session folder, the layout (the name existing at the top only, in the
+subfolder only, or at every level) and which of the files is changed and how
+(clean, unsaved edit, staged edit, staged edit with the working copy
+restored). Each side is also predicted from a model of git's name rules that
+a test checks against real git; the D-19 difference is tolerated there only
+for a plain name below the top, in its two exact shapes (D-19 and its
+second direction, note N-13), and every `./` or `../` name must agree.
+
+Both grid classes print their summary line (scenario count, agree, D-19,
+unexpected, not creatable here) and raise it as a GridSummary warning, so
+`pytest -q` lists it in its warnings section even when every test passes.
+On Linux nothing may be "not creatable here".
+
+Run directly (`python3 test_finalize_parity_grid.py --grid [helper.py]`) to
+run both grid classes against a helper (for a mutant, a copy of the scripts
+folder with finalize_inputs.py changed); the exit status is non-zero when any
+grid assertion fails.
 """
 
 import collections
@@ -1108,8 +1127,9 @@ NF_REGRESSION_ROWS = (
     # (c) a name leaving the repo and coming back in, clean and edited.
     (NF("dir", "all", [], "clean", "sub", "../dir/n.ts"), WRITE),
     (NF("dir", "all", ["sub"], "edit", "sub", "../dir/n.ts"), OPEN),
-    # `../name` from a deeper folder names the parent folder's file.
-    (NF("repo", "all", [], "clean", "deeper", "./../n.ts"), WRITE),
+    # `./../n.ts` from `dir/deep` is `dir/n.ts` to git, but the guard
+    # resolves it against the repo folder (outside): left out on both sides.
+    (NF("repo", "all", [], "clean", "deeper", "./../n.ts"), OPEN),
     (NF("repo", "all", ["sub"], "edit", "deeper", "./../n.ts"), OPEN),
     # Clean controls.
     (NF("repo", "all", [], "clean", "sub", "./n.ts"), WRITE),
@@ -1343,13 +1363,23 @@ class TestScriptUnderBash(unittest.TestCase):
 
 
 def main(argv):
+    """`--grid [helper.py]` runs both grid classes (every assertion the
+    test suite makes on them: agreement, the named regression rows, the
+    D-19 rows, the known differences, the git model) against `helper.py`
+    (default: finalize_inputs.py beside this file) and exits non-zero when
+    any fails. Anything else is passed to unittest."""
+    global HELPER_PY
     if argv[:1] == ["--grid"]:
-        helper = argv[1] if len(argv) > 1 else HELPER_PY
-        scenarios = all_scenarios()
-        start = time.time()
-        results = run_grid(scenarios, helper=helper)
-        print(report(results, time.time() - start))
-        return 1 if classify(results)["unexpected"] else 0
+        if len(argv) > 1:
+            HELPER_PY = os.path.abspath(argv[1])
+        suite = unittest.TestSuite()
+        loader = unittest.defaultTestLoader
+        for case in (TestParityGrid, TestNameFormGrid):
+            suite.addTests(loader.loadTestsFromTestCase(case))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", GridSummary)
+            result = unittest.TextTestRunner(verbosity=1).run(suite)
+        return 0 if result.wasSuccessful() else 1
     return unittest.main(argv=[sys.argv[0]] + argv)
 
 

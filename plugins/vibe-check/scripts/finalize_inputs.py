@@ -69,16 +69,46 @@ WORKING DIRECTORY. Every git call runs in the caller's `cwd` (None = this
 process's cwd, the session's working directory), as at 2.14.1, so git finds
 the session's own repository there, with its settings (`core.worktree`) and
 `GIT_*` variables applied exactly as they were. The repo root text is used
-only as the containment check's `--root`. git reads `HEAD:<file>` from the
-top of the work tree whatever the cwd, but reads the pathspec after `--`
-relative to the cwd: from a subfolder, `sub/c.ts` would mean `sub/sub/c.ts`,
-match nothing and exit 0, and a file with unsaved or staged edits would be
-fingerprinted. The 2.14.1 instructions had that gap; this helper does not
-(owner decision D-19): it asks git for the cwd's place in the work tree
-(`git rev-parse --show-prefix`) and puts one `../` per folder level before
-the name, so both `git diff` checks read the file from the top. At the top
+only as the containment check's `--root`.
+
+WHICH FILE EACH CALL READS. Rule: the two `git diff` checks must address the
+same file `git rev-parse HEAD:<file>` read the blob from. git's own rules
+(checked against real git by test_finalize_parity_grid.py):
+
+  - `HEAD:<file>` for a name starting with `./` or `../` is read relative
+    to the cwd and normalised (`.`, `..` and `//` collapsed; refused when it
+    climbs above the top). For any other name it is looked up from the top
+    exactly as written: no normalisation, so a name with an empty, `.` or
+    `..` part (`dir/../x.ts`, `dir/./x.ts`, `dir//x.ts`) names nothing and
+    rev-parse fails, at the top and in a subfolder alike.
+  - A pathspec after `--` is always read relative to the cwd and normalised
+    the same way; one climbing above the top makes git exit 128.
+
+So, cwd at the top: every name addresses the same file in all three calls
+and the helper's calls are 2.14.1's own. cwd in a subfolder `s/`:
+
+  name form                  HEAD:<file> reads     2.14.1 checks     helper checks
+  plain `x.ts`, `d/x.ts`     top `x.ts`, `d/x.ts`  `s/x.ts`, `s/d/x.ts`  `../x.ts` (the file read)
+  `./x.ts`, `./d/../x.ts`    `s/x.ts`              `s/x.ts`          `./x.ts` as written
+  `../x.ts`, `./../x.ts`     the parent's `x.ts`   the same file     as written
+  `d/../x.ts`, `d/./x.ts`    nothing (fails)       (not reached)     (not reached)
+  climbing above the top     nothing (fails)       (not reached)     (not reached)
+
+For a plain name 2.14.1 read the blob from the top but checked a different
+file, so from a subfolder a file with unsaved or staged edits could be
+fingerprinted (and, the other way round, a clean file left out because a
+same-named file in the cwd was edited). The helper closes that hole (owner
+decision D-19): it asks git for the cwd's place in the work tree (`git
+rev-parse --show-prefix`) and puts one `../` per folder level before the
+name; rev-parse succeeding means the name has no `.`/`..`/empty part, so
+the lifted name is exactly the file read. A `./` or `../` name has no such
+hole at 2.14.1 (git resolves it from the cwd in all three calls), so the
+helper passes it as written and matches 2.14.1. Lifting it too would read
+the blob from one file and check another (the gap-5 regression). At the top
 the prefix is empty and the calls are exactly the 2.14.1 ones. Pathspec
-magic (`:/`) is not used: `GIT_LITERAL_PATHSPECS` turns it off.
+magic (`:/`) is not used: `GIT_LITERAL_PATHSPECS` turns it off. The guard
+resolves every name against the repo root, so `../` names pass it only when
+they come back into the repo (`../<repo folder name>/...`).
 
 WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders.
@@ -205,6 +235,18 @@ def _up_to_top(cwd):
     return "../" * len(levels)
 
 
+def _pathspec_for_blob(f, up):
+    """The pathspec, read from the session folder, that names the same file
+    `git rev-parse HEAD:<f>` read. git reads `HEAD:<f>` relative to the
+    session folder when `f` starts with `./` or `../`, as it reads every
+    pathspec, so the name as written is that file. Any other `f` is read
+    from the top of the work tree, so it is lifted there with `up` (one
+    `../` per folder level). See WORKING DIRECTORY above."""
+    if f.startswith(("./", "../")):
+        return f
+    return up + f
+
+
 def _head_blobs(state, cwd):
     files = _candidate_files(state)
     if not files:
@@ -222,9 +264,10 @@ def _head_blobs(state, cwd):
         rev = _git(["rev-parse", "HEAD:" + f], cwd)
         if not _ok(rev):
             continue
-        if not _ok(_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)):
+        spec = _pathspec_for_blob(f, up)
+        if not _ok(_git(["diff", "--quiet", "HEAD", "--", spec], cwd)):
             continue
-        if not _ok(_git(["diff", "--cached", "--quiet", "--", up + f], cwd)):
+        if not _ok(_git(["diff", "--cached", "--quiet", "--", spec], cwd)):
             continue
         blob = rev[1].strip()
         if blob:

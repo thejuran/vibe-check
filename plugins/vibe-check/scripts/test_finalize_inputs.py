@@ -489,9 +489,9 @@ class TestSessionRelativeNames(InputsCase):
 ROOT_AS_CWD = (
     ('        rev = _git(["rev-parse", "HEAD:" + f], cwd)\n',
      '        rev = _git(["rev-parse", "HEAD:" + f], root)\n'),
-    ('_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
+    ('_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
      '_git(["diff", "--quiet", "HEAD", "--", f], root)'),
-    ('_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
+    ('_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
      '_git(["diff", "--cached", "--quiet", "--", f], root)'),
 )
 
@@ -584,7 +584,7 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
+        mod = self.mutant('_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
@@ -596,7 +596,7 @@ class TestMutants(InputsCase):
         s = state_for(["src/a.ts"])
         out, _ = self.run_helper(s)
         self.assertEqual(out, {})
-        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
+        mod = self.mutant('_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
                           "(0, '')")
         out, _ = self.run_helper(s, module=mod)
         self.assertEqual(out, {"src/a.ts": self.blob("src/a.ts")})
@@ -610,7 +610,7 @@ class TestMutants(InputsCase):
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--quiet", "HEAD", "--", up + f], cwd)',
+            '_git(["diff", "--quiet", "HEAD", "--", spec], cwd)',
             '_git(["diff", "--quiet", "HEAD", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
@@ -624,10 +624,27 @@ class TestMutants(InputsCase):
         out, _ = self.run_helper(s, cwd=sub)
         self.assertEqual(out, {})
         mod = self.mutant(
-            '_git(["diff", "--cached", "--quiet", "--", up + f], cwd)',
+            '_git(["diff", "--cached", "--quiet", "--", spec], cwd)',
             '_git(["diff", "--cached", "--quiet", "--", f], cwd)')
         out, _ = self.run_helper(s, cwd=sub, module=mod)
         self.assertEqual(out, {"sub/c.ts": self.blob("sub/c.ts")})
+
+    def test_mutant_lifting_every_name_fingerprints_an_edited_dot_slash_file(self):
+        """Gap 5: lifting a `./` name too makes the two checks read the
+        same-named file at the top while the blob came from the session
+        folder's file, so an edited file is fingerprinted."""
+        write(self.repo, "c.ts", "top c\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "top c")
+        sub = os.path.join(self.repo, "sub")
+        write(self.repo, "sub/c.ts", "c2\n")
+        s = state_for(["./c.ts"])
+        out, _ = self.run_helper(s, cwd=sub)
+        self.assertEqual(out, {})
+        mod = self.mutant('    if f.startswith(("./", "../")):\n        return f\n',
+                          "")
+        out, _ = self.run_helper(s, cwd=sub, module=mod)
+        self.assertEqual(out, {"./c.ts": self.blob("sub/c.ts")})
 
     def test_mutant_unconditional_root_query_calls_git_with_no_candidates(self):
         s = state_for(["src/a.ts"], at_pass=1)
