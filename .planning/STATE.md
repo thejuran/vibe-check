@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T04:54:41.463Z"
-last_activity: 2026-11-15 -- Phase 65 planned (7 plans, 5 waves)
+last_updated: "2026-11-16T05:05:00.000Z"
+last_activity: 2026-11-15 -- Phase 65 planned (7 plans, 6 waves)
 progress:
   total_phases: 4
   completed_phases: 2
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 Phase: 65 (release-gate) — PLANNED, not started (Phase 64 complete as a recorded skip)
 Plan: 0 of 7 (65-01..65-07; Phase 64: no plans, recorded skip; Phase 63: 11 of 11 complete)
 Status: Ready to execute Phase 65 (plans 65-01..65-07; execute in the main checkout, not worktrees)
-Last activity: 2026-11-15 -- Phase 65 planned (7 plans, 5 waves)
+Last activity: 2026-11-15 -- Phase 65 planned (7 plans, 6 waves)
 
 ## Operator Next Steps
 
-- `/bm:execute-phase 65`: the release gate, 7 plans in 5 waves; run in the main checkout (the suite needs private recordings); the live smoke needs the owner's approval in 65-02 before any spend
+- `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); the live smoke needs the owner's approval in 65-02 before any spend
 - 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: reproduce WR-02 once, carry the rest (65 D-07)
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
