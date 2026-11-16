@@ -40,7 +40,7 @@
 
 ### Optional bounded extension (EXT) — conditional
 
-- [ ] **EXT-01**: After Finalize passes its equivalence checks, a recorded decision either selects at most one further family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step) backed by the baseline, or skips the extension; a selected slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behaviour with demonstrated footprint/operation savings. A recorded skip satisfies this requirement
+- [x] **EXT-01**: After Finalize passes its equivalence checks, a recorded decision either selects at most one further family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step) backed by the baseline, or skips the extension; a selected slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behaviour with demonstrated footprint/operation savings. A recorded skip satisfies this requirement
 
 ### Release gate (GATE)
 
@@ -90,7 +90,7 @@ Which phases cover which requirements. Filled in during roadmap creation (2026-1
 | FINX-05 | Phase 63 | Complete |
 | XVAR-01 | Phase 63 | Complete |
 | XVAR-02 | Phase 63 | Complete |
-| EXT-01 | Phase 64 | Pending |
+| EXT-01 | Phase 64 | Complete (recorded skip, 2026-11-15) |
 | GATE-04 | Phase 65 | Pending |
 | GATE-05 | Phase 65 | Pending |
 | GATE-06 | Phase 65 | Pending |

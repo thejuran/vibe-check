@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "Ready to discuss Phase 64; Phase 63 closed 2026-11-15"
-stopped_at: "Phase 63 complete: Finalize extraction PASS, verification passed 5/5 on round 5, PR #10 (4ac7ee4) and follow-up PR #11 (b49d40a) merged with CI green on main; next is the Phase 64 discussion (a recorded skip or at most one family)"
-last_updated: "2026-11-16T03:55:02Z"
-last_activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
+status: "Phase 64 complete (recorded skip, 2026-11-15); ready to discuss Phase 65"
+stopped_at: "Phase 64 complete as a recorded skip: owner chose no further extraction; evidence/envelope assembly, dispatch selection and 999.32 deferred; no code changed; next is the Phase 65 release-gate discussion"
+last_updated: "2026-11-16T03:58:31Z"
+last_activity: 2026-11-15 -- Phase 64 closed as a recorded skip (64-CONTEXT.md D-01)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 22
   completed_plans: 22
-  percent: 50
+  percent: 75
 ---
 
 # Project State
@@ -21,18 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 64 — optional bounded extension (conditional): a recorded skip or at most one family
+**Current focus:** Phase 65 — release gate: orchestration equivalence and useful savings (Finalize extraction is the only included slice)
 
 ## Current Position
 
-Phase: 64 (optional-bounded-extension, conditional) — NOT STARTED
-Plan: Not started (Phase 63: 11 of 11 complete)
-Status: Ready to discuss Phase 64; Phase 63 complete, merged and verified
-Last activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
+Phase: 65 (release-gate) — NOT STARTED (Phase 64 complete as a recorded skip)
+Plan: Not started (Phase 64: no plans, recorded skip; Phase 63: 11 of 11 complete)
+Status: Ready to discuss Phase 65; Phase 64 complete (recorded skip, no code changed)
+Last activity: 2026-11-15 -- Phase 64 closed as a recorded skip (64-CONTEXT.md D-01)
 
 ## Operator Next Steps
 
-- `/bm:discuss-phase 64`: record a skip, or select at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step); a recorded skip completes the phase
+- `/bm:discuss-phase 65`: the release gate; the candidate carries the Finalize extraction alone (Phase 64 recorded skip, 2026-11-15)
 - Before Phase 65's equivalence gate relies on them: close 999.34 WR-02/WR-03; weigh the 999.38 carry
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
@@ -54,7 +54,7 @@ Carried from earlier:
 | Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
 | Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
-| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled |
+| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled; not selected in Phase 64 (recorded skip 2026-11-15) — reproduce first |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Closed | 999.12 cost visibility feasibility | Phase 62 done 2026-11-14: owner NO-GO (follows the note); accounting work stops, labelled byte and step counts are the evidence |
 | Backlog | 999.34 Phase 62 review carry (WR-01..WR-06, SA-01, SA-02 in 62-REVIEW.md) | Owner merged with them carried 2026-11-14; WR-02/WR-03 before Phase 65's gate relies on them; WR-06 needs a minimum-Python ruling; not scheduled |

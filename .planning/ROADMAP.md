@@ -27,7 +27,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 - [x] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
 - [x] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's input assembly and gate/report handoff run through stdlib helpers with the same gate decisions and reports as 2.14.1, and one general check catches shell variables read across Bash calls (completed 2026-11-16)
-- [ ] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate)
+- [x] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate) (completed 2026-11-15 as a recorded skip)
 - [ ] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars
 
 **Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
@@ -42,13 +42,13 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:discuss-phase 64` — a recorded decision to skip the optional extension or to select at most one family (999.32 is a candidate); a recorded skip completes the phase. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; verification passed 5/5 on round 5; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
+**Next action:** `/bm:discuss-phase 65` — the release gate. Phase 64 closed 2026-11-15 as a recorded skip (owner decision; no code changed; evidence/envelope assembly, dispatch selection and 999.32 deferred), so the release candidate carries the Finalize extraction alone. Before Phase 65's gate relies on them, close 999.34 WR-02/WR-03 and weigh the 999.38 carry. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
 | 63. Finalize extraction and cross-call variable check | 11/11 | Complete    | 2026-11-15 |
-| 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
+| 64. Optional bounded extension (conditional) | 0/0 | Complete (recorded skip) | 2026-11-15 |
 | 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -171,7 +171,7 @@ Run order is by wave, not by plan number: wave 1 = 01 and 03, wave 2 = 02 and 04
   2. A recorded decision either skips the extension or selects at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step) that the Phase 62 baseline identifies as worthwhile; families not selected are deferred, not added to this milestone. A recorded skip satisfies this phase
   3. If a family is selected, its slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behaviour against the 2.14.1 baseline, with demonstrated footprint/operation savings
 
-**Plans**: TBD
+**Plans**: None — closed 2026-11-15 as a recorded skip (owner decision, `64-CONTEXT.md` D-01). No code changed; all three families deferred, 999.32 stays carried.
 
 ### Phase 65: Release gate — orchestration equivalence and useful savings
 
