@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "Phase 64 complete (recorded skip, 2026-11-15); ready to discuss Phase 65"
-stopped_at: "Phase 64 complete as a recorded skip: owner chose no further extraction; evidence/envelope assembly, dispatch selection and 999.32 deferred; no code changed; next is the Phase 65 release-gate discussion"
-last_updated: "2026-11-16T03:58:31Z"
-last_activity: 2026-11-15 -- Phase 64 closed as a recorded skip (64-CONTEXT.md D-01)
+status: "Phase 65 context gathered (2026-11-15); ready to plan Phase 65"
+stopped_at: "Phase 65 context gathered: bounded live smoke (default + Finalize, proposal first), review-path growth accepted as named growth, 999.34 bypassed and carried, 999.38 WR-02 reproduce-first, one capped fix round, one sign-off page; next is /bm:plan-phase 65"
+last_updated: "2026-11-16T04:04:16Z"
+last_activity: 2026-11-15 -- Phase 65 context gathered (65-CONTEXT.md)
 progress:
   total_phases: 4
   completed_phases: 3
@@ -25,15 +25,15 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 
 ## Current Position
 
-Phase: 65 (release-gate) — NOT STARTED (Phase 64 complete as a recorded skip)
+Phase: 65 (release-gate) — CONTEXT GATHERED, not planned (Phase 64 complete as a recorded skip)
 Plan: Not started (Phase 64: no plans, recorded skip; Phase 63: 11 of 11 complete)
-Status: Ready to discuss Phase 65; Phase 64 complete (recorded skip, no code changed)
-Last activity: 2026-11-15 -- Phase 64 closed as a recorded skip (64-CONTEXT.md D-01)
+Status: Ready to plan Phase 65 (65-CONTEXT.md, D-01–D-12)
+Last activity: 2026-11-15 -- Phase 65 context gathered (65-CONTEXT.md)
 
 ## Operator Next Steps
 
-- `/bm:discuss-phase 65`: the release gate; the candidate carries the Finalize extraction alone (Phase 64 recorded skip, 2026-11-15)
-- Before Phase 65's equivalence gate relies on them: close 999.34 WR-02/WR-03; weigh the 999.38 carry
+- `/bm:plan-phase 65`: the release gate; decisions in 65-CONTEXT.md (bounded live smoke needs an owner-approved proposal before any spend)
+- 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: reproduce WR-02 once, carry the rest (65 D-07)
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
 
 ## Deferred Items
