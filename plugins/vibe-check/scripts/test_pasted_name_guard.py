@@ -34,13 +34,26 @@ MARKER = "PWNED"
 GUARD_NEEDLE = "in *[\\$\\`\\\"\\\\$'\\n\\r']*)"
 
 
+def without_line(body, needle):
+    """`body` with the one line holding `needle` removed (a mutant)."""
+    lines = body.split("\n")
+    kept = [l for l in lines if needle not in l]
+    if len(kept) != len(lines) - 1:
+        raise AssertionError("want exactly one line holding %r in %r"
+                             % (needle, body))
+    return "\n".join(kept)
+
+
 def unguarded(body):
     """`body` with its guard line removed (the mutant)."""
-    lines = body.split("\n")
-    kept = [l for l in lines if GUARD_NEEDLE not in l]
-    if len(kept) != len(lines) - 1:
-        raise AssertionError("want exactly one guard line in %r" % body)
-    return "\n".join(kept)
+    return without_line(body, GUARD_NEEDLE)
+
+
+# The GSD state-key block refuses an empty phase id before it binds a path,
+# so no two GSD phases can share `.turingmind/state/format-53/.json`.
+EMPTY_ID_STOP = "Review halted — the phase id is empty; nothing was scored."
+EMPTY_ID_NEEDLE = "the phase id is empty"
+SHARED_STATE_FILE = ".turingmind/state/format-53/.json"
 
 
 # The guard's character class, and the same class with one member taken out
@@ -277,6 +290,10 @@ class TestStateFileGuard(GuardCase):
                ("quote", "02-" + QUOTE), ("backslash", "02-a\\b"),
                ("newline", "02-a\nb"), ("carriage return", "02-a\rb")]
     GSD_GOOD = [("plain", "02-code-review"), ("space", "02-my phase")]
+    # An empty phase id (set empty, or never set in this shell, as when the
+    # model runs the block without typing the printed `PHASE_ID=` in). The
+    # character guard does not stop these; the empty-id refusal does.
+    GSD_EMPTY = [("empty-id", ""), ("unset-id", None)]
     # Repo-and-branch key: (label, repo folder, branch). git refuses a
     # backslash, newline or carriage return in a branch name.
     BRANCH_BAD = [("dollar in the branch", "repo", DOLLAR),
@@ -294,6 +311,14 @@ class TestStateFileGuard(GuardCase):
             yield ("gsd " + label, repo, self.setter(self.GSD_NEEDLE, mutant),
                    {"PHASE_ID": phase_id},
                    ".turingmind/state/format-53/%s.json" % phase_id)
+        if not mutant:
+            # Taking out the character guard is not the mutant for these;
+            # test_without_the_empty_id_refusal_the_shared_file_returns is.
+            for label, phase_id in self.GSD_EMPTY:
+                yield ("gsd " + label, self.repo(),
+                       self.setter(self.GSD_NEEDLE),
+                       {} if phase_id is None else {"PHASE_ID": phase_id},
+                       SHARED_STATE_FILE)
         for label, folder, branch in self.BRANCH_BAD:
             repo = self.repo(folder, None if branch == "main" else branch)
             yield ("branch " + label, repo,
@@ -306,6 +331,25 @@ class TestStateFileGuard(GuardCase):
                 first, _, found = self.run_case(
                     repo, setter, self.readers(), self.NAMES, env)
                 self.assert_refused(first, self.NAMES, found, label)
+                if label.endswith("-id"):
+                    self.assertEqual(first[2], EMPTY_ID_STOP + "\n", label)
+
+    def test_without_the_empty_id_refusal_the_shared_file_returns(self):
+        body = self.setter(self.GSD_NEEDLE)
+        mutant = without_line(body, EMPTY_ID_NEEDLE)
+        for label, phase_id in self.GSD_EMPTY:
+            env = {} if phase_id is None else {"PHASE_ID": phase_id}
+            with self.subTest(label):
+                # The real block stops on the empty id ...
+                first = run_bash(body, self.repo(), env)
+                self.assertEqual(first[0], 1, first)
+                self.assertNotIn("STATE_FILE=", first[1])
+                self.assertEqual(first[2], EMPTY_ID_STOP + "\n")
+                # ... and without its refusal line every GSD phase gets the
+                # one shared key again.
+                first = run_bash(mutant, self.repo(), env)
+                self.assertTrue(mutant_tripped(first, "STATE_FILE",
+                                               SHARED_STATE_FILE), first)
 
     def test_good_names_print_and_round_trip(self):
         cases = [("gsd " + l, self.repo(), self.GSD_NEEDLE, {"PHASE_ID": p},
@@ -338,6 +382,36 @@ class TestStateFileGuard(GuardCase):
                 self.assert_mutant_trips(first, "STATE_FILE", value, label)
                 if "dollar" in label or "backtick" in label:
                     self.assertTrue(found, label)
+
+
+class TestPhaseIdPrinted(GuardCase):
+    """00-scope.md prints `PHASE_ID=` where it resolves the phase folder, and
+    05-state.md's GSD block, run fresh with that literal typed in, binds the
+    phase's own key."""
+
+    # (label, phase folder under the repo, the id the owner typed, the id)
+    CASES = [("flat", ".planning/phases/02-b", "02", "02-b"),
+             ("milestone-nested", ".planning/milestones/v1-phases/02-b",
+              "02-b", "02-b")]
+
+    def test_the_phase_id_is_printed_and_carried(self):
+        for label, rel, arg, phase_id in self.CASES:
+            with self.subTest(label):
+                repo = TestPhaseDirGuard.phase_repo(self, rel)
+                scope = substitute(fence_holding(SCOPE_REL, "PHASE_DIR=$(find"),
+                                   [("<arg>", arg)])
+                rc, out, err = run_bash(scope, repo)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(printed(out, "PHASE_DIR"), [rel])
+                self.assertEqual(printed(out, "PHASE_ID"), [phase_id])
+                state = substitute(
+                    fence_holding(STATE_REL, TestStateFileGuard.GSD_NEEDLE),
+                    [("${PHASE_ID}", printed(out, "PHASE_ID")[0])])
+                rc, out, err = run_bash(state, repo)
+                self.assertEqual(rc, 0, err)
+                self.assertEqual(
+                    printed(out, "STATE_FILE"),
+                    [".turingmind/state/format-53/%s.json" % phase_id])
 
 
 ALL_STATE_REL = "phases/review/05-state-all.md"

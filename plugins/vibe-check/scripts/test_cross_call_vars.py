@@ -812,6 +812,10 @@ FINALIZE_STATE_SENTENCE = (
     "after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) "
     "— substitute it; a shell variable "
     "does not survive into a separate Bash call.")
+PHASE_ID_SENTENCE = (
+    "`${PHASE_ID}` is the literal printed after `PHASE_ID=` by "
+    "`00-scope.md` — substitute it; a shell variable does not survive into "
+    "a separate Bash call.")
 FIX_LOOP_STATE_SENTENCE = (
     " In every fence of this file, `\"$STATE_FILE\"` is the literal printed "
     "after `STATE_FILE=` by `05-state.md` (`05-state-all.md` on `--all`) "
@@ -862,6 +866,16 @@ class TestCrossFile(LockCase):
                               cross_file_flags(texts))
                 self.assert_trips(check_exceptions, cross_file_flags(texts),
                                   CROSS_FILE_EXCEPTIONS)
+
+    def test_mutant_phase_id_sentence_removed_trips(self):
+        # 00-scope.md sets and prints PHASE_ID; 05-state.md reads it only
+        # by naming the printed literal.
+        texts = phase_texts()
+        self.assertNotIn((STATE_REL, "PHASE_ID"), cross_file_flags(texts))
+        texts[STATE_REL] = remove(texts[STATE_REL], PHASE_ID_SENTENCE)
+        self.assertIn((STATE_REL, "PHASE_ID"), cross_file_flags(texts))
+        self.assert_trips(check_exceptions, cross_file_flags(texts),
+                          CROSS_FILE_EXCEPTIONS)
 
     def test_mutant_new_and_stale_trip(self):
         flagged = cross_file_flags(phase_texts())
@@ -1023,6 +1037,9 @@ CONFIG_REL = "phases/review/06-config.md"
 # What the owner decided for each row (63-REPRO.md, "Owner decision"): a
 # fixed row is off the exceptions list; a pinned row stays on it by name.
 FIXED = "reproduced; fixed by 63-10"
+# WR-02 (65-REPRO-WR02.md) was reproduced in Phase 65 and fixed by 65-03.
+FIXED_65 = "reproduced; fixed by 65-03"
+FIXED_DISPOSITIONS = (FIXED, FIXED_65)
 PINNED = "pinned; carried to backlog"
 
 REPRO_63 = [
@@ -1098,6 +1115,17 @@ REPRO_63 = [
      "proposed": "fix",
      "fixture": "TestRepro63.test_c1_all_mode_close_out_state_file",
      "disposition": FIXED},
+    # An empty phase id (63-REVIEW WR-02; 65-REPRO-WR02.md): the GSD key
+    # block, run without the printed `PHASE_ID=` typed in, gave every GSD
+    # phase the one key `.turingmind/state/format-53/.json`.
+    {"id": "WR-02", "file": STATE_REL, "name": "PHASE_ID",
+     "outcome": "wrong-file",
+     "owner_sees": "Closing out one GSD phase writes an APPROVED REVIEW.md "
+                   "built from another phase's findings, and a review pass "
+                   "on one phase replaces another phase's saved progress.",
+     "proposed": "fix",
+     "fixture": "TestRepro63.test_wr02_empty_phase_id",
+     "disposition": FIXED_65},
 ]
 
 PROPOSED_FOR = {"stop": "fix", "wrong-file": "fix",
@@ -1120,7 +1148,7 @@ def record_problems(rows, exceptions):
         if set(row) != ROW_KEYS:
             problems.append("%s: keys %s" % (rid, sorted(row)))
             continue
-        if row["disposition"] == FIXED:
+        if row["disposition"] in FIXED_DISPOSITIONS:
             if rid in want:
                 problems.append("%s: fixed but still an exception" % rid)
         elif row["disposition"] != PINNED:
@@ -1224,7 +1252,8 @@ class TestRepro63(unittest.TestCase):
         # The setter prints the phase dir; the guard and the phase range,
         # each run fresh with that literal, do what the one-shell run does.
         self.assertEqual(fresh[0][1],
-                         "PHASE_DIR=.planning/phases/02-code-review\n")
+                         "PHASE_DIR=.planning/phases/02-code-review\n"
+                         "PHASE_ID=02-code-review\n")
         self.assertEqual([rc for rc, _, _ in fresh], [0, 0, 0])
         self.assertIn("contained", fresh[1][1])
         self.assertEqual(fresh[2][1], "PHASE_START=%s\n" % phase_sha)
@@ -1409,6 +1438,71 @@ class TestRepro63(unittest.TestCase):
         self.assertEqual(tree_files(run.fresh_repo),
                          tree_files(run.control_repo))
 
+    # -- WR-02: an empty phase id ----------------------------------------- #
+    SHARED_KEY = ".turingmind/state/format-53/.json"
+
+    @classmethod
+    def build_two_phases(cls, repo):
+        """Two GSD phases; phase A's saved progress (one pass, nothing
+        open) sits at the key an empty phase id names."""
+        gitfixture.write(repo, "src/a.txt", "a\n")
+        for phase in ("01-a", "02-b"):
+            gitfixture.write(repo, ".planning/phases/%s/PLAN.md" % phase,
+                             "plan\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-qm", "base")
+        sha = gitfixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+        gitfixture.write(repo, cls.SHARED_KEY,
+                         json.dumps({"passes": [{"pass_number": 1,
+                                                 "head_sha": sha,
+                                                 "findings": []}]}))
+
+    def test_wr02_empty_phase_id(self):
+        """Phase B's Close out, its key block run without the phase id typed
+        in: the block stops before any path is printed, so phase B never
+        reads phase A's saved progress. The control is the same chain with
+        `02-b` typed in, which finds no saved progress for phase B."""
+        work = os.path.join(self.tmp, "wr02")
+        os.makedirs(work)
+        run = ShellRun(work, self.build_two_phases)
+        _, needle, _, _ = self.STATE_SETTERS[0]
+        setter = fence_holding(STATE_REL, needle)
+        finalize = substitute(
+            fence_holding(FINALIZE_REL, 'finalize_inputs.py" --state-file'),
+            [('"<true|false>"', '"false"')])
+        archive = fence_holding(FINALIZE_REL, 'review_archive.py" state')
+        fresh = run.fresh([setter])
+        printed = [l[len("STATE_FILE="):] for l in fresh[0][1].splitlines()
+                   if l.startswith("STATE_FILE=")]
+        if printed:
+            # The block printed a key: carry it into Close out as told.
+            fin = run.fresh([self.carried_where_told(
+                FINALIZE_REL, finalize, "STATE_FILE", printed[0])])
+            fresh += fin
+            result = json.loads([l for l in fin[0][1].splitlines()
+                                 if l.startswith("{")][0])
+            if result["next"] == "write-review-md":
+                gitfixture.write(run.fresh_repo, ".turingmind/REVIEW.md",
+                                 "review\n")
+                fresh += run.fresh([self.carried_where_told(
+                    FINALIZE_REL, archive, "STATE_FILE", printed[0])])
+        control = run.control([substitute(setter, [("${PHASE_ID}", "02-b")]),
+                               finalize])
+        self.assertEqual(control[0], 0, control)
+        self.assertIn('"next": "stop-no-state"', control[1])
+        fresh_files = tree_files(run.fresh_repo)
+        outcome = classify(fresh, control, fresh_files,
+                           tree_files(run.control_repo))
+        self.assertEqual(outcome, "stop", fresh)
+        self.assertEqual(len(fresh), 1, fresh)
+        self.assertEqual(fresh[0][0], 1)
+        self.assertEqual(fresh[0][1], "")
+        self.assertEqual(
+            fresh[0][2],
+            "Review halted — the phase id is empty; nothing was scored.\n")
+        self.assertIn(self.SHARED_KEY, fresh_files)
+        self.assertNotIn(".turingmind/REVIEW.md", fresh_files)
+
     # -- cross-file on `--all`: 05-state-all.md is the setter ------------- #
     ALL_SETTER_NEEDLE = "ALL_STATE_FILE=$(set -o pipefail"
 
@@ -1592,7 +1686,7 @@ class TestRepro63Record(LockCase):
                 key = (row["file"], row["name"])
                 rows = [dict(r) for r in REPRO_63]
                 flip = rows[REPRO_63.index(row)]
-                if row["disposition"] == FIXED:
+                if row["disposition"] in FIXED_DISPOSITIONS:
                     # a fixed row put back on the list
                     exc = {**EXCEPTIONS, key: row["id"]}
                     want = "%s: fixed but still an exception" % row["id"]
