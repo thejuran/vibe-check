@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: executing
-last_updated: "2026-11-16T06:48:09.609Z"
-last_activity: "2026-11-16 -- 65-06 complete: live smoke PASS on candidate C = b073e31 (65-LIVE-SMOKE.md); 3 sessions, S2 Close out next=write-review-md, S3 finalize-card -> record-decisions -> new BLOBFILE -> write-review-md, review-closed exit 0 both; provenance 0 repo refs; cache restored to 2.14.1; carried K1-K4"
+status: "executing — Phase 65 awaiting owner sign-off"
+last_updated: "2026-11-16T06:52:53Z"
+last_activity: "2026-11-16 -- 65-07 tasks 1-2 done: release record finished (live smoke effective PASS on b073e31), 65-RELEASE-NOTES.md, 65-CLOSE-RUNBOOK.md and the one-page 65-SIGNOFF.md committed; shipped tree unchanged since C; awaiting the owner's go/no-go (waivers, named growth, tag v2.15)"
+stopped_at: "Phase 65 awaiting owner sign-off (65-SIGNOFF.md)"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -24,13 +25,14 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 
 ## Current Position
 
-Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
+Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — AWAITING OWNER SIGN-OFF
 Plan: 7 of 7
-Status: Executing Phase 65
-Last activity: 2026-11-16 -- 65-06 complete: live smoke PASS on candidate C = b073e31 (65-LIVE-SMOKE.md); 3 sessions, S2 Close out next=write-review-md, S3 finalize-card -> record-decisions -> new BLOBFILE -> write-review-md, review-closed exit 0 both; provenance 0 repo refs; cache restored to 2.14.1; carried K1-K4
+Status: Executing Phase 65 — stopped at the owner go/no-go (65-SIGNOFF.md); nothing pushed, tagged or released
+Last activity: 2026-11-16 -- 65-07 tasks 1-2 done: release record finished (live smoke effective PASS on b073e31), 65-RELEASE-NOTES.md, 65-CLOSE-RUNBOOK.md and the one-page 65-SIGNOFF.md committed; shipped tree unchanged since C; awaiting the owner's go/no-go (waivers, named growth, tag v2.15)
 
 ## Operator Next Steps
 
+- Owner go/no-go on 65-SIGNOFF.md (release, four waivers, named review-path growth, tag `v2.15` / title `v2.15 — Lean orchestration`); on go: `/bm:verify-work 65`, then close per 65-CLOSE-RUNBOOK.md from the main session
 - `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); live smoke APPROVED by the owner 2026-11-16 (65-LIVE-SMOKE-PROPOSAL.md: 3 sessions, default review + Close out, est. $20-30, not a cap); the one fix round is used by WR-02, so a qualifying smoke failure needs a D-09 owner go
 - 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: WR-02 reproduced in 65-01 as a wrong close and a regression from 2.14.1 (65-REPRO-WR02.md); owner go GRANTED 2026-11-16 for the one D-08 fix round; FIXED in 65-03 (b281042), so 65-04 builds C from it; the 999.38 line "None is a regression from 2.14.1" needs correcting; WR-03/WR-04/SA-01/SA-03 carried
 - No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
@@ -84,6 +86,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: Phase 65 plan 07 tasks 1-2 complete. 65-RELEASE-RECORD.md finished: live smoke effective outcome PASS (the only run, on C = b073e31), stated limits, four validation gaps with waivers pending sign-off, publish status pending close (G12 at the PR). 65-RELEASE-NOTES.md (accepted differences, size block in bytes and steps, six known limits incl. live-smoke K1 in the notes only, 4,126 tests) and 65-CLOSE-RUNBOOK.md (10 steps, G12 on the PR head, tree identity, tag on origin/main, release, plugin update, branch cleanup) committed (ac0d8c5). Freshness: HEAD equals C outside .planning. 65-SIGNOFF.md written with Status: AWAITING OWNER. ROADMAP 999.38 corrected: WR-02 was a regression introduced during v2.15, fixed before release by b281042. Stopped at the owner go/no-go.
 
 2026-11-16: Phase 65 plan 02 complete. 65-LIVE-SMOKE-PROPOSAL.md written (3c26d68) and APPROVED by the owner via AskUserQuestion in the main session, selection "Approve (Recommended)" (368ba54): three fresh sessions on the candidate (S1 review + defer, S2 Close out, S3 Close out via the decision card), one invalid-run retry, est. $20-30, an estimate not a cap. GSD, range, PR, incremental, `--all` and the fix loop stay offline-only and go to the waiver list at sign-off. Nothing run or spent yet; the smoke runs in 65-06 after the free gates pass. Next: 65-03 (WR-02 fix).
 

@@ -42,14 +42,14 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:execute-phase 65` — the release gate, planned 2026-11-15 as 7 plans in 6 waves (run in the main checkout). Context gathered 2026-11-15 (65-CONTEXT.md): bounded live smoke on default + Finalize under an owner-approved proposal; review-path growth accepted as named growth; 999.34 WR-02/WR-03 bypassed (the gate recounts both commits directly) and carried; 999.38 WR-02 reproduced once, rest carried. Phase 64 closed 2026-11-15 as a recorded skip (owner decision; no code changed; evidence/envelope assembly, dispatch selection and 999.32 deferred), so the release candidate carries the Finalize extraction alone. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
+**Next action:** owner go/no-go on `65-SIGNOFF.md` (2026-11-16: gates G1–G11 PASS on candidate `b073e31`, live smoke PASS on it, WR-02 fixed by `b281042`; release notes and close runbook ready; nothing published). On go: `/bm:verify-work 65`, then close and publish per `65-CLOSE-RUNBOOK.md` from the main session. Earlier: the release gate was planned 2026-11-15 as 7 plans in 6 waves (run in the main checkout). Context gathered 2026-11-15 (65-CONTEXT.md): bounded live smoke on default + Finalize under an owner-approved proposal; review-path growth accepted as named growth; 999.34 WR-02/WR-03 bypassed (the gate recounts both commits directly) and carried; 999.38 WR-02 reproduced once, rest carried. Phase 64 closed 2026-11-15 as a recorded skip (owner decision; no code changed; evidence/envelope assembly, dispatch selection and 999.32 deferred), so the release candidate carries the Finalize extraction alone. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
 | 63. Finalize extraction and cross-call variable check | 11/11 | Complete    | 2026-11-15 |
 | 64. Optional bounded extension (conditional) | 0/0 | Complete (recorded skip) | 2026-11-15 |
-| 65. Release gate — orchestration equivalence and useful savings | 0/7 | Planned | - |
+| 65. Release gate — orchestration equivalence and useful savings | 6/7 | Awaiting owner sign-off | - |
 
 ## Phase Details
 
@@ -190,24 +190,24 @@ Run order is by wave, not by plan number: wave 1 = 01 and 03, wave 2 = 02 and 04
 Plans:
 **Wave 1**
 
-- [ ] 65-01-PLAN.md — phase branch, WR-02 empty-phase-id reproduction on the candidate code and 2.14.1, four-class verdict (owner go if it qualifies) (GATE-04)
+- [x] 65-01-PLAN.md — phase branch, WR-02 empty-phase-id reproduction on the candidate code and 2.14.1, four-class verdict (owner go if it qualifies) (GATE-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 65-02-PLAN.md — bounded live-smoke proposal and the owner's approve/decline (GATE-06)
-- [ ] 65-03-PLAN.md — conditional WR-02 fix round, test-first with a mutant, only on the owner's go; named growth recorded (GATE-04)
+- [x] 65-02-PLAN.md — bounded live-smoke proposal and the owner's approve/decline (GATE-06)
+- [x] 65-03-PLAN.md — conditional WR-02 fix round, test-first with a mutant, only on the owner's go; named growth recorded (GATE-04)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 65-04-PLAN.md — Dependabot check, version 2.15.0, README release block with size line and known limits, candidate C (GATE-04, GATE-05)
+- [x] 65-04-PLAN.md — Dependabot check, version 2.15.0, README release block with size line and known limits, candidate C (GATE-04, GATE-05)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 65-05-PLAN.md — gates G1–G11 on C in the main checkout, direct recount and growth reconciliation, release record (GATE-04, GATE-05)
+- [x] 65-05-PLAN.md — gates G1–G11 on C in the main checkout, direct recount and growth reconciliation, release record (GATE-04, GATE-05)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 65-06-PLAN.md — live smoke on a sealed snapshot of C (default review + Close out), only after G1–G11 pass, or the not-run gap (GATE-06)
+- [x] 65-06-PLAN.md — live smoke on a sealed snapshot of C (default review + Close out), only after G1–G11 pass, or the not-run gap (GATE-06)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -314,6 +314,8 @@ Design question to answer before any code: what a decision is attached to (for e
 
 Moved out of 999.28 on 2026-11-13 so it is not lost inside a shipped item. Reproduced in the Phase 61 live smoke (61-LIVE-SMOKE.md S2) and again in the 2.14.1 live check: after a typed `defer` in the fix-loop card flow (`phases/review/50-fix-loop.md`), the model stops and lists choices instead of taking the automatic Rerun step. Fails toward stopping: decisions are saved and nothing is lost, at the cost of one manual step. This is model-interpreted prose, so a fix belongs with the Lean orchestration work if the fix loop is chosen as its optional extension; otherwise reproduce first. Not scheduled.
 
+Related observation (65-LIVE-SMOKE.md K1, 2026-11-16, candidate 2.15.0): in the default review, after every row was deferred the Rerun did run (this item did not reproduce), but pass 2 had an empty fix-loop card and the model stopped, saying the prose does not cover an empty card. Decisions and state were saved and Close out then completed. Listed as a known limit in the 2.15.0 release notes.
+
 ### 999.28: SHIPPED in 2.14.1 — Default route: decisions on uncommitted code re-asked every pass (false nearby reason) (Phase 61 C1)
 
 Fixed in 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1) on every route except `--all`, including the same re-ask found on PR and range reviews of committed code (owner chose to fix both before release). Debug record: `.planning/debug/999-28-uncommitted-reask.md`. Live check (default route only, owner-approved): unchanged tree kept the decision; an edit 3 lines above re-asked with the true reason. PR/range/GSD live check skipped by owner decision (tests only). C4 (model stops instead of Rerun after a typed defer) reproduced again and is now tracked as 999.32.
@@ -349,7 +351,9 @@ The helper behaves as 2.14.1 does on inputs a stricter helper could refuse: a fi
 
 ### 999.38: Phase 63 review carry (63-REVIEW.md, 63-REVIEW-2.md)
 
-The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a regression from 2.14.1.
+The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a regression from 2.14.1 except WR-02 (correction, 2026-11-16, 65-REPRO-WR02.md).
+
+**WR-02 outcome (Phase 65):** WR-02 was a regression introduced during v2.15, not present in 2.14.1: under the fresh-shell standard 2.14.1 fails closed ("No prior review passes."), while the pre-fix candidate closed phase B on phase A's saved progress (a wrong close). Fixed before release, test-first, in the one D-08 fix round (65-03: RED `976e3fe`, GREEN `b281042`; +495 bytes, 0 steps per path); it never shipped. The remaining items below stay carried.
 
 - WR-02: if the phase id comes through empty, every phase in a repo shares one saved-progress file.
 - WR-03: the unsafe-name stop blocks only characters that are live inside double quotes; it is safe only while every paste is double-quoted (`;`, `&` and `'` pass).
@@ -360,6 +364,7 @@ The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a r
 - R2-WR-02: an empty helper path would make Python run a `__main__.py` from the reviewed repo; five call sites have no emptiness check in the same command.
 - R2-WR-03: the check that inline Python runs isolated recognises today's command shapes only (e.g. `python3 -X utf8 -c`, stdin scripts would be missed).
 - Set aside by the second review: a narrowed `--all` run may lose its narrowing value in a fresh shell; a version manager or active virtual environment can choose `python3`; the `git` and `node` calls beside the inline commands were not assessed.
+- Live smoke carry (65-LIVE-SMOKE.md K3, 2026-11-16): Close out can write REVIEW.md's audit-trail line naming the archive before the final archive name is known; in the live run the model corrected the line itself. Wording only, no state lost. K1 (empty fix-loop card after the Rerun) is noted under 999.32.
 - Verifier notes: the five-situation comparison does not look at the helper's `next` field (unit tests in CI cover it); the Codex collect timing test was flaky on CI before this phase and was fixed test-only by warming node (cause best-supported, not proven).
 
 Not scheduled.
