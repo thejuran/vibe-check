@@ -316,6 +316,14 @@ REGRESSION_ROWS = (
     (S("plain", "none", "root", "worktree-folder", "x.ts", "clean", "obsolete-head"), WRITE),
     (S("plain", "none", "root", "worktree-repo", "x.ts", "staged", "obsolete-head"), OPEN),
     (S("plain", "none", "root", "worktree-repo", "x.ts", "clean", "obsolete-head"), WRITE),
+    # Gap 3, further rows the grid found on the merged helper (same mechanism).
+    (S("plain", "none", "root", "worktree-folder", "dir", "clean", "obsolete-head"), WRITE),
+    (S("plain", "none", "root", "worktree-folder", "nl.ts\n", "clean", "obsolete-head"), WRITE),
+    (S("lflf", "repo-diff", "root", "git-prefix", "dir/y.ts", "staged-restored",
+       "obsolete-head"), OPEN),
+    (S("space-lf", "repo-diff", "sub", "icase-pathspecs", "-1.ts", "untracked",
+       "obsolete-head"), OPEN),
+    (S("lf", "repo-diff", "root", "none", "x.ts", "edit", "obsolete-head"), OPEN),
     # Gap 2 (D-25): a folder name ending in whitespace other than a line break.
     (S("space", "none", "root", "none", "x.ts", "clean", "obsolete-head"), WRITE),
     (S("space", "repo-same", "root", "none", "x.ts", "edit", "obsolete-head"), OPEN),
