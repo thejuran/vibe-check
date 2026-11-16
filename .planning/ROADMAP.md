@@ -42,7 +42,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 **Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
 
-**Next action:** `/bm:execute-phase 65` — the release gate, planned 2026-11-15 as 7 plans in 5 waves (run in the main checkout). Context gathered 2026-11-15 (65-CONTEXT.md): bounded live smoke on default + Finalize under an owner-approved proposal; review-path growth accepted as named growth; 999.34 WR-02/WR-03 bypassed (the gate recounts both commits directly) and carried; 999.38 WR-02 reproduced once, rest carried. Phase 64 closed 2026-11-15 as a recorded skip (owner decision; no code changed; evidence/envelope assembly, dispatch selection and 999.32 deferred), so the release candidate carries the Finalize extraction alone. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
+**Next action:** `/bm:execute-phase 65` — the release gate, planned 2026-11-15 as 7 plans in 6 waves (run in the main checkout). Context gathered 2026-11-15 (65-CONTEXT.md): bounded live smoke on default + Finalize under an owner-approved proposal; review-path growth accepted as named growth; 999.34 WR-02/WR-03 bypassed (the gate recounts both commits directly) and carried; 999.38 WR-02 reproduced once, rest carried. Phase 64 closed 2026-11-15 as a recorded skip (owner decision; no code changed; evidence/envelope assembly, dispatch selection and 999.32 deferred), so the release candidate carries the Finalize extraction alone. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -204,9 +204,12 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [ ] 65-05-PLAN.md — gates G1–G11 on C in the main checkout, direct recount and growth reconciliation, release record (GATE-04, GATE-05)
-- [ ] 65-06-PLAN.md — live smoke on a sealed snapshot of C (default review + Close out) or the not-run gap (GATE-06)
 
 **Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 65-06-PLAN.md — live smoke on a sealed snapshot of C (default review + Close out), only after G1–G11 pass, or the not-run gap (GATE-06)
+
+**Wave 6** *(blocked on Wave 5 completion)*
 
 - [ ] 65-07-PLAN.md — release notes, close runbook, one-page sign-off and the owner's go/no-go (GATE-04, GATE-05, GATE-06)
 

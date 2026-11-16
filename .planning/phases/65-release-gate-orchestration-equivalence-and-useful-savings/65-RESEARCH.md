@@ -486,11 +486,14 @@ See §Gate Commands, §Fingerprint fence, §Counts fence, §D-07, Pattern 1. All
 | A4 | Downgrade 2.15.0 → 2.14.1 is harmless (no new state field) | Runtime State | Only matters if stated in notes; mark untested |
 | A5 | Candidate C changes only `plugin.json` under `plugins/`, so G6/G11 figures equal today's | Counts | If D-07 opens a fix round, new named-growth rows are needed |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does WR-02 reach a wrong close under the fresh-shell standard?** Known: the fence prints `.json` when run as written. Unclear: the full two-phase chain, and 2.14.1's behaviour on the same input. Recommendation: plan 65-01 runs both before C is built.
+   RESOLVED: plan 65-01 walks the mechanism and the two-phase chain on the current code and on 2.14.1 before C exists; a QUALIFYING verdict goes to the owner as the one fix round (65-03).
 2. **Smoke S3 shape:** card-first close (recommended, exercises the structured result's card branch) or the 61 re-review shape. Decide in the proposal; the owner approves the proposal.
+   RESOLVED: card-first S3 is written into the 65-02 proposal (and run by 65-06 if approved).
 3. **Suite form for the README count:** G1a (scripts dir, like 3,886) is the precedent. The record also reports G1b (with `.github/scripts` and the lean tools). The README should say which.
+   RESOLVED: G1a is the README count (65-04 fills it, 65-05 asserts it equals the G1a pass count); G1b is reported alongside in the record; tag/title are confirmed by the owner at sign-off in 65-07.
 
 ## Environment Availability
 
