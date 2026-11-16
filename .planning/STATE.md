@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: executing
-last_updated: "2026-11-16T06:25:00.000Z"
-last_activity: "2026-11-16 -- 65-05 complete: G1-G11 PASS on candidate C = b073e31 (65-RELEASE-RECORD.md); suite 4126 scripts-form / 4599 repo-root, 0 failed/skipped; replay 170 runs 0 differing, REGRESSED 0; Finalize 136,114 -> 131,381 bytes, 92 -> 85 steps; review-path growth +0.54-0.89% bytes and +2 steps, fully itemised; G12 (CI on PR head) pending close"
+last_updated: "2026-11-16T06:48:09.609Z"
+last_activity: "2026-11-16 -- 65-06 complete: live smoke PASS on candidate C = b073e31 (65-LIVE-SMOKE.md); 3 sessions, S2 Close out next=write-review-md, S3 finalize-card -> record-decisions -> new BLOBFILE -> write-review-md, review-closed exit 0 both; provenance 0 repo refs; cache restored to 2.14.1; carried K1-K4"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 27
+  completed_plans: 28
   percent: 50
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-11-13)
 ## Current Position
 
 Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Executing Phase 65
-Last activity: 2026-11-16 -- 65-05 complete: G1-G11 PASS on candidate C = b073e31 (65-RELEASE-RECORD.md); suite 4126 scripts-form / 4599 repo-root, 0 failed/skipped; replay 170 runs 0 differing, REGRESSED 0; Finalize 136,114 -> 131,381 bytes, 92 -> 85 steps; review-path growth +0.54-0.89% bytes and +2 steps, fully itemised; G12 (CI on PR head) pending close
+Last activity: 2026-11-16 -- 65-06 complete: live smoke PASS on candidate C = b073e31 (65-LIVE-SMOKE.md); 3 sessions, S2 Close out next=write-review-md, S3 finalize-card -> record-decisions -> new BLOBFILE -> write-review-md, review-closed exit 0 both; provenance 0 repo refs; cache restored to 2.14.1; carried K1-K4
 
 ## Operator Next Steps
 

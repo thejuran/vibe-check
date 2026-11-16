@@ -46,7 +46,7 @@
 
 - [ ] **GATE-04**: On the exact release candidate, the full offline suite, archived replay and mode/recovery integration checks pass against the 2.14.1 baseline; any unexpected behavioural difference blocks release
 - [ ] **GATE-05**: The release record shows safeguards and independent fix verification intact and a demonstrated reduction in loaded prose or mechanical steps, with byte/operation savings reported separately from tokens or dollars and no billing-savings claim without comparable usage evidence
-- [ ] **GATE-06**: Live validation of changed orchestration paths runs only under an approved bounded proposal; otherwise the unmeasured behaviour is documented and released under an explicit owner waiver
+- [x] **GATE-06**: Live validation of changed orchestration paths runs only under an approved bounded proposal; otherwise the unmeasured behaviour is documented and released under an explicit owner waiver
 
 ## Future Requirements
 
@@ -93,7 +93,7 @@ Which phases cover which requirements. Filled in during roadmap creation (2026-1
 | EXT-01 | Phase 64 | Complete (recorded skip, 2026-11-15) |
 | GATE-04 | Phase 65 | Pending |
 | GATE-05 | Phase 65 | Pending |
-| GATE-06 | Phase 65 | Pending |
+| GATE-06 | Phase 65 | Complete |
 
 **Coverage:**
 - v2.15 requirements: 17 total
