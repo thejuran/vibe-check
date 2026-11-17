@@ -57,6 +57,10 @@ P0_PR = 'take --root "$GREPO" --pr-head "$PR_HEAD"'
 OLD_TAKE_RANGE = 'take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --range'
 OLD_TAKE_PR = 'take --root "$GREPO" --out "$GREPO/.turingmind/worktree-snap/before.json" --pr-head'
 PR_BIND = "PR_HEAD=$(gh pr view"
+SCOPE_ALL_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "00-scope-all.md")
+ALL_NO_NEARBY = ("On `--all` the envelope never carries `nearby_line_ranges` "
+                 "\u2014 the `NEARBY_LINE_RANGES=` value is ignored on that "
+                 "route (no scorer effect; `--all` never stamps).")
 
 
 class _Phases:
@@ -67,6 +71,13 @@ class _Phases:
     Phase 3's collect with the printed snapshot literal substituted."""
 
     def _lookup_fences(self, route):
+        if route == "all":
+            # --all takes its snapshot in 00-scope-all.md and collects with
+            # the DEFAULT fence (no --range, no --pr-head).
+            self.p0_take = tdr._fence_holding(_scope_all_text(), P0_DEFAULT)
+            self.p1_take = None
+            self.pr_bind = None
+            return
         scope, triage = _scope_text(), _triage_text()
         p0 = {"default": P0_DEFAULT, "range": P0_RANGE, "PR": P0_PR}[route]
         self.p0_take = tdr._fence_holding(scope, p0)
@@ -139,6 +150,29 @@ def _triage_text():
 def _scope_text():
     with open(tdr.SCOPE_MD, encoding="utf-8") as fh:
         return fh.read()
+
+
+def _scope_all_text():
+    with open(SCOPE_ALL_MD, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _store_cat_type(repo, obj):
+    """`git cat-file -t <obj>` read through the vibe-check store."""
+    proc = subprocess.run(["git", "cat-file", "-t", obj], cwd=repo,
+                          env=worktree_snap._store_env(repo),
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, timeout=60)
+    return proc.stdout.strip()
+
+
+def _all_mode_over(lines, nearby):
+    """The --all envelope keys (30-collect-score.md step 4): all_mode, the
+    dispatched union and line totals; `nearby_line_ranges` is never sent on
+    --all, whatever the since-review call printed."""
+    del nearby  # printed by collect, ignored on this route
+    return {"all_mode": True, "reviewed_union": [F],
+            "file_line_totals": {F: len(lines)}}
 NEARBY_TEXT = "code next to it changed since your decision on pass 1"
 BLOCK = range(35, 46)  # the uncommitted block; the finding sits at 40
 TITLE = "SQL injection"
@@ -217,6 +251,8 @@ class _Chain(_Phases, tdc._RealChain):
 
     # -- the two passes --------------------------------------------------- #
     def pass1(self, route="default", record_tree=True):
+        if route == "all":
+            self._lookup_fences("all")
         self.L0 = tdc.base_file()
         self.repo = tdc.RealDiffRepo.make(self, self.L0)
         if route == "GSD":
@@ -227,17 +263,22 @@ class _Chain(_Phases, tdc._RealChain):
         self.L1 = _uncommitted(self.L0)
         self.repo.write(self.L1)
         head = self.repo.git("rev-parse", "HEAD").stdout.strip()
+        over = {}
         if route == "GSD":
             r1 = self.ranges("GSD", tdr.GSD_PLACEHOLDER, phase_start)
             self.assertEqual(r1, {F: [[5, 5], [35, 45]]})
+        elif route == "all":
+            r1 = {}  # --all: no diff, `changed_line_ranges = {}`
         else:
             r1 = self.ranges("default")
             self.assertEqual(r1, {F: [[35, 45]]})
         tree, nearby = self.collect(os.path.join(self.repo.repo, "absent"))
         self.assertRegex(tree, r"^[0-9a-f]{40}$")
         self.assertEqual(nearby, "")  # pass 1: no prior tree
+        if route == "all":
+            over = _all_mode_over(self.L1, nearby)
         s1, res = tdc.run_pass(tdc.empty_state(), self.L1,
-                               [self.finding(self.L1)], 1, r1)
+                               [self.finding(self.L1)], 1, r1, **over)
         self.assertEqual(len(res["findings"]), 1, res["filtered"])
         self.h = res["findings"][0]["stable_hash"]
         s1 = tdc.decide_on(s1, self.h, kind="defer", reason="later")
@@ -266,6 +307,44 @@ class _Chain(_Phases, tdc._RealChain):
 
     def card(self, s2):
         return tdc.card_text_full(s2)
+
+
+class TestAllRoute(_Chain):
+    """`--all` takes in 00-scope-all.md and collects with the default fence,
+    so its pass entry records `reviewed_tree` like every other route; the
+    scorer never receives `nearby_line_ranges` on --all."""
+
+    def finding(self, lines):
+        # No in-diff term on --all; a confident finding still survives.
+        return tdc.fresh("security", 40, lines, TITLE, conf=95)
+
+    def test_all_route_records_reviewed_tree(self):
+        with mock.patch.object(tdc.score, "run", wraps=tdc.score.run) as run:
+            self.pass1(route="all")
+        self.assertIsNotNone(self.p0_take, "00-scope-all.md has no take fence")
+        envelope = run.call_args[0][0]
+        self.assertTrue(envelope["all_mode"])
+        self.assertNotIn("nearby_line_ranges", envelope)
+        self.assertEqual(state_shape.check_state(
+            self.s1, state_shape.load_schema("future"), all_mode=True), [])
+        tree = self.s1["passes"][-1]["reviewed_tree"]
+        self.assertRegex(tree, worktree_snap.OBJECT_ID_RE)
+        # Uncommitted block: the recorded tree is the working tree's, kept in
+        # the vibe-check store, not HEAD's tree.
+        head_tree = self.repo.git("rev-parse", "HEAD^{tree}").stdout.strip()
+        self.assertNotEqual(tree, head_tree)
+        self.assertEqual(_store_cat_type(self.repo.repo, tree), "tree")
+
+        # Pass 2 on the same tree: collect prints a since-review value, which
+        # the --all envelope still never carries.
+        tree2, nearby = self.collect(self.state_path)
+        self.assertEqual(tree2, tree)
+        self.assertEqual(json.loads(nearby), {})
+        with mock.patch.object(tdc.score, "run", wraps=tdc.score.run) as run:
+            tdc.run_pass(self.s1, self.L1, [self.finding(self.L1)], 2, {},
+                         decided=tdc.target_decided(self.s1),
+                         **_all_mode_over(self.L1, nearby))
+        self.assertNotIn("nearby_line_ranges", run.call_args[0][0])
 
 
 class TestRepro999_28(_Chain):
@@ -1071,18 +1150,35 @@ class TestRangeAfterDiff(_CommittedChain):
 
 class TestProse(unittest.TestCase):
 
-    def test_every_snapshot_call_states_the_finalize_and_all_skip(self):
+    def test_every_snapshot_call_states_the_finalize_skip(self):
         """`/review <phase> --finalize` must not take a snapshot nobody
-        collects: each route's take states the skip (GSD included)."""
-        scope = _scope_text()
-        for take in (P0_DEFAULT, P0_PR, P0_RANGE,
-                     "take the same working-tree snapshot as mode 1"):
-            with self.subTest(take=take):
-                at = scope.index(take)
-                para = scope[at:scope.index("\n\n", at)]
+        collects: each route's take states the skip (GSD and --all included).
+
+        Phase 66 D-12: --all now takes and collects; the --all skip is gone,
+        the --finalize skip stays."""
+        scope, scope_all = _scope_text(), _scope_all_text()
+        for name, text, take in (
+                ("00-scope", scope, P0_DEFAULT),
+                ("00-scope", scope, P0_PR),
+                ("00-scope", scope, P0_RANGE),
+                ("00-scope", scope,
+                 "take the same working-tree snapshot as mode 1"),
+                ("00-scope-all", scope_all, P0_DEFAULT)):
+            with self.subTest(file=name, take=take):
+                at = text.index(take)
+                end = text.find("\n\n", at)
+                para = text[at:] if end < 0 else text[at:end]
                 self.assertIn("--finalize", para)
                 self.assertIn("FINALIZE_MODE=1", para)
-                self.assertIn("--all", para)
+                self.assertNotIn("and `--all`", para)
+                self.assertNotIn("and `--all`.", para)
+        # --all takes exactly once, after its review set is final.
+        self.assertEqual(scope_all.count(P0_DEFAULT), 1)
+        self.assertLess(scope_all.index("`$REVIEW_SET` = the surviving"),
+                        scope_all.index(P0_DEFAULT))
+
+    def test_all_route_never_sends_nearby_line_ranges(self):
+        self.assertIn(ALL_NO_NEARBY, tdr._collect_text())
 
     def test_snapshot_is_taken_before_each_reviewed_diff(self):
         """Phase 0 takes the snapshot before the diff the reviewers get, on
@@ -1116,6 +1212,8 @@ class TestProse(unittest.TestCase):
             text = fh.read()
         self.assertIn('"reviewed_tree"', text)
         self.assertIn("REVIEWED_TREE=", text)
+        self.assertNotIn("every route except --all", text)
+        self.assertNotIn("and on the `--all` route", text)
 
     def test_schema_allows_reviewed_tree_as_optional_pass_key(self):
         with open(SCHEMA, encoding="utf-8") as fh:
