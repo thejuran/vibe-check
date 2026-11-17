@@ -37,12 +37,14 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 
 **Goal:** Make Close out and review scope trustworthy before Claude developer-portal submission, with the smallest correctness and packaging changes. Owner requested this roadmap update on 2026-11-16 after a read-only assessment of 2.15.0 at `c1461c5e`. Scope agreed; no milestone activated, version assigned or phases numbered.
 
-1. [ ] **Close out freshness (999.40).** Refuse Close out when ordinary deferred/dismissed decisions refer to code changed since review; require a fresh review rather than automatically running paid reviewers. Done when both decision kinds reject an exact-line or nearby edit before Close out, unchanged reviewed code still closes, and fix-verdict freshness remains protected. Preserve 999.28 score parity and real-edit reopening.
+1. [ ] **Close out freshness (999.40).** Refuse Close out when ordinary deferred/dismissed decisions refer to code changed since review; require a fresh review rather than automatically running paid reviewers. Done when both decision kinds reject an exact-line or nearby edit before Close out, unchanged reviewed code still closes, and fix-verdict freshness remains protected. Preserve 999.28 score parity and real-edit reopening. Include the bounded legacy wrong-keep checks in 999.44; fix a reproduced wrong keep or refuse the unsupported case, and drop refuted leads with evidence. This does not authorize identity redesign.
 2. [ ] **Trusted incremental scope (999.27).** Prevent repository-controlled state from silently choosing a narrower review base. Prefer the smallest trusted-resume or explicit-confirmation boundary and disclose the effective range. Done when a crafted valid current-HEAD SHA cannot hide a committed change, while legitimate incremental review still works. An ancestor check alone is insufficient.
-3. [ ] **Unambiguous GSD phase (999.39 SA-01/WR-01).** Refuse duplicate exact/prefix matches and phase-container names before selecting state; correct the overbroad state-isolation sentence. Done when ambiguous inputs cannot review or close the wrong phase and both supported layouts still resolve unique phases.
+3. [ ] **Unambiguous phase and scope binding (999.39 SA-01/WR-01, 999.45).** Refuse duplicate exact/prefix matches and phase-container names before selecting state; correct the overbroad state-isolation sentence. Done when ambiguous inputs cannot review or close the wrong phase and both supported layouts still resolve unique phases. Also resolve the bounded narrowed-`--all` and colliding-scope checks in 999.45 before declaring scope safe; prefer refusal over a state-format migration.
 4. [ ] **Submission packaging and truthful setup/claims (999.41).** Add the plugin-folder README; document Python and optional companion setup; use configured-default Codex labels; disclose the v2.11 stricter 12/15 reading beside 15/15 and clarify estimated cost inclusions. Retain the existing companion, targeting and safety guards. Done when the submitted folder meets the documented README/license requirements, affected offline compatibility checks pass, and the exact candidate's installation/portal checks are recorded as performed or still pending.
 
-**Finish line:** Targeted failing reproductions pass after the repairs; unchanged-code decision/scoring behavior and affected mode/recovery paths remain covered; candidate packaging and documentation agree. Record offline versus live evidence separately. Portal submission is recommended only after these repairs and a successful candidate validation; submission itself is not authorized by this planning update.
+5. [ ] **Safe helper invocation (999.43; promotes 999.38 R2-WR-01/02).** Prevent repository startup code from running through ambient Python imports or an empty helper path. Guard the resolved path in the invocation itself and isolate helper imports while preserving trusted sibling imports. Done when harmless repository `sitecustomize.py`/`__main__.py` markers cannot execute through actual affected command forms, missing paths refuse, and normal helper/hook calls still work. No interpreter-manager or operating-system sandbox redesign.
+
+**Finish line:** Targeted failing reproductions pass after the repairs; unchanged-code decision/scoring behavior and affected mode/recovery paths remain covered; candidate packaging and documentation agree. The bounded checks in 999.44/999.45 must have explicit repair, safe refusal, or evidence-backed non-reproduction outcomes; a historical waiver alone is insufficient. Record offline versus live evidence separately. Portal submission is recommended only after these repairs and a successful candidate validation; submission itself is not authorized by this planning update.
 
 **Exclusions:** No decision-identity redesign (999.31), new reviewer lanes, scorer retuning, Codex replacement, accounting infrastructure, broad orchestration refactor or new efficacy campaign. Empty-card Rerun handling (999.32), shared card plumbing (999.35), snapshot pruning (999.30), and Needs debugging (999.42) can ship later. Paid tests need separate bounded approval. Keep the shipped v2.15 milestone complete.
 
@@ -134,7 +136,7 @@ Seen in the 2.14.1 live check (default route, unchanged tree): the bugs lane re-
 
 Owner decision 2026-11-13: stop scheduling the remaining decision-continuity limits one at a time and treat them as one design question, to be taken after Lean orchestration ships. This entry commits no work, phase numbers or dates. Following the 2026-11-16 assessment, Publication readiness comes first; this design remains deferred.
 
-The shared cause: a decision is tied to a finding by its title-derived `stable_hash` plus nearby line numbers, so a reworded title or a new identical copy needs another special rule. This area was repaired in v2.11, v2.12, v2.13 (Phase 57), v2.14 (Phases 59–60) and 2.14.1 and still has open shapes. Every open shape fails toward asking again; none is a silent keep.
+The shared cause: a decision is tied to a finding by `stable_hash(file, canonical_line_content, title)` plus separate nearby-change/coverage evidence, so a reworded title or a new identical copy needs another special rule. This area was repaired in v2.11, v2.12, v2.13 (Phase 57), v2.14 (Phases 59–60) and 2.14.1 and still has open shapes. The shapes explicitly grouped below fail toward asking again. That statement does not cover all historical decision carries: the full backlog pass found relocation/cover-selection wrong-keep leads, now tracked separately in 999.44 and gated before publication.
 
 Grouped here (each original record and repro stays where it is):
 
@@ -206,6 +208,8 @@ The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a r
 
 Not scheduled.
 
+**Full disposition pass (2026-11-16):** R2-WR-01/02 are now selected as publication blocker 999.43. Narrowed-all/scope identity requires bounded pre-submission checks in 999.45. Other carries remain deferred or accepted as indexed below; this supersedes scheduling, not the historical ship decision.
+
 ### 999.39: Phase 65 code review carry (65-REVIEW.md, owner ruling 2026-11-16)
 
 The owner chose "Ship + backlog (Recommended)" (AskUserQuestion, main session, 2026-11-16): ship 2.15.0 as signed off, name the lookup gap as a release-notes known limit, and carry both items here. Neither is a regression from 2.14.1.
@@ -236,6 +240,26 @@ The [v2.11 report](../plugins/vibe-check/docs/efficacy/RESULTS-v2.11.md) records
 ### 999.42: Deferred: Needs debugging outcome
 
 The 2026-11-16 source assessment found no explicit Needs debugging outcome. [fix.md](../plugins/vibe-check/agents/fix.md) has `needs-human` for product/architecture decisions or changes beyond scope, plus unsuccessful repair outcomes. When a concrete repair journey needs investigation before a safe fix, consider a small investigation-required reason/outcome that keeps the finding open and explains the next diagnostic step. Existing no-fabricated-fix rules remain. No autonomous debugging pipeline or automatic paid investigation; not a publication blocker and not scheduled.
+
+### 999.43: Block publication — safe Python helper invocation
+
+Promotes 999.38 R2-WR-01/02 from the historical Phase 63 waiver. Fresh offline probes on 2026-11-16: invoking the real `statepath.py` with `PYTHONPATH` pointing to a temporary repository containing a harmless `sitecustomize.py` printed its marker before helper execution; `-E -s` suppressed the marker while the helper succeeded. Separately, `python3 "" ...` in a temporary directory executed its `__main__.py`; a same-command nonempty-path guard refused instead. No malicious code, network or live model run was used. These are interpreter/command reproductions, not evidence of an exploited user session. Current printed helper calls (including `30-collect-score.md`'s `SCORE_PY`) do not uniformly enforce these boundaries in the invocation itself. Earlier fences do not retain variables in a fresh shell.
+
+Smallest scope: inventory the actual helper and hook invocations; ignore ambient Python startup/import overrides and reject empty/missing helper paths in the same call; preserve trusted sibling modules. Test the real command forms with benign markers and normal helper fixtures. `-E -s` is a demonstrated candidate, not an approved universal patch; verify import compatibility. Trusted interpreter, git/node configuration and OS permissions remain documented prerequisites, not a promise to sandbox arbitrary repositories. Existing SHA/pasted-name/path guards remain.
+
+### 999.44: Pre-submission decision gate — unresolved legacy wrong-keeps
+
+Source: Phase 57 `deferred-items.md`, original WR-01 (unbounded relocation) and REVIEW-GAPS IN-03 (old covering decision wins); Phase 60 `60-REPRO.md` R7 (untracked files lack change ranges). These were missing from the broad “all remaining shapes over-ask” summary. They are considered within 999.40, not a new identity milestone.
+
+Fresh evidence: the real scorer/state chain driven by `test_decision_continuity`'s **simulated relocation** kept a dismiss current and returned `write` after deleting the decided line 10 when identical text remained at line 49. This proves the helper chain given that relocation, not live orchestrator behavior. A separate **synthetic legacy-state** probe showed `_covering`'s sorted-first choice returning `current` with an older critical cover plus a newer medium cover, versus `stale` with the newer cover alone. Real writer producibility of that overlap remains unverified. `worktree_snap.py` explicitly excludes untracked files; no fresh end-to-end wrong-keep probe was run for R7.
+
+Bound the work to these three shapes: reproduce through current documented collection/persistence and both decision kinds; distinguish deleted-original relocation from the owner-accepted D-21 addition of an identical copy. Repair a real wrong keep or require a fresh review/refuse that unsupported decision. If a shape is not producible, record the counterexample/control and remove it from the gate. Preserve ordinary line shifts, scoring, genuine nearby-edit reopening and 999.28 unchanged-worktree behavior. No general matching redesign or scorer retune.
+
+### 999.45: Pre-submission scope gate — narrowed all-mode and colliding keys
+
+Source: 999.38 second-review SA-01 and IN-02; `statepath.py`/`05-state-all.md`. A fresh helper probe confirmed `feat/a` and `feat-a` resolve to the same branch-state path. Default/PR/range state scope and all-mode fresh-shell narrowing need explicit journey checks; key equality alone is not proof of a wrong close. The historical narrowed-`--all` carry says the printed fence consumes `${NARROW:-}` without binding the selected value in that call. No live narrowed-all journey was run in this pass.
+
+Within the existing scope item, exercise narrow-A versus narrow-B/whole-tree, colliding branch names, and different PR/range identities through resume and Close out. Stop once each named shape has an outcome: existing guard proven, concrete wrong-target failure repaired, or conservative refusal. Do not build a general state migration just to rename filenames. Spaces/quotes in the repository folder remain cosmetic/deferred unless a wrong target is demonstrated. Preserve existing state and archives.
 
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
@@ -268,3 +292,124 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 - [v2.11 archived roadmap](milestones/v2.11-ROADMAP.md): last measured milestone, false alarms 5/18 and catches 15/15, with release/measurement caveats.
 - [All milestone history](MILESTONES.md).
 - [Archived backlog and disposition ledger](backlog/archive/2026-10-18/README.md).
+
+## Full backlog disposition — 2026-11-16
+
+This is the disposition of the **known repository records**, not a claim that every latent bug has been found or every old report reproduced. Baseline: `main` at `9b92a3a1`, plugin 2.15.0; source unchanged since `c1461c5e`. All five publication work items above remain bounded. **Block** means a concrete release repair; **Check** means a credible consequential lead must be reproduced/refuted before submission; **Later** means no publication gate; **Historical** means superseded or closed according to the cited records, not freshly retested; **Measurement** means no new efficacy claim without evidence. No old waiver was silently converted into a pass.
+
+<details>
+<summary>Source-indexed disposition ledger (including unnumbered carries)</summary>
+
+### Inventory and evidence boundaries
+
+Sources considered: current backlog and local maintenance; [archived backlog index](backlog/archive/2026-10-18/README.md) and pre-organization roadmaps; milestone audits/roadmaps v2.1–v2.15; phase review, deferred-items, verification/repro and live-smoke records, especially Phases 40–65; local codebase concerns; four open debug files; [Fable findings](../docs/design/FABLE-REVIEW-FINDINGS.md); [.turingmind deferred findings](../.turingmind/32-DEFERRED-FINDINGS.md) and REVIEW reports. Repeated records are grouped by underlying issue below; source IDs preserve distinctions. Legacy identifiers 999.11 and 999.33 were not found and are not invented. Ignored/local records remain local; this ledger is in the tracked roadmap so their dispositions survive a clone.
+
+Fresh checks were offline, in temporary directories or helper memory: Python startup/empty-path execution, relocation-chain simulation, covering-decision helper selection, and branch-key collision. The preceding assessment supplied fresh Close out, crafted-SHA and GSD-lookup reproductions. Static source inspection and historical suite/live records are distinguished from those probes. No paid reviewers, new efficacy campaign, private holdout access, or implementation edits. TODO/FIXME source-marker search exposed no additional actionable production item. No assertion that a green historical suite proves the untested journeys below.
+
+### Numbered backlog and archived proposals
+
+| Item | Disposition and reason / reopening condition |
+|---|---|
+| 999.0, .1, .4, .6, .7, .9, .10, .14 | Historical: safe default, framework/config/test coverage, deterministic scoring, invariants, noise/Codex legibility and dogfood repairs delivered through subsequent milestones. Historical release records, not a new efficacy proof. Remaining specific issues are mapped below. |
+| 999.2 | Later: deterministic secret scanner remains a coverage proposal; no observed leaked credential in this pass. Reopen with a concrete coverage gap; do not market complete secret detection. |
+| 999.3, .5 | Later: SARIF and PR-comment integrations are feature work, unnecessary for portal readiness. |
+| 999.8 | Historical: single-writer proposal superseded by later architecture; no new orchestration framework. |
+| 999.12 | Closed NO-GO: cost-accounting feasibility rejected in Phase 62. Byte/step proxies remain estimates; no infrastructure resurrection. |
+| 999.13 | Historical split/extraction work delivered; residual card duplication goes to 999.35, stale prose to 999.41 or maintenance. |
+| 999.15 | Historical hunk-scoped commits delivered. Old stub's different line-fidelity title is not treated as equivalent evidence; coordinate residuals belong to 999.24/R3 below. |
+| 999.16 | Later: dispatch/diff chunking needs a measured benefit and quality comparison. |
+| 999.17, .18 | Measurement: model A/B and external comparisons parked; paid approval and independent holdout needed. |
+| 999.19 | Historical member/noise changes delivered in Phase 53; broad noise target still unmeasured. No new milestone from duplicate records. |
+| 999.20, .21, .22 | Historical: git-mutation guard, hardening and Codex fix confirmation repaired through Phases 48/52/56. Residuals below; do not reopen fixed stash-pop or one-pass confirmation defects. |
+| 999.23 | Historical CR-01/02/04 and min-confidence deferral loss fixed in Phase 59. Later: D-01/WR over-asks, card wording and identity. Additional legacy wrong-keeps separated as Check 999.44. |
+| 999.24 | Historical exact-change/range fixes shipped Phase 60; R1–R26 dispositions below, not all closed. |
+| 999.25 | Historical printed-path, retry/recount/fingerprint repairs shipped; helper extraction supersedes old traceback path. Generic direct-helper error polish remains Later. |
+| 999.26, .29, .31 | Later: conservative title matching, regrouping context and identity design. No silent-keep blanket claim; 999.44 is separate. |
+| 999.27 | Block: trusted incremental base, already selected; ancestry alone does not repair repository-state trust. |
+| 999.28 | Historical shipped fix retained: unchanged uncommitted work must not re-ask; score parity and reopening after real nearby edits stay acceptance controls. Debug metadata awaiting owner verification is not silently rewritten. |
+| 999.30 | Later: prune snapshot/temp storage only on measured growth or a stale-file incident; no observed runtime failure. |
+| 999.32 | Later: typed-defer rerun stop / empty-card stop. Latest smoke reran but then stopped at empty card; decisions preserved, manual Close out worked. |
+| 999.34 | Later: baseline verifier false-acceptance debt (WR-01 duplicate skips; WR-02 empty file lists; WR-03 self-declared base; WR-04 proxy recomputation; WR-05 failed suite records; WR-06 newer-Python/same-name imports; SA-01 typed replay; SA-02 inline Python omitted). Candidate evidence must be independently checked, not certified solely by these validators. Minimum Python disclosure belongs to 999.41; no runtime quality change implied. |
+| 999.35 | Later: shared card plumbing only if a concrete repeated-work saving justifies it; extraction preserves decisions/gates. |
+| 999.36 | Later: C2 literal-state-path exception, cross-file order and commands/agents/prose-only scanner limits. Selected scope/helper repairs get focused tests; no general shell parser. |
+| 999.37 | Later/accepted compatibility: boolean pass, empty state-file path and dash-prefixed filenames. No wrong close demonstrated from current valid inputs; revisit on producible unsafe outcome. |
+| 999.38 | Split: Block 999.43; Check 999.45; fixed empty-phase regression Historical; remaining specific carries below. |
+| 999.39 | Block: duplicate/container phase lookup and overbroad isolation wording. Later: test tidiness IN-01/02. Live printed-id GSD waiver is recorded unverified, not a pass. |
+| 999.40, .41 | Block: stale Close out plus packaging/setup/truthful claims already selected. Optional Codex companion retained, not replaced. |
+| 999.42 | Later: Needs debugging does not exist as a distinct current outcome; useful when safe repair needs investigation, but current needs-human/stop avoids automatic unsafe repair. No debug subsystem in publication scope. |
+| 999.43 | Additional Block: demonstrated ambient startup-code and empty-helper execution. Narrow invocation repair, not an OS sandbox project. |
+| 999.44, .45 | Check: bounded decision/scope journeys; must record repair, refusal or non-reproduction before submission. Neither authorizes broad identity redesign. |
+
+### Unnumbered historical and phase carries
+
+| Source / finding family | Disposition and practical consequence |
+|---|---|
+| Fable A1–A7, A9–A15 | Historical: v2.8 roadmap explicitly records calibration, absorb visibility, critical threshold, deterministic tie-break, forged-status scrub, crash/JSON guards, path guard, branch slug and marker fixes. Branch slug's remaining collision is Check 999.45; no claim that slugs are injective. |
+| Fable A8/A16 | Historical answer-key SITE+AXIS rules incorporated in Phase 36; Measurement: does not validate current runtime quality. |
+| Fable A17; security-prompt critique | Later historical lead: Codex field sanitation/confidence trust and prompt critique; current path/target/output guards retained. No fresh exploit or need to replace companion established. Reopen on a concrete prompt/output boundary bypass; do not call model output trusted. |
+| Fable H-CORE, H-DUP1/2, H-LANE, H-COUPLE, B-SEV/XCONF/PROX/REWEIGHT, CATEGORY_DOMAIN | Measurement/Later: correlated reviewers, attribution, severity/confidence and tuning hypotheses. Same-site corroboration changed since the original +10 analysis; stale assumptions are not evidence for a retune. Conditional efficiency experiment only. |
+| Fable O3; B3 still-owed work | Historical fix confirmation now implemented; arbitrary downstream test adequacy remains unproven. B3/independent efficacy still Measurement; no mandatory new campaign for honest publication. |
+| Phase 32 bugs-003; bugs-002/impact-02; arch-001/cov-003 | Later historical suppression-audit identity/count/filter leads. Current per-token scanner differs from original; reproduce before changing. Audit-low omissions do not prove hidden critical review findings. |
+| Phase 32 bugs-004/005/006; sec-001 | Later: scoped-marker syntax, line numbering, token boundaries and string-literal suppression. Existing substring suppression is an explicit source limitation; no language-parser project. Reopen on a concrete safety bypass beyond the owner-controlled suppression contract. |
+| Phase 32 impact-03; cov-001/002; fs-001/002/003/004 | Later: synthetic schema/test coverage, marker docs, knob/default wording and long prose. Minimum-confidence/config docs evolved; do not assume old omissions remain. Correct current false public wording within 999.41 when encountered. |
+| v2.1–v2.5 audit carries | Historical/manual evidence limits: FastAPI depth, ASYNC-01/02/03, missing old verification docs, BashOutput and old release-gate gaps. Source hardening delivered v2.5. Later: missing type hints, intentional dead title helper, residual unvalidated generic leads; no retrospective paperwork milestone. |
+| v2.7/v2.9 audits | Measurement: RN dual emit/Expo live routing and old efficacy limitations. Historical stale README/tag metadata fixed forward; exact candidate checks still required. |
+| Phase 35 config symlink lead | Later accepted hardening: own-repository TOML can follow a symlink; no leak/execution channel demonstrated. Reopen with a concrete boundary consequence. |
+| Phases 40/41: context, permissions, harness operations | Measurement/external tooling: pinned CLI/model, invalidated attempts, context/memory pressure, failed sleep, announcement obedience, archived raw-envelope and token-accounting gaps. No runtime release blocker inferred from an invalid measurement run. |
+| Phase 40 snapshot escape; Phase 41 medium_ack | Historical fixes recorded. First-pass/N shape and no-op model reports are evidence limitations, not new verified bugs. All-mode footprint growth is a cost limitation, not measured billing. |
+| Phase 41 same-site arithmetic; Phase 53 +10 prose | Later stale prompt arithmetic (eight prompts/kickoff); current scoring is authoritative. Correct any published claim in 999.41; do not change scores to match stale text. |
+| Phase 43 privacy placeholders; stash-pop | Historical fixes recorded; no reopened privacy incident or git-mutation repair needed. |
+| Phase 46 punctuation, working-tree reads; Phase 48 allowlist | Historical later fix-stage/state hardening supersedes originals. Later: null first_pass_N / absorbed duplicate presentation metadata where no gate consequence shown. |
+| v2.10 W1–W5; v2.11 audit | Historical: wait-anchor mismatch disclosed, stash safety/helper bypass superseded, finalize-token bug repaired, substring/multiline flags hardened. Later: top-model description drift, shipped dev/test scripts, dense prose. External orchestrator pass-1/archive lookup is outside plugin. Codex exact-or-skip dirty-planning behavior stays explicit. |
+| Phase 51 deferred items: leak/provenance/seal operations | Historical documented fixes: finder permissions, tar filtering, encryption race, replace-retired, flaky IDs. Measurement/tooling: scrubbed evidence cannot be reconstructed, dry-run/config/auth limitations, owner-only refresh, legacy login and completed-run replacement semantics. Do not run or open sealed holdout here. |
+| .turingmind/REVIEW.md deferred reseal identity | Measurement/tooling lead: exposure keyed by case ID can miss same content under new ID. Do not use affected clearance as fresh independent efficacy evidence without resolving it; not installed review runtime. Duplicate SEAL hash and containment helpers remain Later. |
+| Three holdout debug sessions | Owner verification still pending: shared-temp/session isolation, finder sandbox and replace-retired. Recorded fixes/probes do not replace live owner acceptance. Gate any resumed holdout campaign, not plugin publication. |
+| Phase 52 echoes/mktemp/temp-root; split card | Historical echoes/temp fixes; live split-finding card coverage remains unverified. Carry-forward deep-only lanes now fail conservatively or follow Phase 56 routing; no new lost-row evidence. |
+| Phase 53 TS pointer, email/decorator filter, architecture-hooks prose | Later low-risk docs/filter maintenance. BM HANDOFF ignored-per-clone, should-quiet-4 classification and legacy URL-spec questions belong to Measurement. nv_dropped_weak labels are intentional. |
+| Phase 56 CR-01/02, WR-01–06, SA-01 | Historical verification records close still-applies, any-commit clearing, Codex/plain confirmation, contradiction, malformed-file, orphan and association defects. Missing summary requirement tags are documentation debt, not failed runtime behavior. |
+| Phase 56 SA-02, IN-01–03 | Later/accepted: plain needs-recheck snapshot handling needs real bypass before escalation; dispatch snapshot still protects code changes during confirmation. Synthetic broad fixtures/whitespace are test debt; reason rendering later fixed. Independent deferred-finding route fixture/live language interpretation remains unverified. |
+| Phase 57 original WR-01; GAPS IN-03 | Check 999.44: deleted-original relocation to identical text and older covering decision selection. Evidence levels recorded above; no longer dismissed as harmless over-asking. |
+| Phase 57 original CR-01/02, WR-02/03; GAPS2–4 criticals | Historical later fixes for member coverage, lanes, nearby/deletion, split stamps, same-hash ordering and deferral filtering. Phase 59 closed final pooled wrong-keeps. GAPS4 CR-03 new identical copy is owner-accepted D-21, distinct from deleted-original relocation. |
+| Phase 57 WR-04, IN-01/02/05, final WR-01 | Later: snippet-first-line over-asks, null-band/card mismatch, covered-count undercount, identical-title/lane over-asks, newcomer-member ambiguity. Same-hash fix dispatch must retain conservative full-membership preflight. SA-02 all-mode loss did not reproduce; don't re-open it without evidence. |
+| Phase 58 original WR-01–06 / IN-01–05; GAPS WR-01/03; FINAL CR | Historical stale resolution, suggestions, parsing/rows/print markers and wrong-title dismissal fixed. Best-unique matching was rolled back intentionally. Later: remaining matcher/card limits all listed in 999.26; suggestion/reason presentation hardening requires a concrete case. |
+| Phase 58 SA-01–03 / D18–D20 | Accepted: bulk-count rule, neutral critical suggestions and typed Close out entry; no bypass of gate authorized. |
+| Phase 59 WR-01/02; IN / SA-01 | Later wording/count/order claims, duplicate validation, conservative same-hash preflight ambiguity. Score zero kept-open is intentional so a deferred obligation cannot vanish; do not remove it as cleanup. |
+| Phase 60 R1/R2/R9/R14 | Historical helper boundary/coordinates/injection fixed or superseded; obsolete research algorithm is not implementation guidance. Direct-helper error polish Later. |
+| Phase 60 R3/R4/R5/R6 | Later/unverified: reviewer PR line coordinates need reproduction; old stamps over-ask; cache requires resync; live-fetch release evidence improved later but no new full PR journey here. |
+| Phase 60 R7/R8/R10/R11 | Check R7 in 999.44. Accepted limits: C-quoted/non-ASCII paths unsupported; all-mode has no diff/retained decisions; replay retains context intentionally. Document unsupported boundaries, not claim universal coverage. |
+| Phase 60 R12/R13/R15/R16/R17 | Later temp cleanup; unsupported SHA-256; duplicate refusal wording. Historical live Write succeeded (bypass mode only). Large-PR diff limit explicitly fails closed; no fallback project. |
+| Phase 60 R18 | Later/accepted limitation: submodule diff configuration can omit/reshape ranges; no qualifying finding loss reproduced. Disclose unsupported submodule coverage with other scope limits in 999.41; do not claim full submodule review. Reopen if supported use is required. |
+| Phase 60 R19/R20/R21/R22/R23/R24/R26 | Later: empty-diff wording, partial-color/mutant test weakness, overbroad SHA error, post-record failure wording, write-side SHA validation. Runtime read-side validation already stops invalid SHAs; narrow wording correction when touching closure. Escalate if a concrete false-success/unsafe write reproduces. |
+| Phase 60 R25 | Block 999.27, supersedes v2.14 waiver for publication. |
+| Phase 61 / 2.14.1 live C1–C5 | C1 Historical 999.28 fixed; C2 same-lane severity variation accepted; C3 identity Later; C4 typed-defer Later; C5 Write retry host-dependent. README contradictions fixed; remaining release-label/marketplace wording in 999.41 as needed. |
+| Phase 62 extra infos / SA | Later: sidecar checks, TAPE failure (fails closed), future workflow env injection, privacy-checker consistency, regex/pins/casing. No present secret/execution incident demonstrated. Runtime import isolation now Block 999.43; typed replay is evidence weakness, not verified equivalence. |
+| Phase 63 initial CR / WR / IN / SA | Historical inline Python isolation and printed-path repairs. Later: quote-dependent name guards (retain quoted use), generic helper error details, literal newline/path-regex limitations, temp cleanup, git-index metadata wording and C2 scanner exception. Eleven-of-twenty-file review coverage limits confidence; not proof other files are safe. |
+| Phase 63 R2-WR-01/02/03 | Block first two under 999.43. Later future scanner forms; add tests for actual new invocation forms during repair, not a universal shell parser. |
+| Phase 63 R2-IN-01–04, SA-01–04 | Check narrowed scope/late overwrite under 999.45. Later UTF-8 locale handling (Codex may skip honestly), guard/mkdir refusal semantics and test assertions lacking success controls. Trusted interpreter/version manager/git/node environment is a documented boundary, not freshly audited sandboxing. |
+| Phase 65 K1/K3, audit metadata | Later empty-card stop and self-corrected archive reference. Historical CI/tag completion supersedes initial pending release notes. Mixed requirement tags/skip metadata are documentation debt. Live GSD/PR/range and omitted non-UTF-8 scenarios remain unverified where not explicitly recorded. |
+| Maintenance / codebase concerns | Later duplicate blob prose/helpers/constants/private imports/SHA validators, unused code, stale test labels, WebFetch/MCP and signal-window polish, conservative mutation-guard overmatching. Hook-level holdout fixtures and rollback/verdict compatibility need a demonstrated break. No-CI/no-cross-call-check/Lean-not-shipped claims are superseded by Phases 62–65. “All planning untracked” is false for the tracked roadmap/state/project. No blanket missing-release-signoff claim: use exact runbook/candidate evidence. |
+| Optional Codex maintenance | Selected only dependency/setup/model-label/compatibility disclosure under 999.41; keep companion. Later automatic update checks, temp-root assumptions and broad adapter changes; skipping unavailable Codex must stay explicit. |
+
+### Updated code-map reconciliation — 2026-11-16
+
+Reviewed the seven `.planning/codebase/` documents dated 2026-11-17 against the disposition ledger and spot-checked material assertions in implementation. The separate `.planning/intel/` refresh is dated 2026-11-14, not this new map. No additional publication work item follows from this map: its substantive risks already map to 999.27/30–45 or the maintenance/measurement rows above. Large modules, prose orchestration, duplicate grading helpers and optional dependency monitoring remain deferred absent a concrete failure or demonstrated saving.
+
+Treat these map assertions as corrections required when the map is next maintained, not new product requirements:
+
+- `CONCERNS.md`'s opening “all ... fails toward asking/stopping” conflicts with its own 999.40/27/39 sections. Helper execution is now Block 999.43, and decision/scope checks are 999.44/45; the map still calls those security carries merely owner-accepted. The tracked roadmap has the current disposition.
+- `ARCHITECTURE.md` says scope keys never silently merge reviews. The confirmed branch-slug collision and ambiguous phase lookup contradict that guarantee (999.39/45). `statepath.resolve` computes a key; it does not prove unique review identity.
+- Identity is not just title plus line numbers and is not devoid of content anchoring: `score.py:536` hashes file, canonical line content and title. Nearby/coverage decisions are separate. This sharpens 999.31's description without changing its deferred status or resolving the wrong-keep probes.
+- `.turingmind/` is live review state, as `05-state.md` demonstrates; it must not be removed as “legacy orchestration.” `.orchestrator/` is distinct. `STRUCTURE.md`'s all-untracked statement is also too broad: ROADMAP/STATE/PROJECT are tracked despite ignore rules. No cleanup authorized.
+- `INTEGRATIONS.md` incorrectly implies a hard Codex confidence cap of 45. The real translator maps `confidence=0.9` to `agent_confidence=90` (fresh offline probe); prompt calibration is not enforced clamping. Preserve scoring; correct disclosure under existing 999.41 if reused publicly. The actual model is the configured CLI default, not a guaranteed GPT-5-codex model.
+- `STACK.md` omits `finalize_inputs.py` from its exclusive subprocess list; that module also runs bounded argv-list git commands. Its Python 3.11+ statement describes TOML support, not an already-established support policy; minimum-version declaration remains 999.41.
+- Test size, prose locks and an import-only stdlib check are not proofs of semantic coverage, isolation, or absence of networking. End-to-end is not synonymous with browser testing. Keep real-chain/CLI evidence, live model journeys and per-candidate skip records distinct; map prose cannot upgrade an untested path to verified.
+
+These are documentation accuracy corrections, not newly reproduced runtime bugs. The generated/local maps were left intact; this tracked reconciliation prevents their overclaims from silently becoming acceptance criteria. No new paid/live checks or implementation changes.
+
+### Finish and limits
+
+The only additional implementation work item is safe helper invocation (999.43). Legacy decision and scope leads are bounded acceptance investigations inside the already selected closure/scope repairs (999.44/45); a reproduced safety failure cannot be waived merely to keep the count small. If a safe refusal suffices, ship that rather than redesigning identity. Every other family above has a disposition/reopening trigger and stays outside the milestone.
+
+Recommendation remains **submit after specific fixes**, with no new efficacy claim. Candidate installation, supported-route live checks, portal validation, model interpretation and real usage costs remain unverified by this disposition pass. Historical fixes/tests and offline probes do not substitute for those checks. This inventory covers available local records, not unseen external issues or unknown defects.
+
+</details>

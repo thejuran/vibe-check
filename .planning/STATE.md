@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: Awaiting next milestone — v2.15 shipped as 2.15.0
-last_updated: "2026-11-17T03:41:51Z"
-last_activity: "2026-11-16 -- Read-only 2.15.0 assessment; owner requested bounded Publication readiness roadmap update"
+last_updated: "2026-11-17T03:54:42Z"
+last_activity: "2026-11-16 -- Full backlog disposition plus updated code-map reconciliation; no additional milestone scope"
 stopped_at: "v2.15 shipped; Publication readiness scoped, not activated — next /gsd-new-milestone"
 progress:
   total_phases: 4
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 Phase: Milestone v2.15 complete — shipped as 2.15.0
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-11-16 -- assessment recorded and Publication readiness scope agreed; v2.15 remains shipped
+Last activity: 2026-11-16 -- known-backlog disposition recorded; Publication readiness stays bounded and inactive; v2.15 remains shipped
 
 ## Operator Next Steps
 
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Activate the bounded Publication readiness scope with /gsd-new-milestone; no version or phases assigned yet
-- Resolve 999.40, 999.27, 999.39 SA-01/WR-01 and 999.41 before portal submission; paid checks and submission require separate approval
+- Resolve 999.40, 999.27, 999.39 SA-01/WR-01, 999.41 and 999.43, with explicit outcomes for bounded checks 999.44/45, before portal submission; paid checks and submission require separate approval
 
 ## Deferred Items
 
