@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: planning
-last_updated: "2026-11-17T04:02:00Z"
-stopped_at: "v2.16 roadmap created; Phase 66 next"
-last_activity: 2026-11-16 -- v2.16 roadmap created (Phases 66-71)
+stopped_at: "Phase 66 context gathered; ready to plan"
+last_updated: "2026-11-17T04:07:38Z"
+last_activity: 2026-11-16 -- Phase 66 context gathered (66-CONTEXT.md)
 progress:
   total_phases: 6
   completed_phases: 0
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 
 Phase: 66 (Close out freshness) — not started
 Plan: —
-Status: Planning — roadmap created, awaiting owner approval; Phase 66 not discussed or planned
-Last activity: 2026-11-16 — v2.16 roadmap created (Phases 66-71, 18/18 requirements mapped)
+Status: Planning — Phase 66 context gathered (66-CONTEXT.md); not yet planned
+Last activity: 2026-11-16 — Phase 66 context gathered on feat/v2.16-phase-66
 
 ## Operator Next Steps
 
-- Approve the v2.16 roadmap, then `/bm:discuss-phase 66` and `/bm:plan-phase 66` (Close out freshness) on `feat/v2.16-phase-66` from `main`
+- `/bm:plan-phase 66` (Close out freshness) on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Paid checks and portal submission require separate approval
 
