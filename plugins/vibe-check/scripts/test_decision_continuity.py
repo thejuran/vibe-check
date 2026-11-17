@@ -989,6 +989,54 @@ def far_twin_scenario():
     return s2, r2, s3, hA
 
 
+SHAPE1_COPY_LINE = 50  # old line of the identical copy; line 49 after the deletion
+
+
+def deleted_original_scenario(test, kind, copy="kept"):
+    """999.44 shape 1 (Phase 57 WR-01): the decided line is DELETED while
+    identical text remains elsewhere in the file.
+
+    Pass 1: `bugs` A at line 10 (`line_10 = 10`), decided `kind`. Between the
+    passes line 10 is deleted, and nothing else changes.
+
+    `copy` says where the identical text comes from:
+      "kept"   the copy was already in the reviewed file (old line 50, line 49
+               after the deletion) and is untouched; the change is the
+               deletion alone (the 999.44 record: "identical text remained at
+               line 49");
+      "added"  the copy is written by the same change that deletes line 10
+               (old line 49 replaced by `line_10 = 10`, line 48 after the
+               deletion), so the change also touches the copy's own line.
+
+    Pass 2 is driven the way 30-collect-score.md step 0 describes: the real
+    `git diff` of the change in a temp repo, through the exact-range builder,
+    gives `changed_line_ranges`; the carried record is relocated with
+    `relocate_decided` against `$DECIDED_HASHES` (`carry_state.py decided`);
+    the same agent re-reports the finding at the line the record was read at.
+
+    -> (s1, s2, hA, repo, L1): `repo` holds L0 committed and L1 on disk."""
+    L0 = base_file()
+    L1 = list(L0)
+    if copy == "kept":
+        L0[SHAPE1_COPY_LINE - 1] = L0[9]
+        L1 = list(L0)
+    elif copy == "added":
+        L1[48] = L0[9]
+    else:
+        raise ValueError(copy)
+    del L1[9]
+    s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
+    repo = RealDiffRepo.make(test, L0)
+    repo.write(L1)
+    ranges = _builder()(repo.diff())
+    decided = target_decided(s1)
+    read_at = next_cf(s1, L1, decided)[0]["line"]
+    s2, _ = run_pass(s1, L1,
+                     [fresh("bugs", read_at, L1, TITLE_A, conf=STABLE_CONF)],
+                     2, ranges, decided=decided)
+    return s1, s2, hA, repo, L1
+
+
 def _two_copy_lines():
     """`base_file()` with lines 10 and 30 both `return None`: one title hashes
     identically at either line, and the two sites are far apart (separate
@@ -4087,6 +4135,134 @@ class TestRealDiffRanges60(_RealChain):
         L2 = TOP_TEN + _edited(base_file(), 45)
         s2, hA = self._case(L2, [[1, 10], [55, 55]])
         self.assert_reopens(s2, hA, 50)
+
+
+SHAPE1_KINDS = ("defer", "dismiss")
+
+
+class TestShape1DeletedOriginal(_RealChain):
+    """999.44 shape 1 through the real chain, for both decision kinds: real
+    `git diff` ranges, step-0 relocation (`relocate_decided`), the real
+    scorer and state, then the real `finalize_inputs` CLI on a repo whose
+    last pass is bound to the reviewed code (`reviewed_tree` = the pass-2
+    tree, unchanged on disk), so Close out's outcome comes from the decision
+    state the review left, not from a code-changed-since-review check.
+
+    D-11: deleting the decided line while identical text remains elsewhere
+    (shape 1) is a different case from the owner-accepted D-21 behaviour of
+    adding an identical copy while the original stays; the D-21 control and
+    an ordinary line-shift control must keep."""
+
+    def _closeout(self, repo, state, lines):
+        """`finalize_inputs.py` on `state`, run in `repo` after binding the
+        last pass to `lines` as the reviewed (and on-disk) code -> result."""
+        from test_finalize_inputs import argv_for, bind_reviewed_tree
+        state = bind_reviewed_tree(repo.repo, json.loads(json.dumps(state)),
+                                   {F: "\n".join(lines) + "\n"})
+        self.assertEqual(repo.git("status", "--porcelain").stdout, "",
+                         "reviewed code differs from disk")
+        side = tempfile.TemporaryDirectory()
+        self.addCleanup(side.cleanup)
+        state_file = os.path.join(side.name, "state.json")
+        blob_out = os.path.join(side.name, "blobs.json")
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        open(blob_out, "w").close()
+        import finalize_inputs
+        code, out = finalize_inputs.run(argv_for(state_file, blob_out),
+                                        cwd=repo.repo)
+        self.assertEqual(code, 0, out)
+        return json.loads(out)
+
+    def _not_kept(self, s2, hA):
+        """The decided identity is not kept current at pass 2, and the pass
+        does not let Close out write."""
+        rec = record_of(s2, hA)
+        state = (carry_state.decision_state(rec, s2)
+                 if rec is not None else None)
+        self.assertNotEqual(
+            state, "current",
+            "decision kept current at line %s after its line was deleted: %r"
+            % (rec and rec["line"], rec and rec["snapshot"]))
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+
+    def test_shape1_deleted_original_is_reasked_at_pass2(self):
+        """The decided line 10 is deleted; identical text was already at old
+        line 50 (49 after the deletion) and is untouched. The decision must
+        not ride to that other line: pass 2 re-asks it."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                _, s2, hA, _, _ = deleted_original_scenario(self, kind)
+                self._not_kept(s2, hA)
+
+    def test_shape1_closeout_does_not_write_on_deleted_original(self):
+        """Close out on the pass-2 state of the same change must not write.
+        The outcome must come from the review's decision state (relocation),
+        never from the code-changed-since-review refusal: the last pass is
+        bound to the code on disk, so `next` must not be
+        `stop-review-again`."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                _, s2, _, repo, L1 = deleted_original_scenario(self, kind)
+                result = self._closeout(repo, s2, L1)
+                self.assertNotEqual(result["next"], "stop-review-again",
+                                    result)
+                self.assertNotEqual(result["action"], "write", result)
+
+    def test_shape1_copy_written_by_the_same_change_reasks_control(self):
+        """Control: when the identical text is written by the same change
+        that deletes line 10 (old line 49 replaced, line 48 after the
+        deletion), the real diff names the copy's own line, so the record
+        relocated there is stamped `nearby` and re-asked on current code."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                _, s2, hA, repo, L1 = deleted_original_scenario(
+                    self, kind, copy="added")
+                self.assert_reopens(s2, hA, 48)
+                result = self._closeout(repo, s2, L1)
+                self.assertNotEqual(result["action"], "write", result)
+                self.assertNotEqual(result["next"], "stop-review-again",
+                                    result)
+
+    def test_d21_identical_copy_added_while_original_remains_keeps(self):
+        """D-11 control (D-21, owner-accepted): the original line 10 stays
+        and an identical copy is added at line 30. The decision stays on its
+        own line, current, and Close out writes."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                L0 = base_file()
+                s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
+                L1 = list(L0)
+                L1[29] = L0[9]
+                repo = RealDiffRepo.make(self, L0)
+                repo.write(L1)
+                ranges = _builder()(repo.diff())
+                self.assertEqual(ranges, {F: [[30, 30]]})
+                s2, _ = run_pass(
+                    s1, L1, [fresh("bugs", 10, L1, TITLE_A, conf=STABLE_CONF)],
+                    2, ranges, decided=target_decided(s1))
+                self.assert_keeps(s2, hA, 10)
+                self.assertEqual(self._closeout(repo, s2, L1)["action"],
+                                 "write")
+
+    def test_shape1_pure_shift_keeps(self):
+        """Control: 20 lines inserted above the decided line; the decision
+        follows its code to line 30 and Close out writes."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                L0 = base_file()
+                s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
+                L1 = ["inserted_%02d = 0" % i for i in range(20)] + L0
+                repo = RealDiffRepo.make(self, L0)
+                repo.write(L1)
+                ranges = _builder()(repo.diff())
+                self.assertEqual(ranges, {F: [[1, 20]]})
+                s2, _ = run_pass(
+                    s1, L1, [fresh("bugs", 30, L1, TITLE_A, conf=STABLE_CONF)],
+                    2, ranges, decided=target_decided(s1))
+                self.assert_keeps(s2, hA, 30)
+                self.assertEqual(self._closeout(repo, s2, L1)["action"],
+                                 "write")
 
 
 PR_TOP_FIVE = ["pr_top_%d = 0" % i for i in range(5)]
