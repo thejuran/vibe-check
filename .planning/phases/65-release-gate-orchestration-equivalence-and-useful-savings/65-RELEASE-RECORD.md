@@ -247,10 +247,10 @@ User-visible items carried from the live smoke (not qualifying; 65-LIVE-SMOKE.md
 ## Validation gaps and waivers
 
 Everything below was not proven live for 2.15.0. Each needs the owner's waiver at sign-off.
-- GSD, range, PR, incremental pass 2+ and `--all` reviews are proven offline only (D-02; G1–G3); the GSD route carries the WR-02 empty-phase-id stop, which is proven by tests only — waiver: pending owner sign-off (65-SIGNOFF.md)
-- The fix loop's fix-and-verify path is proven offline only (D-02; G1, G3 and the fix-verification run); the live smoke reached only its card and Rerun with deferrals — waiver: pending owner sign-off (65-SIGNOFF.md)
-- Pause/resume has no end-to-end walk, live or offline — waiver: pending owner sign-off (65-SIGNOFF.md)
-- No B3 or holdout measurement, so there are no 2.15 catch or false-alarm numbers; v2.11 remains the last measured result — waiver: pending owner sign-off (65-SIGNOFF.md)
+- GSD, range, PR, incremental pass 2+ and `--all` reviews are proven offline only (D-02; G1–G3); the GSD route carries the WR-02 empty-phase-id stop, which is proven by tests only — waiver: granted (owner, 2026-11-16) (65-SIGNOFF.md)
+- The fix loop's fix-and-verify path is proven offline only (D-02; G1, G3 and the fix-verification run); the live smoke reached only its card and Rerun with deferrals — waiver: granted (owner, 2026-11-16) (65-SIGNOFF.md)
+- Pause/resume has no end-to-end walk, live or offline — waiver: granted (owner, 2026-11-16) (65-SIGNOFF.md)
+- No B3 or holdout measurement, so there are no 2.15 catch or false-alarm numbers; v2.11 remains the last measured result — waiver: granted (owner, 2026-11-16) (65-SIGNOFF.md)
 
 WR-02 is not carried: it was fixed before release (b281042) and is covered by tests inside G1 and G3.
 

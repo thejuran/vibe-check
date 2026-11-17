@@ -63,10 +63,10 @@ Dependabot alerts are turned off on this repository and the command-line tool ca
 
 ## Not proven live — waivers
 
-- GSD, range, PR, incremental (second pass onward) and `--all` reviews: tested automatically, not run live; this includes the empty-phase-id stop — waiver: pending owner sign-off
-- The fix loop's fix-and-verify path: tested automatically; the live run only reached its card and rerun — waiver: pending owner sign-off
-- Pausing and later resuming a review: no full walk-through, live or automated — waiver: pending owner sign-off
-- Catch and false-alarm rates: not measured for 2.15 (v2.11 is still the last measured result) — waiver: pending owner sign-off
+- GSD, range, PR, incremental (second pass onward) and `--all` reviews: tested automatically, not run live; this includes the empty-phase-id stop — waiver: granted (owner, 2026-11-16)
+- The fix loop's fix-and-verify path: tested automatically; the live run only reached its card and rerun — waiver: granted (owner, 2026-11-16)
+- Pausing and later resuming a review: no full walk-through, live or automated — waiver: granted (owner, 2026-11-16)
+- Catch and false-alarm rates: not measured for 2.15 (v2.11 is still the last measured result) — waiver: granted (owner, 2026-11-16)
 
 ## Tag and title
 
@@ -74,6 +74,14 @@ Tag `v2.15`, title `v2.15 — Lean orchestration` (confirm or change).
 
 ## Owner sign-off
 
-Status: AWAITING OWNER
+Status: SIGNED OFF (owner, 2026-11-16)
+
+**Channel:** AskUserQuestion in the main session (not relayed by any agent)
+**Selection, verbatim:** "Go (Recommended)"
+**Description shown with the selection, verbatim:** "Sign off with tag v2.15 and title 'v2.15 — Lean orchestration', and grant the 4 waivers. Next: verify-work, then the close runbook. Merging still waits for CI to pass and your OK."
+**Tag / title / message:** `v2.15` / `v2.15 — Lean orchestration` / `vibe-check 2.15.0 — lean orchestration` (unchanged)
+**Waivers:** all four granted (owner, 2026-11-16)
+**Named growth:** signed (+0.54% to +0.89% bytes, +2 steps per review path)
+**Still gated:** G12 (CI green on the PR head) and the owner's OK to merge, per 65-CLOSE-RUNBOOK.md
 
 Full record: [65-RELEASE-RECORD.md](65-RELEASE-RECORD.md) · live smoke: [65-LIVE-SMOKE.md](65-LIVE-SMOKE.md) · empty phase id: [65-REPRO-WR02.md](65-REPRO-WR02.md) · notes: [65-RELEASE-NOTES.md](65-RELEASE-NOTES.md) · close steps: [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md)
