@@ -2,50 +2,50 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "verifying — Phase 65 verified (16/16) and UAT complete (5/5 pass); next close per 65-CLOSE-RUNBOOK.md"
-last_updated: "2026-11-17T03:05:05Z"
-last_activity: "2026-11-16 -- /bm:verify-work 65: UAT complete, 5 passed, 0 issues (65-UAT.md, dfddfef); nothing pushed, tagged or released"
-stopped_at: "Phase 65 UAT complete — next 65-CLOSE-RUNBOOK.md step 1 (/bm:audit-milestone v2.15, /bm:complete-milestone v2.15 without its tag), then push/PR/CI/owner merge OK/tag"
+status: "in review — v2.15 closed and archived; release PR for 2.15.0 not yet opened, merged, tagged or released"
+last_updated: "2026-11-17T03:40:00Z"
+last_activity: "2026-11-16 -- /bm:complete-milestone v2.15: archived roadmap, requirements, audit and phase dirs; no tag made (runbook step 1)"
+stopped_at: "v2.15 archived — next 65-CLOSE-RUNBOOK.md steps 2-10 (freshness, Dependabot, release PR + G12, owner merge OK, tag on origin/main, GitHub release, plugin update)"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 4
   total_plans: 29
   completed_plans: 29
-  percent: 50
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-13)
+See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 65 close: publish 2.15.0 per 65-CLOSE-RUNBOOK.md
+**Current focus:** publish 2.15.0 per 65-CLOSE-RUNBOOK.md (milestone archived); then /bm:new-milestone
 
 ## Current Position
 
-Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — all 7 plans done, verified passed; NOT yet published
+Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — complete, milestone archived; 2.15.0 NOT yet published
 Plan: 7 of 7
-Status: Phase 65 verified (65-VERIFICATION.md passed 16/16; 65-REVIEW.md 0C/1W/2I carried to 999.39 by owner ruling; 65-SECURITY.md threats_open 0); next close per 65-CLOSE-RUNBOOK.md from the main session
-Last activity: 2026-11-17 -- Phase 65 code review, security audit and verification complete; candidate C b073e31 unchanged; nothing pushed, tagged or released
+Status: v2.15 closed and archived (audit tech_debt 17/17); release PR, G12, owner merge OK, tag and GitHub release pending
+Last activity: 2026-11-16 -- /bm:complete-milestone v2.15 (phase dirs now in milestones/v2.15-phases/)
 
 ## Operator Next Steps
 
-- Owner SIGNED OFF 2026-11-16 (65-SIGNOFF.md): run `/bm:verify-work 65`, then close and publish per 65-CLOSE-RUNBOOK.md from the main session (executors must not push)
-- `/bm:execute-phase 65`: the release gate, 7 plans in 6 waves; run in the main checkout (the suite needs private recordings); live smoke APPROVED by the owner 2026-11-16 (65-LIVE-SMOKE-PROPOSAL.md: 3 sessions, default review + Close out, est. $20-30, not a cap); the one fix round is used by WR-02, so a qualifying smoke failure needs a D-09 owner go
-- 999.34 WR-02/WR-03: bypassed and carried (65 D-06, gate recounts both commits directly); 999.38: WR-02 reproduced in 65-01 as a wrong close and a regression from 2.14.1 (65-REPRO-WR02.md); owner go GRANTED 2026-11-16 for the one D-08 fix round; FIXED in 65-03 (b281042), so 65-04 builds C from it; the 999.38 line "None is a regression from 2.14.1" needs correcting; WR-03/WR-04/SA-01/SA-03 carried
-- No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
+- Run 65-CLOSE-RUNBOOK.md steps 2-4: freshness assert, Dependabot re-check, release PR with G12 on its head, then the owner's merge OK
+- Steps 5-10: tree identity, tag v2.15 on origin/main, GitHub release, plugin update + relaunch, branch cleanup, mark shipped here and in ROADMAP
+- Then /bm:new-milestone (999.31 decision identity design is the waiting candidate)
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-10-30. All were deferred earlier by the owner and are carried, not re-decided:
+Items acknowledged and deferred at milestone close on 2026-11-16 (v2.15; owner chose "Defer all 4"). The three v2.12 holdout-kit sessions were also deferred at the 2026-10-30 close:
 
 | Category | Item | Status |
 |----------|------|--------|
 | debug | dryrun-replace-retired-ignored | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
 | debug | finder-check-blocked-sandbox | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
 | debug | role-session-shared-tmp-leak | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
+| debug | 999-28-uncommitted-reask | awaiting_human_verify (fix shipped in 2.14.1; owner live /review check still open) |
 | verification_gap | Phase 59 59-VERIFICATION.md | gaps_found, non-blocking; WR-01/WR-02 owner-parked to 999.23 (2026-10-29) |
 
 Carried from earlier:
@@ -71,7 +71,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.15 Lean orchestration is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.15 Lean orchestration is closed and archived; publication per 65-CLOSE-RUNBOOK.md. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -79,13 +79,17 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.15 Lean orchestration active, Phases 62–65 (62 baseline 999.12 + continuous test run, 63 Finalize extraction + cross-call variable check, 64 optional extension, 65 release gate) → conditional Reviewer efficiency; 999.31 waits until v2.15 ships; 999.26 deferred. v2.14 archived: [roadmap](milestones/v2.14-ROADMAP.md).
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration closed (publishing 2.15.0) → no next milestone scoped; conditional Reviewer efficiency; 999.31 waits for the next milestone; 999.26 deferred.
+- [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md), [requirements](milestones/v2.15-REQUIREMENTS.md), [audit](milestones/v2.15-MILESTONE-AUDIT.md), phase dirs in milestones/v2.15-phases/.
+- [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: /bm:complete-milestone v2.15. Pre-close audit: 4 open debug sessions, owner deferred all 4 (AskUserQuestion). Archived v2.15 ROADMAP, REQUIREMENTS and audit to milestones/; phase dirs moved to milestones/v2.15-phases/; MILESTONES, PROJECT, ROADMAP and RETROSPECTIVE updated; REQUIREMENTS.md removed. No tag made (runbook step 1: the tag goes on origin/main in step 6). Next: runbook steps 2-10.
 
 2026-11-16: Phase 65 plan 07 complete. Owner signed off 2.15.0 on b073e31 in the main session (AskUserQuestion, "Go (Recommended)"; recorded in 93313b8): four waivers granted, named growth signed, tag v2.15 / title "v2.15 — Lean orchestration". Two wording fixes in planning docs: the record's catch line now states 25 of 26 kept, 1 under standing amendment 008, 0 regressed; the sign-off's Dependabot line now says the PR listing ran and found none. Next: /bm:verify-work 65, then 65-CLOSE-RUNBOOK.md.
 

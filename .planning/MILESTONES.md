@@ -1,5 +1,30 @@
 # Milestones
 
+## v2.15 Lean orchestration (Closed 2026-11-16; 2.15.0 publish pending)
+
+**Phases:** 62–65 (62: 11/11 plans, 63: 11/11, 64: recorded skip, 65: 7/7) · **Release:** 2.15.0, candidate `b073e31` (release PR, squash to main, tag `v2.15` on origin/main per 65-CLOSE-RUNBOOK.md) · **Git:** dd8e4ab..b073e31, plugin + README 26 files, +7,833/−736 · **Timeline:** 2026-11-13 → 2026-11-16 · **Suite:** 4126 passed (scripts), 4599 (repo root), 0 failed, 0 skipped; Mac-only 7; mode/recovery 898; replay vs 2.14.1: 170 runs, 0 differences; 25/26 previously caught defects kept, 0 regressed · **Audit:** tech_debt, 17/17 requirements, integration 7/7, flows 2/2 (`milestones/v2.15-MILESTONE-AUDIT.md`)
+
+**Not measured.** There was no B3 or holdout run, and cost visibility was NO-GO (owner, Phase 62): savings are reported as loaded bytes and counted steps, never tokens or dollars. v2.11 (5/18 · 15/15, MISS) remains the last measured result.
+
+**Key accomplishments:**
+
+- **Baseline and CI (P62, 999.12):** the 2.14.1 behaviour and footprint are pinned under `docs/design/lean-v2.15/` with the improvement criterion written down first; the offline suite and the stdlib-only check run in GitHub Actions on every push and PR to `main` (proven red on a deliberately broken branch). Cost visibility: NO-GO, so the milestone is judged on labelled byte and step counts.
+- **Finalize extraction (P63):** Close out's fingerprint, counting and decision commands now run through one tested stdlib helper that returns one result. The extraction alone took Close out from 92 to 83 steps and 136,114 to 129,451 bytes; a permanent side-by-side test runs the literal 2.14.1 step beside the helper (833 scenarios). Four rounds of one-difference-per-round were closed in follow-up PR #11.
+- **Cross-call variable check (P63):** one general check walks every phase file and fails on a shell value read across Bash calls; all nine reproduced places were fixed.
+- **Extension (P64):** closed as a recorded skip (owner); the candidate carries the Finalize extraction alone.
+- **Release gate (P65):** G1–G11 PASS on `b073e31`; WR-02 (empty GSD phase id) reproduced as a regression from 2.14.1 and fixed in the one owner-approved fix round; bounded three-session live smoke PASS. Net at release: Close out 136,114 → 131,381 bytes, 92 → 85 steps; each review path grew +1,705 to +1,966 bytes and +2 steps (named growth, owner-signed). Inline Python in review steps now runs isolated (closes a 2.14.1 `json.py` planting hole).
+
+### Known limits (owner-accepted)
+
+- **999.34:** Phase 62 baseline checks that pass on inputs they should reject (WR-02/WR-03 bypassed by Phase 65's direct recounts).
+- **999.35–999.38:** Finalize card temp-file plumbing not yet extracted; cross-call check exceptions and blind spots; helper matches 2.14.1 on inputs it could refuse; Phase 63 review carry.
+- **999.39:** a GSD phase lookup can pick one of two same-named phase folders (release-notes known limit); `05-state.md` wording overclaims; test tidiness.
+- **Deferred families:** evidence/envelope assembly and dispatch selection need their own baseline; 999.32 fix-loop Rerun stays in backlog.
+
+Known deferred items at close: 4 (see STATE.md Deferred Items)
+
+---
+
 ## v2.14 Decision reliability (Shipped: 2026-10-30)
 
 **Phases:** 59–61 (59: 6/6 plans, 60: 16/16 incl. three gap rounds, 61: 5/5 incl. option-B regate) · **Tasks:** 92 · **Release:** 2.14.0, candidate `47978aa` (release PR, squash to main, tag `v2.14` on origin/main per 61-CLOSE-RUNBOOK.md) · **Git:** f2b6a36..47978aa, plugin + README 18 files, +6,000/−108 · **Timeline:** 2026-10-28 → 2026-10-30 · **Suite:** 3821 passed, 0 failed; real-chain 193, mode/recovery 520; replay vs 2.13: 170 runs, 0 differing · **Audit:** tech_debt, 16/16 requirements, integration 8/9, flows 5/5 (`milestones/v2.14-MILESTONE-AUDIT.md`)
