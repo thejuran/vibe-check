@@ -1,6 +1,6 @@
 # Roadmap: vibe-check
 
-Updated 2026-11-16 (v2.15 Lean orchestration closed and archived: Phases 62–65 complete, audit tech_debt 17/17; publishing as 2.15.0 through the release PR per 65-CLOSE-RUNBOOK.md — not yet merged, tagged or released). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-11-16 (v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); audit tech_debt 17/17. No milestone active; the next starts with /bm:new-milestone). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
@@ -8,7 +8,7 @@ Updated 2026-11-16 (v2.15 Lean orchestration closed and archived: Phases 62–65
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
 - ✅ v2.14 Decision reliability -- Phases 59–61 (shipped as 2.14.0; 2.14.1 patch fixed 999.28; known limits 999.23 residuals, 999.26, 999.27, 999.29, 999.30) — [archive](milestones/v2.14-ROADMAP.md) (shipped 2026-10-30)
-- 🚧 v2.15 Lean orchestration -- Phases 62–65 (in progress: closed and archived, release PR in review; 2.15.0 not yet published) — [archive](milestones/v2.15-ROADMAP.md)
+- ✅ v2.15 Lean orchestration -- Phases 62–65 (shipped as 2.15.0; known limits 999.34–999.39) — [archive](milestones/v2.15-ROADMAP.md) (shipped 2026-11-16)
 
 <details>
 <summary>✅ v2.14 Decision reliability (Phases 59–61) — SHIPPED 2026-10-30</summary>
@@ -21,14 +21,17 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 </details>
 
-### 🚧 v2.15 Lean orchestration (Phases 62–65, in progress: closing — release PR in review)
+<details>
+<summary>✅ v2.15 Lean orchestration (Phases 62–65) — SHIPPED 2026-11-16</summary>
 
 - [x] **Phase 62: Baseline and continuous test run** - 2.14.1 baseline pinned, cost visibility NO-GO (owner), offline suite on every push and PR to `main` (11/11 plans) — completed 2026-11-14
 - [x] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's gate inputs from one tested stdlib helper (92 → 83 steps on the extraction alone); one general cross-call variable check (11/11 plans) — completed 2026-11-15
 - [x] **Phase 64: Optional bounded extension (conditional)** - Closed as a recorded skip (owner); evidence/envelope assembly, dispatch selection and 999.32 deferred — completed 2026-11-15
 - [x] **Phase 65: Release gate — orchestration equivalence and useful savings** - G1–G11 PASS on candidate `b073e31`; replay 170 runs, 0 differences; live smoke PASS; Close out 136,114 → 131,381 bytes, 92 → 85 steps (7/7 plans) — completed 2026-11-17
 
-Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milestones/v2.15-MILESTONE-AUDIT.md)). Full phase details: [archive](milestones/v2.15-ROADMAP.md). Known limits and carried review items: 999.34–999.39. Remaining close steps (runbook 4–10): release PR + CI on its head (G12), owner merge OK, squash merge, tree-identity check, tag `v2.15` on `origin/main`, GitHub release, plugin update.
+Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milestones/v2.15-MILESTONE-AUDIT.md)). Full phase details: [archive](milestones/v2.15-ROADMAP.md). Known limits and carried review items: 999.34–999.39. Shipped as 2.15.0 via release PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest).
+
+</details>
 
 ## Future milestone: Reviewer efficiency (conditional)
 
@@ -211,7 +214,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- v2.15 Lean orchestration (Phases 62–65) is closed and archived; 2.15.0 is publishing through the release PR per `65-CLOSE-RUNBOOK.md`. No next milestone is scoped; 999.31 (decision identity design) waits for it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)). No next milestone is scoped; 999.31 (decision identity design) waits for it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.

@@ -1,8 +1,8 @@
 # Milestones
 
-## v2.15 Lean orchestration (Closed 2026-11-16; 2.15.0 publish pending)
+## v2.15 Lean orchestration (Shipped: 2026-11-16)
 
-**Phases:** 62–65 (62: 11/11 plans, 63: 11/11, 64: recorded skip, 65: 7/7) · **Release:** 2.15.0, candidate `b073e31` (release PR, squash to main, tag `v2.15` on origin/main per 65-CLOSE-RUNBOOK.md) · **Git:** dd8e4ab..b073e31, plugin + README 26 files, +7,833/−736 · **Timeline:** 2026-11-13 → 2026-11-16 · **Suite:** 4126 passed (scripts), 4599 (repo root), 0 failed, 0 skipped; Mac-only 7; mode/recovery 898; replay vs 2.14.1: 170 runs, 0 differences; 25/26 previously caught defects kept, 0 regressed · **Audit:** tech_debt, 17/17 requirements, integration 7/7, flows 2/2 (`milestones/v2.15-MILESTONE-AUDIT.md`)
+**Phases:** 62–65 (62: 11/11 plans, 63: 11/11, 64: recorded skip, 65: 7/7) · **Release:** 2.15.0, candidate `b073e31` (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); CI green on the PR head) · **Git:** dd8e4ab..b073e31, plugin + README 26 files, +7,833/−736 · **Timeline:** 2026-11-13 → 2026-11-16 · **Suite:** 4126 passed (scripts), 4599 (repo root), 0 failed, 0 skipped; Mac-only 7; mode/recovery 898; replay vs 2.14.1: 170 runs, 0 differences; 25/26 previously caught defects kept, 0 regressed · **Audit:** tech_debt, 17/17 requirements, integration 7/7, flows 2/2 (`milestones/v2.15-MILESTONE-AUDIT.md`)
 
 **Not measured.** There was no B3 or holdout run, and cost visibility was NO-GO (owner, Phase 62): savings are reported as loaded bytes and counted steps, never tokens or dollars. v2.11 (5/18 · 15/15, MISS) remains the last measured result.
 

@@ -326,7 +326,7 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 
 ## Milestone: v2.15 — Lean orchestration
 
-**Completed:** 2026-11-16 (2.15.0 signed off on b073e31; release in progress; not B3-measured)
+**Completed:** 2026-11-16 (2.15.0 shipped: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); not B3-measured)
 **Phases:** 62–65 | **Plans:** 29 (11 + 11 + 0 recorded skip + 7)
 
 ### What Was Built
@@ -372,7 +372,7 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 | v2.5 Sharper, more legible reviews | 4 (19-22) | 8 | 2026-06-28 | CLOSE-01 PASS (`--all` self-dogfood, owner sign-off, 2 self-defects caught + fixed) |
 | v2.13 Reliable fix closure and recovery | 3 (56-58) | 52 | 2026-10-28 | Not measured (regression fixtures + replay 0 regressed; known limits 999.23–999.26) |
 | v2.14 Decision reliability | 3 (59-61) | 27 | 2026-10-30 | Not measured (suite 3821/0, replay 170 runs 0 differing, live smoke PASS with C1 disclosed; known limits 999.23 residuals, 999.26–999.28) |
-| v2.15 Lean orchestration | 4 (62-65) | 29 | 2026-11-16 (release in progress) | Not measured (suite 4126/0, replay vs 2.14.1 170 runs 0 differing, live smoke PASS; Close out 92 → 85 steps; known limits 999.34–999.39) |
+| v2.15 Lean orchestration | 4 (62-65) | 29 | 2026-11-16 | Not measured (suite 4126/0, replay vs 2.14.1 170 runs 0 differing, live smoke PASS; Close out 92 → 85 steps; known limits 999.34–999.39) |
 
 **Recurring pattern:** every milestone closes with an efficacy test + owner sign-off as the human
 bar — the right verification shape for a prompt-only review plugin where coverage, not unit tests, is

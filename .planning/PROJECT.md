@@ -16,7 +16,7 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Last Milestone: v2.15 Lean orchestration (CLOSED 2026-11-16; publishing as 2.15.0 — release PR pending)
+## Last Milestone: v2.15 Lean orchestration (SHIPPED 2026-11-16 as 2.15.0)
 
 **Goal (met, with owner-accepted known limits):** reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behaviour of 2.14.1 (`dd8e4ab`). The milestone met 17/17 requirements (BASE-01..04, CI-01..02, FINX-01..05, XVAR-01..02, EXT-01, GATE-04..06). The audit is tech_debt: integration 7/7, flows 2/2. On candidate `b073e31` the suite ran 4126 passed (scripts) / 4599 (repo root), 0 failed; replay against 2.14.1 gave 170 runs with 0 differences; a bounded live smoke passed. Close out went 136,114 → 131,381 bytes and 92 → 85 counted steps; each review path grew +1,705 to +1,966 bytes and +2 steps (named growth, owner-signed). Not B3-measured; cost visibility NO-GO, so no token or dollar claim. Known limits: 999.34–999.39. Phase 64 closed as a recorded skip. Full record: [archive](milestones/v2.15-ROADMAP.md), [MILESTONES.md](MILESTONES.md); release per `milestones/v2.15-phases/65-release-gate-orchestration-equivalence-and-useful-savings/65-CLOSE-RUNBOOK.md`.
 
@@ -91,9 +91,9 @@ results + README. Backlog effects: 999.12 promoted in, 999.8 absorbed, 999.13 re
 after this milestone; gitleaks (999.2), SARIF (999.3), PR-posting (999.5) unchanged/deferred.
 Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
 
-## Current State: v2.15 closed, 2.15.0 publishing (2026-11-16)
+## Current State: v2.15 shipped (2026-11-16)
 
-**v2.15 Lean orchestration is closed and archived; 2.15.0 (candidate `b073e31`) is going out through the release PR, then tag `v2.15` on `origin/main` and the GitHub release.** Close out now runs its fingerprint, counting and decision commands through one checked stdlib helper; reviewers, the scoring formula and scores are unchanged. The offline suite runs in CI on every push and PR to `main`. No next milestone is scoped; 999.31 (decision identity design) and the conditional Reviewer efficiency milestone wait for one. The last measured efficacy is still v2.11 (5/18 · 15/15).
+**v2.15 Lean orchestration shipped as plugin 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)).** Close out now runs its fingerprint, counting and decision commands through one checked stdlib helper; reviewers, the scoring formula and scores are unchanged. The offline suite runs in CI on every push and PR to `main`. No next milestone is scoped; 999.31 (decision identity design) and the conditional Reviewer efficiency milestone wait for one. The last measured efficacy is still v2.11 (5/18 · 15/15).
 
 ### Earlier: v2.15 started (2026-11-13)
 
@@ -488,4 +488,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-16 after v2.15 milestone close (2.15.0 publish pending)*
+*Last updated: 2026-11-16 after v2.15 milestone (shipped as 2.15.0)*

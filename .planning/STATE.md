@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "in review — v2.15 closed and archived; release PR for 2.15.0 not yet opened, merged, tagged or released"
+status: Awaiting next milestone — v2.15 shipped as 2.15.0
 last_updated: "2026-11-17T03:40:00Z"
-last_activity: "2026-11-16 -- /bm:complete-milestone v2.15: archived roadmap, requirements, audit and phase dirs; no tag made (runbook step 1)"
-stopped_at: "v2.15 archived — next 65-CLOSE-RUNBOOK.md steps 2-10 (freshness, Dependabot, release PR + G12, owner merge OK, tag on origin/main, GitHub release, plugin update)"
+last_activity: "2026-11-16 -- 2.15.0 shipped: PR #12 squash d5acc19, tag v2.15 on origin/main, GitHub release v2.15 (Latest); installed plugin updated, relaunch pending"
+stopped_at: "v2.15 shipped — next /bm:new-milestone (after a Claude Code relaunch to load 2.15.0)"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,20 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** publish 2.15.0 per 65-CLOSE-RUNBOOK.md (milestone archived); then /bm:new-milestone
+**Current focus:** between milestones — /bm:new-milestone next
 
 ## Current Position
 
-Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — complete, milestone archived; 2.15.0 NOT yet published
-Plan: 7 of 7
-Status: v2.15 closed and archived (audit tech_debt 17/17); release PR, G12, owner merge OK, tag and GitHub release pending
-Last activity: 2026-11-16 -- /bm:complete-milestone v2.15 (phase dirs now in milestones/v2.15-phases/)
+Phase: Milestone v2.15 complete — shipped as 2.15.0
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-16 -- PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)
 
 ## Operator Next Steps
 
-- Run 65-CLOSE-RUNBOOK.md steps 2-4: freshness assert, Dependabot re-check, release PR with G12 on its head, then the owner's merge OK
-- Steps 5-10: tree identity, tag v2.15 on origin/main, GitHub release, plugin update + relaunch, branch cleanup, mark shipped here and in ROADMAP
-- Then /bm:new-milestone (999.31 decision identity design is the waiting candidate)
+- Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
+- Start the next milestone with /bm:new-milestone (999.31 decision identity design is the waiting candidate)
 
 ## Deferred Items
 
@@ -71,7 +70,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.15 Lean orchestration is closed and archived; publication per 65-CLOSE-RUNBOOK.md. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0. No milestone active. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -79,7 +78,7 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.15 Lean orchestration closed (publishing 2.15.0) → no next milestone scoped; conditional Reviewer efficiency; 999.31 waits for the next milestone; 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration shipped as 2.15.0 → no next milestone scoped; conditional Reviewer efficiency; 999.31 waits for the next milestone; 999.26 deferred.
 - [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md), [requirements](milestones/v2.15-REQUIREMENTS.md), [audit](milestones/v2.15-MILESTONE-AUDIT.md), phase dirs in milestones/v2.15-phases/.
 - [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
@@ -88,6 +87,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: 2.15.0 shipped per 65-CLOSE-RUNBOOK.md: release PR #12, G12 green on aa1a781 and re-run green on 5e8734e, owner merge OK ("Merge when green"), squash d5acc19, tree identity vs b073e31 OK, tag v2.15 on origin/main, GitHub release v2.15 (Latest), `claude plugin update` 2.14.1 → 2.15.0 (relaunch pending), feat/v2.15-phase-65 deleted locally and on GitHub, main realigned to origin/main.
 
 2026-11-16: /bm:complete-milestone v2.15. Pre-close audit: 4 open debug sessions, owner deferred all 4 (AskUserQuestion). Archived v2.15 ROADMAP, REQUIREMENTS and audit to milestones/; phase dirs moved to milestones/v2.15-phases/; MILESTONES, PROJECT, ROADMAP and RETROSPECTIVE updated; REQUIREMENTS.md removed. No tag made (runbook step 1: the tag goes on origin/main in step 6). Next: runbook steps 2-10.
 

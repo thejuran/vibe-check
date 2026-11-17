@@ -256,9 +256,8 @@ WR-02 is not carried: it was fixed before release (b281042) and is covered by te
 
 ## Publish status
 
-GATE-04/05/06 "ships through the existing close workflow": pending close — see [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md).
+GATE-04/05/06 "ships through the existing close workflow": DONE 2026-11-16 per [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md). Owner merge OK (AskUserQuestion, main session, "Merge when green"); G12 re-run green on PR head `5e8734e`; PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest). Step 5 tree identity: origin/main ships `plugins/vibe-check` and README byte-for-byte from `b073e31`. Installed plugin updated 2.14.1 → 2.15.0 (relaunch pending).
 G12 (CI `offline-suite` green on the PR head): PASS 2026-11-16 on PR #12 head `aa1a781` (https://github.com/thejuran/vibe-check/actions/runs/44009382461; `4592 passed, 2 skipped, 5 deselected, 2 warnings, 6471 subtests passed`; skip guard: skipped set matches the recorded 2). Plugin tree identical to candidate `b073e31`.
-Nothing has been pushed, tagged, merged or released from this phase.
 
 ## Post-sign-off review carry (2026-11-16)
 
