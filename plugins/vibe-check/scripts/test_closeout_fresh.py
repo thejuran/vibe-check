@@ -41,6 +41,7 @@ is present, replace once, exec under a non-main name) and showing the guarded
 fixture goes through; each mutant must make a named test here fail.
 """
 
+import importlib.util
 import json
 import os
 import shutil
@@ -730,6 +731,126 @@ class TestStorePath(tws._Chain):
         self.assertFalse(os.path.exists(
             os.path.join(self.repo.repo, ".turingmind")),
             "the check must never create the store")
+
+
+CLOSEOUT_PATH = os.path.join(SCRIPTS_DIR, "closeout_fresh.py")
+DIFF_R = '["diff", "-R", "--no-renames", "--text", *REV_FLAGS,'
+SWAPPED = '"--src-prefix=b/", "--dst-prefix=a/"'
+NORMAL = '"--src-prefix=a/", "--dst-prefix=b/"'
+
+
+class TestModuleMutants(DecidedCase):
+    """Each guard in closeout_fresh.py, removed by a source substitution,
+    makes the named behaviour go wrong on the same fixture the real module
+    gets right (decorative-guard lesson: no guard that can never trip)."""
+
+    def mutant(self, *pairs):
+        """A copy of closeout_fresh with each `(old, new)` replaced once."""
+        with open(CLOSEOUT_PATH, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        for old, new in pairs:
+            self.assertIn(old, src,
+                          "mutant text must be present in the real source")
+            src = src.replace(old, new, 1)
+        spec = importlib.util.spec_from_loader("closeout_fresh_mutant",
+                                               loader=None)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__file__ = CLOSEOUT_PATH
+        exec(compile(src, CLOSEOUT_PATH, "exec"), mod.__dict__)
+        return mod
+
+    def both(self, state, mod):
+        """(real result, mutant result) on the same state and repo."""
+        blobs = finalize_inputs.head_blobs(state, cwd=self.repo)
+        return (closeout_fresh.stale_decisions(state, blobs, cwd=self.repo),
+                mod.stale_decisions(state, blobs, cwd=self.repo))
+
+    # M2: forward diff. Dropping `-R` alone leaves the swapped prefixes
+    # keying every range under `a/`; dropping it with the usual prefixes is
+    # a true forward diff in working-tree numbering.
+    def test_mutant_drop_reverse_misses_deleted_file(self):
+        mod = self.mutant((DIFF_R, DIFF_R.replace('"-R", ', "")))
+        state, h = self.decided("defer")
+        git(self.repo, "rm", "-q", tdc.F)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "deleted"))
+        self.assertEqual(mutated, self.one(h, "defer", "unverifiable"))
+
+    def test_mutant_forward_diff_refuses_pure_shift(self):
+        mod = self.mutant((DIFF_R, DIFF_R.replace('"-R", ', "")),
+                          (SWAPPED, NORMAL))
+        state, h = self.decided("defer")
+        self.put(["shift_%02d = 0" % i for i in range(SHIFT)] + self.lines)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, [])
+        # Working-tree numbering: the 20 inserted lines are 1-20, line 10's.
+        self.assertEqual(mutated, self.one(h, "defer", "line"))
+
+    def test_mutant_forward_diff_loses_git_rm_deleted(self):
+        mod = self.mutant((DIFF_R, DIFF_R.replace('"-R", ', "")),
+                          (SWAPPED, NORMAL))
+        state, h = self.decided("dismiss")
+        git(self.repo, "rm", "-q", tdc.F)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "dismiss", "deleted"))
+        self.assertNotEqual(mutated, real)
+
+    # M3: the usual prefixes under -R key ranges as `a/<path>`: silent keep.
+    def test_mutant_normal_prefixes_silently_keep_exact_edit(self):
+        mod = self.mutant((SWAPPED, NORMAL))
+        state, h = self.decided("defer")
+        self.edit(10)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "line"))
+        self.assertEqual(mutated, [])
+
+    # M4: rename detection pairs src/a.py with src/b.py and prints no hunk.
+    def test_mutant_renames_on_loses_git_mv_deleted(self):
+        mod = self.mutant((DIFF_R, DIFF_R.replace('"--no-renames", ', "")))
+        state, h = self.decided("defer")
+        git(self.repo, "mv", tdc.F, "src/b.py")
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "deleted"))
+        self.assertNotEqual(mutated, real)
+
+    # M5: the window must be the review's +/- 5.
+    def test_mutant_window_4_keeps_edit_at_15(self):
+        mod = self.mutant(("_NEARBY_LINES = 5", "_NEARBY_LINES = 4"))
+        state, h = self.decided("defer")
+        self.edit(15)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "nearby"))
+        self.assertEqual(mutated, [])
+
+    def test_mutant_window_6_refuses_edit_at_16(self):
+        mod = self.mutant(("_NEARBY_LINES = 5", "_NEARBY_LINES = 6"))
+        state, h = self.decided("defer")
+        self.edit(16)
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, [])
+        self.assertEqual(mutated, self.one(h, "defer", "nearby"))
+
+    # M6: without the reviewed-tree membership check an untracked decided
+    # file has no ranges and is silently kept.
+    def test_mutant_no_membership_check_keeps_untracked(self):
+        mod = self.mutant(("if file not in reviewed_paths:", "if False:"))
+        state, h = self.decided("defer")
+        state = json.loads(json.dumps(state).replace(tdc.F, "notes/x.py"))
+        self.put(self.lines, rel="notes/x.py")
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "untracked"))
+        self.assertEqual(mutated, [])
+
+    # M7: a comparison that cannot be made must never read as "unchanged".
+    def test_mutant_unverifiable_as_unchanged_keeps_missing_tree(self):
+        mod = self.mutant((
+            "    except Unverifiable:\n        return _all_unverifiable(candidates)",
+            "    except Unverifiable:\n        return []"))
+        state, h = self.decided("defer")
+        del state["passes"][-1]["reviewed_tree"]
+        real, mutated = self.both(state, mod)
+        self.assertEqual(real, self.one(h, "defer", "unverifiable"))
+        self.assertEqual(mutated, [])
 
 
 if __name__ == "__main__":
