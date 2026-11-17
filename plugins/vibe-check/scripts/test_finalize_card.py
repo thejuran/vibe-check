@@ -43,6 +43,9 @@ from finalize_inputs import NEXT_ACTIONS  # noqa: E402  (the next-action vocabul
 from test_batch_card import HB, successor_state  # noqa: E402
 from test_carry_state import (ARCH_FILE, ARCH_HASH, load_fixture,  # noqa: E402
                               obsolete_verdict)
+from test_finalize_inputs import (bind_reviewed_tree,  # noqa: E402
+                                  check_decided_fixture, decided_files,
+                                  open_files, reviewed_files)
 from test_pause_batching import FINALIZE_MD, PINS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2362,6 +2365,23 @@ class TestFinalizeFreshShellWalk(LockCase):
         shutil.copyfile(source, path)
         return path
 
+    def _new_repo(self):
+        """A fresh temp repo (isolated git config) under this test's folder."""
+        return gitfixture.make_repo(tempfile.mkdtemp(dir=self.tmp))
+
+    def _bound_six_row(self):
+        """(state file, repo): the six-row state with the six files the card
+        decides committed in a fresh repo and the last pass stamped with that
+        reviewed tree. The Finalize-inputs fence runs inside the repo."""
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            state = json.load(fh)
+        repo = self._new_repo()
+        bind_reviewed_tree(repo, state, reviewed_files(state,
+                                                       open_files(state)))
+        path = os.path.join(self.tmp, "state.json")
+        self._write_json(path, state)
+        return path, repo
+
     def _report(self, state_file):
         """What the 2.14.1 report fence printed for this state, run fresh."""
         rc, out, err = self._run_fresh(P7_FENCE_2141, state_file)
@@ -2422,7 +2442,9 @@ class TestFinalizeFreshShellWalk(LockCase):
     def _write_route_state(self):
         """The phase-45 loop state with every open finding dismissed through
         carry_state's own record_decisions (a state the helpers accept and
-        whose gate outcome is `write`)."""
+        whose gate outcome is `write`) -> (state file, repo). The decided
+        files are committed in a fresh repo and the last pass is stamped with
+        that reviewed tree; the Finalize-inputs fence runs inside the repo."""
         state = load_fixture()
         counts = carry_state.finalize_counts(state)
         hashes = (counts["outstanding_cw_hashes"]
@@ -2434,9 +2456,74 @@ class TestFinalizeFreshShellWalk(LockCase):
             "decisions": [{"stable_hash": h, "decision": "dismiss",
                            "reason": "walk"} for h in hashes]})
         self.assertIsNotNone(state)
+        repo = self._new_repo()
+        bind_reviewed_tree(repo, state)
         path = os.path.join(self.tmp, "write-route.json")
         self._write_json(path, state)
-        return path
+        return path, repo
+
+    def _verdict_route_state(self):
+        """(state file, repo): the phase-45 loop state in a fresh repo whose
+        ARCH_FILE is committed, with a last-pass fix-obsolete verdict on that
+        HEAD blob. The other open file (the one the card decides) is
+        committed too and the last pass is stamped with that reviewed tree;
+        ARCH_FILE, and so the verdict, is left as it is."""
+        repo = self._new_repo()
+        gitfixture.write(repo, ARCH_FILE, "fixed\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-q", "-m", "init")
+        blob = gitfixture.git(repo, "rev-parse",
+                              "HEAD:" + ARCH_FILE).stdout.strip()
+        s = load_fixture()
+        last = s["passes"][-1]
+        s["fix_verdicts"] = {ARCH_HASH: dict(
+            obsolete_verdict(at_pass=last["pass_number"], blob=blob),
+            head_sha=last["head_sha"])}
+        bind_reviewed_tree(repo, s, reviewed_files(
+            s, [f for f in open_files(s) if f != ARCH_FILE]))
+        state = os.path.join(self.tmp, "verdict.json")
+        self._write_json(state, s)
+        return state, repo
+
+    def test_decision_bearing_states_bind_reviewed_tree(self):
+        """Every state this walk runs the Finalize-inputs fence on with a
+        current owner decision (as built, or once the card's answers are
+        recorded) is on a reviewed tree in the repo the fence runs in, with
+        the decided files unchanged (all of these are write-path routes)."""
+
+        def dismiss_open(state):
+            return carry_state.record_decisions(state, {
+                "at_pass": state["passes"][-1]["pass_number"],
+                "decisions": [{"stable_hash": r["stable_hash"],
+                               "decision": "dismiss", "reason": "walk"}
+                              for r in carry_state.open_findings(state)]})
+
+        def load(path):
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh)
+
+        path, repo = self._write_route_state()
+        cases = [("write route", repo, load(path))]
+        path, repo = self._bound_six_row()
+        cases.append(("six-row card answered", repo, dismiss_open(load(path))))
+        path, repo = self._verdict_route_state()
+        answered = load(path)
+        answered = carry_state.record_decisions(answered, {
+            "at_pass": answered["passes"][-1]["pass_number"],
+            "decisions": [{"stable_hash": h, "decision": "dismiss",
+                           "reason": "walk"}
+                          for h in carry_state.finalize_counts(answered)
+                          ["unacknowledged_medium_hashes"]]})
+        cases.append(("verdict card answered", repo, answered))
+        for label, repo, state in cases:
+            with self.subTest(fixture=label):
+                self.assertTrue(decided_files(state))
+                self.assertEqual(check_decided_fixture(repo, state), [])
+        # Mutant: the same write route without its reviewed tree is caught.
+        path, repo = self._write_route_state()
+        bare = load(path)
+        del bare["passes"][-1]["reviewed_tree"]
+        self.assertNotEqual(check_decided_fixture(repo, bare), [])
 
     @staticmethod
     def _three(counts):
@@ -2446,8 +2533,8 @@ class TestFinalizeFreshShellWalk(LockCase):
     def test_walk_reaches_counts_gate_report(self):
         """The clean route: the fence prints BLOBFILE= and a result whose
         `next` is `write-review-md`, with the report bundle."""
-        state = self._write_route_state()
-        rc, blob, result, err = self._inputs(state)
+        state, repo = self._write_route_state()
+        rc, blob, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual(err, "")
         self.assertIsNotNone(blob)
@@ -2469,14 +2556,14 @@ class TestFinalizeFreshShellWalk(LockCase):
         fences with the printed BLOBFILE= literal, record-decisions (the one
         pre-`write` state write), then the fence again prints a NEW
         BLOBFILE= and `write-review-md`."""
-        state = self._state_copy(SIX_ROW_FIXTURE)
-        rc, blob1, result, err = self._inputs(state)
+        state, repo = self._bound_six_row()
+        rc, blob1, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual((result["action"], result["next"]),
                          ("outstanding-to-phase-5", "finalize-card"))
         self.assertIsNone(result["report"])
         decided = self._answer_card(blob1, state)
-        rc, blob2, result, err = self._inputs(state)
+        rc, blob2, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(blob2, blob1)
         self.assertEqual(result["next"], "write-review-md")
@@ -2514,14 +2601,14 @@ class TestFinalizeFreshShellWalk(LockCase):
         helper reads it -> the fence exits non-zero with the counting
         sentence; the rebuild (the same fence once more) prints a NEW
         BLOBFILE= and reaches `write-review-md`."""
-        state = self._write_route_state()
+        state, repo = self._write_route_state()
         rc, path1, result, err = self._inputs(
-            state, path_dir=self._mktemp_shim())
+            state, cwd=repo, path_dir=self._mktemp_shim())
         self.assertNotEqual(rc, 0)
         self.assertIsNone(result)
         self.assertEqual(err.splitlines()[-1], COUNTS_HALT)
         self.assertFalse(os.path.exists(path1))
-        rc, path2, result, err = self._inputs(state)
+        rc, path2, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(path1, path2)
         self.assertEqual(result["next"], "write-review-md")
@@ -2560,15 +2647,17 @@ class TestFinalizeFreshShellWalk(LockCase):
         fence of `text`: exactly the helper's one carry_state line, then the
         counting sentence (D-18), no traceback, no side file."""
         if case == "fingerprint file removed":
-            state, shim = self._write_route_state(), self._mktemp_shim()
+            (state, repo), shim = (self._write_route_state(),
+                                   self._mktemp_shim())
             want = [carry_state.REASON_HEAD_BLOBS.strip(), COUNTS_HALT]
         else:
             state = os.path.join(self.tmp, "not-json.json")
             with open(state, "w", encoding="utf-8") as fh:
                 fh.write("not json")
-            shim = None
+            repo, shim = None, None
             want = [carry_state.REASON_STATE_JSON.strip(), COUNTS_HALT]
-        rc, blob, _, err = self._inputs(state, text=text, path_dir=shim)
+        rc, blob, _, err = self._inputs(state, text=text, cwd=repo,
+                                        path_dir=shim)
         problems = []
         if rc == 0:
             problems.append("exit 0")
@@ -2698,13 +2787,13 @@ class TestFinalizeFreshShellWalk(LockCase):
         read before the card still holds the pre-answer counts (5, 1, 0) and
         `finalize-card`; running the fence again recounts (0, 0, 0) and the
         gate returns `write-review-md`. Step 3 must say to do the second."""
-        state = self._state_copy(SIX_ROW_FIXTURE)
-        rc, blob1, before, err = self._inputs(state)
+        state, repo = self._bound_six_row()
+        rc, blob1, before, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual(self._three(before["counts"]), (5, 1, 0))
         self.assertEqual(before["next"], "finalize-card")
         self._answer_card(blob1, state)
-        rc, blob2, after, err = self._inputs(state)
+        rc, blob2, after, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(blob2, blob1)
         self.assertEqual(self._three(after["counts"]), (0, 0, 0))
@@ -2719,19 +2808,7 @@ class TestFinalizeFreshShellWalk(LockCase):
         decides the rest. Re-run with nothing edited, the fence returns
         `write-review-md`; after an edit made while the card was open, the
         re-run (a NEW BLOBFILE=) reopens the finding and never writes."""
-        repo = gitfixture.make_repo(self.tmp)
-        gitfixture.write(repo, ARCH_FILE, "fixed\n")
-        gitfixture.git(repo, "add", "-A")
-        gitfixture.git(repo, "commit", "-q", "-m", "init")
-        blob = gitfixture.git(repo, "rev-parse",
-                              "HEAD:" + ARCH_FILE).stdout.strip()
-        s = load_fixture()
-        last = s["passes"][-1]
-        s["fix_verdicts"] = {ARCH_HASH: dict(
-            obsolete_verdict(at_pass=last["pass_number"], blob=blob),
-            head_sha=last["head_sha"])}
-        state = os.path.join(self.tmp, "verdict.json")
-        self._write_json(state, s)
+        state, repo = self._verdict_route_state()
 
         rc, blob1, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
