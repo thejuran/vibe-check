@@ -45,6 +45,12 @@ then the `GIT_*` keys dropped) and `GIT_CEILING_DIRECTORIES` at the temp root.
 Names reach git and the shell only as separate arguments; nothing derived
 from a scenario is run as code.
 
+Every grid state dismisses one finding (BUGS_HASH, in DECIDED_FILE). Each
+repo commits that file and the state's last pass carries the repo's
+reviewed commit and tree (`reviewed_tree`), so the dismissal rests on real
+reviewed code that is unchanged on disk; `TestGridStatesBindReviewedTree`
+holds every scenario to that.
+
 `TestNameFormGrid` adds what the first grid lacked (verification round 4,
 gap 5): the same file name at the top, in the session subfolder and one
 level deeper, with different content, named in `./`, `../`, `dir/`,
@@ -89,6 +95,8 @@ sys.path.insert(0, SCRIPTS_DIR)
 import carry_state  # noqa: E402  (fixture building only: record_decisions)
 import gitfixture  # noqa: E402  (helper_env isolation)
 import guard  # noqa: E402  (the dd8e4ab module; the name-form model's guard)
+from test_finalize_inputs import (check_decided_fixture,  # noqa: E402
+                                  decided_files)
 
 SOURCE_COMMIT = "dd8e4ab"
 SOURCE_DOC = "plugins/vibe-check/phases/shared/90-finalize.md"
@@ -104,6 +112,11 @@ SHARED_WITH_2141 = ("guard.py", "carry_state.py", "finalize_gate.py",
 
 ARCH_HASH = "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67"
 BUGS_HASH = "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644"
+# The file of the finding every grid state dismisses (BUGS_HASH, line 38). It
+# is committed in each grid repo and the state's last pass carries that
+# reviewed tree, so the dismissal rests on real, unchanged reviewed code.
+DECIDED_FILE = "plugins/vibe-check/phases/deep-review/20-selection.md"
+DECIDED_TEXT = "".join("s%d\n" % i for i in range(1, 45))
 CALL_TIMEOUT = 120
 
 
@@ -515,7 +528,17 @@ def apply_content(b, checkout, name, content):
             write_file(path, "untracked\n")
 
 
-def fixture_state(name, verdict, blob):
+def reviewed_of(b, repo):
+    """(HEAD commit, HEAD tree) of a freshly built grid repo: the review the
+    grid state's dismissal was made on."""
+    return (b.git(repo, "rev-parse", "HEAD").decode().strip(),
+            b.git(repo, "rev-parse", "HEAD^{tree}").decode().strip())
+
+
+def fixture_state(name, verdict, blob, reviewed=None):
+    """The grid state: BUGS_HASH dismissed, ARCH_HASH's row pointed at
+    `name` with a `verdict`-shaped fix verdict on `blob`. With `reviewed`
+    ((commit, tree) from `reviewed_of`) the last pass carries that review."""
     with open(FIXTURE, "r", encoding="utf-8") as fh:
         s = json.load(fh)
     s = carry_state.record_decisions(s, {
@@ -535,6 +558,8 @@ def fixture_state(name, verdict, blob):
         "verdict": "applied" if verdict == "applied" else "obsolete",
         "agent": "fix", "head_sha": last["head_sha"], "at_pass": at,
         "reason": "grid", "verified_blob": recorded}}
+    if reviewed is not None:
+        last["head_sha"], last["reviewed_tree"] = reviewed
     return s
 
 
@@ -547,13 +572,14 @@ def build(sc, base, top, shim_path):
     write_file(os.path.join(base, "outside.txt"), "outside\n")
     folder = "repo" + ENDINGS[sc.ending]
     repo = os.path.join(base, folder)
-    extra = []
+    extra = [(DECIDED_FILE, DECIDED_TEXT)]
     if sc.name == "nl.ts\n":
         extra.append(("nl.ts\n", "newline name\n"))
     try:
         b.init_repo(repo, FILES, LINKS, extra)
     except OSError as exc:
         raise NotCreatable(str(exc))
+    reviewed = reviewed_of(b, repo)
     if sc.neighbour != "none":
         trimmed = folder.rstrip("\n")
         if trimmed == folder:
@@ -627,7 +653,8 @@ def build(sc, base, top, shim_path):
             else os.path.join(view, SUBFOLDER, "..")
     else:
         session = os.path.join(view, rel) if rel else view
-    return session, env, fixture_state(sc.name, sc.verdict, blob), blob
+    return (session, env, fixture_state(sc.name, sc.verdict, blob, reviewed),
+            blob)
 
 
 def run(argv, cwd, env, stdin_bytes=b""):
@@ -984,13 +1011,15 @@ def nf_predict(sc, root):
 
 def nf_build(root_name, layout, target, state, base, top):
     """The repo for one (root name, layout, content) under `base` -> (repo,
-    {top-relative path: HEAD blob})."""
+    {top-relative path: HEAD blob}, (commit, tree) of the review).
+    DECIDED_FILE is committed beside the layout files."""
     b = Builder(top)
     os.makedirs(base)
     repo = os.path.join(base, root_name)
     files = collections.OrderedDict(NF_FILES[k] for k in NF_LAYOUTS[layout])
     files.update(NF_ALWAYS)
-    b.init_repo(repo, files)
+    b.init_repo(repo, files, extra=((DECIDED_FILE, DECIDED_TEXT),))
+    reviewed = reviewed_of(b, repo)
     blobs = {}
     for rel in files:
         blobs[rel] = b.git(repo, "rev-parse", "HEAD:" + rel).decode().strip()
@@ -1007,11 +1036,11 @@ def nf_build(root_name, layout, target, state, base, top):
             modify(path)
             b.git(repo, "add", "--", rel)
             restore(path, snap)
-    return repo, blobs
+    return repo, blobs, reviewed
 
 
-def nf_state(form, blob):
-    return fixture_state(form, "obsolete-head", blob)
+def nf_state(form, blob, reviewed=None):
+    return fixture_state(form, "obsolete-head", blob, reviewed)
 
 
 def nf_run(scenarios, helper=None, workers=None):
@@ -1040,14 +1069,15 @@ def nf_run(scenarios, helper=None, workers=None):
             memo = {}
 
             def one(index, sc):
-                repo, head = repos[(sc.root, sc.layout, sc.target, sc.state)]
+                repo, head, reviewed = repos[(sc.root, sc.layout, sc.target,
+                                              sc.state)]
                 fizz, d19, b, d = nf_predict(sc, repo)
                 session = os.path.join(repo, NF_SESSIONS[sc.session]) \
                     if NF_SESSIONS[sc.session] else repo
                 files_dir = os.path.join(top, "f%04d" % index)
                 os.makedirs(files_dir)
                 blob = head.get(b) if b is not None else None
-                state = nf_state(sc.form, blob)
+                state = nf_state(sc.form, blob, reviewed)
                 state_path = os.path.join(files_dir, "state.json")
                 with open(state_path, "w", encoding="utf-8") as fh:
                     json.dump(state, fh)
@@ -1190,8 +1220,8 @@ class TestNameFormGrid(unittest.TestCase):
         nf_pathspec_path say, by real git."""
         top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfmodel-"))
         try:
-            repo, head = nf_build("repo", "all", (), "clean",
-                                  os.path.join(top, "b"), top)
+            repo, head, _ = nf_build("repo", "all", (), "clean",
+                                     os.path.join(top, "b"), top)
             by_blob = {v: k for k, v in head.items()}
             env = clean_env()
             env["GIT_CEILING_DIRECTORIES"] = top
@@ -1345,6 +1375,65 @@ class TestParityGrid(unittest.TestCase):
                 self.assertIsNone(why)
                 self.assertEqual((got_old, got_new), (old, new))
                 self.assertNotEqual(old, new)
+
+
+class TestGridStatesBindReviewedTree(unittest.TestCase):
+    """Every grid state carries a dismissal (BUGS_HASH). Each one, in both
+    grid classes, sits on a reviewed tree of its own repo that holds the
+    dismissed file, unchanged on disk, so both sides see the write path for
+    real reviewed code. Scenarios are built only (no side runs)."""
+
+    def test_decision_bearing_states_bind_reviewed_tree(self):
+        top = os.path.realpath(tempfile.mkdtemp(prefix="vc-gridlock-"))
+        env = clean_env()
+        saved = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(env)
+        try:
+            shim = make_shim(top)
+
+            def grid_one(index, sc):
+                base = os.path.join(top, "s%04d" % index)
+                try:
+                    _, _, state, _ = build(sc, base, top, shim)
+                except NotCreatable:
+                    return None
+                repo = os.path.join(base, "repo" + ENDINGS[sc.ending])
+                return (key_of(sc), repo, state)
+
+            def nf_one(index, layout):
+                repo, head, reviewed = nf_build(
+                    "repo", layout, (), "clean",
+                    os.path.join(top, "n%03d" % index), top)
+                rel = NF_FILES[NF_LAYOUTS[layout][0]][0]
+                return ("nf " + layout, repo,
+                        nf_state(rel, head[rel], reviewed))
+
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(8, os.cpu_count() or 2)) as pool:
+                built = list(pool.map(lambda a: grid_one(*a),
+                                      enumerate(all_scenarios())))
+                built += list(pool.map(lambda a: nf_one(*a),
+                                       enumerate(NF_LAYOUTS)))
+            built = [b for b in built if b is not None]
+            self.assertGreaterEqual(len(built), 150)
+            problems = {}
+            for label, repo, state in built:
+                if decided_files(state) != [DECIDED_FILE]:
+                    problems[label] = decided_files(state)
+                    continue
+                found = check_decided_fixture(repo, state)
+                if found:
+                    problems[label] = found
+            self.assertEqual(problems, {})
+            # Mutant: a grid state without its reviewed tree is caught.
+            label, repo, state = built[0]
+            del state["passes"][-1]["reviewed_tree"]
+            self.assertNotEqual(check_decided_fixture(repo, state), [])
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+            shutil.rmtree(top, ignore_errors=True)
 
 
 class TestScriptUnderBash(unittest.TestCase):
