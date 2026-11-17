@@ -25,6 +25,7 @@ Known limits:
 - During Close out, a git call slower than 60 seconds leaves that file out of the fingerprints, so a "fix obsolete" verdict on it closes nothing and the finding stays open. Each `--finalize` run fingerprints again from scratch.
 - If the Close out helper itself fails, the message is "I'm uncertain about Finalize mode — finalize_gate.py failed; nothing was written or archived.", and no detail about the failure is recorded.
 - The unsafe-name stop covers `$`, a backtick, `"`, `\` and line breaks only. Names containing `;`, `&` or `'` are not stopped; this is safe only as long as every pasted name stays inside double quotes.
+- In GSD mode, if two phase folders share a name (for example `v1-phases/01-setup` and `v2-phases/01-setup`), or a container folder such as `phases` is given as the phase, the review picks one folder without warning and both can share one saved-progress file. This predates 2.15.0. Keep phase folder names unique.
 - Downgrading from 2.15.0 to 2.14.1 has not been tested. 2.15.0 adds no saved-progress field, so no effect is expected.
 - Seen in the live check: after you defer every finding in the fix loop, the review may stop and ask instead of continuing. Your decisions are saved and Close out completes; it takes one extra step. (This limit is listed only in these notes.)
 

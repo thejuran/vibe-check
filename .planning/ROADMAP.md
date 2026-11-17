@@ -369,6 +369,17 @@ The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a r
 
 Not scheduled.
 
+### 999.39: Phase 65 code review carry (65-REVIEW.md, owner ruling 2026-11-16)
+
+The owner chose "Ship + backlog (Recommended)" (AskUserQuestion, main session, 2026-11-16): ship 2.15.0 as signed off, name the lookup gap as a release-notes known limit, and carry both items here. Neither is a regression from 2.14.1.
+
+- SA-01 (lookup, pre-2.15): the GSD phase lookup in `00-scope.md` silently picks one folder when two phase folders share a name (e.g. `v1-phases/01-setup` and `v2-phases/01-setup`) instead of the "multiple matches" stop its instructions describe, and accepts a container name (`phases`, `milestones`, `v1-phases`) as a phase. Two phases can then share one saved-progress file and Close out can close on the wrong findings (wrong close, unusual layouts only). Fix: refuse multiple matches and container names in the lookup fence, test-first with mutants.
+- WR-01 (wording, from the WR-02 fix): the sentence at `05-state.md:16` says "two GSD phases never share one state file"; the check only refuses an empty id. Reword to claim only that, together with the SA-01 fix.
+- Info: IN-01 (cross-class helper borrow at `test_pasted_name_guard.py:400`) and IN-02 (label-suffix-gated message check at lines 334–335) are test tidiness only.
+- SA-02 (no live GSD check of the printed-id substitution) is covered by the 2.15.0 waiver; if a live model drops the id, GSD reviews stop safely with "phase id is empty".
+
+Not scheduled.
+
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.

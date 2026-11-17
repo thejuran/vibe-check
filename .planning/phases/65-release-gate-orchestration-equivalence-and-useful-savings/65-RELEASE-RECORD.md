@@ -259,3 +259,7 @@ WR-02 is not carried: it was fixed before release (b281042) and is covered by te
 GATE-04/05/06 "ships through the existing close workflow": pending close — see [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md).
 G12 (CI `offline-suite` green on the PR head): pending close — runbook step 4.
 Nothing has been pushed, tagged, merged or released from this phase.
+
+## Post-sign-off review carry (2026-11-16)
+
+The phase code review (65-REVIEW.md: 0 critical, 1 warning, 2 info) and security audit (65-SECURITY.md: 27/27 closed, threats_open 0) ran after sign-off. Owner ruling (AskUserQuestion, main session, 2026-11-16): "Ship + backlog (Recommended)". Candidate C (b073e31) is unchanged; the pre-2.15 duplicate-phase-folder lookup gap (SA-01) is added to the release notes as a known limit (notes are not part of the gated tree) and, with the 05-state.md wording overclaim (WR-01), carried as backlog 999.39.
