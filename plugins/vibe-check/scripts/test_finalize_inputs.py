@@ -814,34 +814,42 @@ def dismiss(state, hashes):
     return out
 
 
-def dismissed_all_state():
+def _bound(state, repo):
+    """`state` on a reviewed tree in `repo`, or as it is when `repo` is None
+    (the pure build_result tests read no repo)."""
+    return state if repo is None else bind_reviewed_tree(repo, state)
+
+
+def dismissed_all_state(repo=None):
     s = load_fixture()
     c = carry_state.finalize_counts(s)
-    return dismiss(s, c["outstanding_cw_hashes"]
-                   + c["unacknowledged_medium_hashes"]
-                   + c["undecided_nv_hashes"])
+    return _bound(dismiss(s, c["outstanding_cw_hashes"]
+                          + c["unacknowledged_medium_hashes"]
+                          + c["undecided_nv_hashes"]), repo)
 
 
-def nv_open_state():
+def nv_open_state(repo=None):
     """Only an undecided Needs-verification item open."""
     s = load_fixture()
     row(s, ARCH_HASH)["band"] = "needs-verification"
-    return dismiss(s, [BUGS_HASH])
+    return _bound(dismiss(s, [BUGS_HASH]), repo)
 
 
-def medium_only_state():
-    return dismiss(load_fixture(), [ARCH_HASH])
+def medium_only_state(repo=None):
+    return _bound(dismiss(load_fixture(), [ARCH_HASH]), repo)
 
 
-def fix_obsolete_state(blob):
+def fix_obsolete_state(blob, repo=None):
     """The warning row closed by a last-pass fix-obsolete verdict on `blob`;
-    the medium dismissed, so the gate writes when `blob` is HEAD's."""
+    the medium dismissed, so the gate writes when `blob` is HEAD's. With a
+    `repo`, the dismissed medium's file is committed there and the last pass
+    is stamped with that reviewed tree; the verdict is unchanged."""
     s = dismiss(load_fixture(), [BUGS_HASH])
     last = s["passes"][-1]
     s["fix_verdicts"] = {ARCH_HASH: dict(
         verdict(at_pass=last["pass_number"], kind="obsolete", blob=blob),
         head_sha=last["head_sha"])}
-    return s
+    return _bound(s, repo)
 
 
 def oracle(state, blobs, switches):
@@ -865,24 +873,28 @@ def oracle(state, blobs, switches):
 
 
 class ResultCase(InputsCase):
-    """InputsCase plus ARCH_FILE committed, for the fix-obsolete state."""
+    """InputsCase plus ARCH_FILE committed, for the fix-obsolete state. Its
+    text is what a reviewed-tree bind gives it, so binding a state that
+    decides it leaves its blob, and a verdict on that blob, as they are."""
 
     def setUp(self):
         super().setUp()
-        write(self.repo, ARCH_FILE, "coverage\n")
+        write(self.repo, ARCH_FILE,
+              synthetic_text(lines_needed(load_fixture(), ARCH_FILE)))
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "arch")
 
     def prepared(self):
-        """(label, state, blobs) for each prepared state."""
-        fix = fix_obsolete_state(self.blob(ARCH_FILE))
+        """(label, state, blobs) for each prepared state; a state with a
+        current decision is on a reviewed tree in this repo."""
+        fix = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
         fix_blobs = finalize_inputs.head_blobs(fix, cwd=self.repo)
         return [
             ("six-row", load_six_row(), {}),
             ("loop", load_fixture(), {}),
-            ("dismissed-all", dismissed_all_state(), {}),
-            ("nv-open", nv_open_state(), {}),
-            ("medium-only", medium_only_state(), {}),
+            ("dismissed-all", dismissed_all_state(self.repo), {}),
+            ("nv-open", nv_open_state(self.repo), {}),
+            ("medium-only", medium_only_state(self.repo), {}),
             ("fix-obsolete", fix, fix_blobs),
         ]
 
@@ -1304,13 +1316,13 @@ class TestCliResult(CliCase):
                         self.assertIsNone(got["report"])
 
     def test_parity_fix_obsolete_writes_through_the_cli(self):
-        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        state = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
         code, out, _ = self.cli(argv_for(self.new_path(state), self.empty()))
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)["action"], "write")
 
     def test_parity_rows_accepts_the_written_blob_file(self):
-        sp = self.new_path(fix_obsolete_state(self.blob(ARCH_FILE)))
+        sp = self.new_path(fix_obsolete_state(self.blob(ARCH_FILE), self.repo))
         bp = self.empty()
         self.assertEqual(self.cli(argv_for(sp, bp))[0], 0)
         code, out, err = self.old(BATCH_CARD_PY, ["rows", "--mode", "finalize",
@@ -1438,7 +1450,7 @@ class TestGuardCommandParity(CliCase):
         """End to end for `-x.ts` with a fix-obsolete verdict on unchanged
         code: 2.14.1 leaves the finding open and does not write."""
         self.commit_names(["-x.ts"])
-        state = fix_obsolete_state(self.blob("-x.ts"))
+        state = fix_obsolete_state(self.blob("-x.ts"), self.repo)
         row(state, ARCH_HASH)["file"] = "-x.ts"
         sp = self.new_path(state)
         # 2.14.1: the blob file step 1 writes, then the counts and the gate.
@@ -1491,7 +1503,7 @@ class TestRepoFolderNameParity(CliCase):
         return repo
 
     def state_on_x(self, repo):
-        state = fix_obsolete_state(self.blob("x.ts", cwd=repo))
+        state = fix_obsolete_state(self.blob("x.ts", cwd=repo), repo)
         row(state, ARCH_HASH)["file"] = "x.ts"
         return state
 
@@ -1688,7 +1700,7 @@ class TestCliRefusals(CliCase):
 class TestCliFreshness(CliCase):
 
     def test_freshness_edit_after_a_write_reopens(self):
-        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        state = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
         sp = self.new_path(state)
         first = self.empty()
         code, out, _ = self.cli(argv_for(sp, first))
@@ -1761,7 +1773,7 @@ class TestCliStderrParity(CliCase):
                  "malformed": json.dumps({"passes": []}).encode()}
         for label, swapped in cases.items():
             with self.subTest(case=label):
-                sp = self.new_path(dismissed_all_state())
+                sp = self.new_path(dismissed_all_state(self.repo))
                 reader, calls = self.swap_reader(sp, swapped)
                 with mock.patch.object(finalize_inputs, "_read_text", reader):
                     code, out, err = self.inproc(argv_for(sp, self.empty()))
@@ -1773,7 +1785,7 @@ class TestCliStderrParity(CliCase):
                 self.assertEqual(err.encode(), o_err)
 
     def test_parity_report_reads_the_state_again_unchanged(self):
-        state = dismissed_all_state()
+        state = dismissed_all_state(self.repo)
         sp = self.new_path(state)
         real = finalize_inputs._read_text
         calls = []
@@ -1790,14 +1802,14 @@ class TestCliStderrParity(CliCase):
                          batch_card.decisions_report(state))
 
     def test_report_second_read_unreadable_is_a_silent_report_stop(self):
-        sp = self.new_path(dismissed_all_state())
+        sp = self.new_path(dismissed_all_state(self.repo))
         reader, _ = self.swap_reader(sp, OSError)
         with mock.patch.object(finalize_inputs, "_read_text", reader):
             code, out, err = self.inproc(argv_for(sp, self.empty()))
         self.assertEqual((code, out, err), (5, "", ""))
 
     def test_report_none_on_an_accepted_state_writes_nothing(self):
-        sp = self.new_path(dismissed_all_state())
+        sp = self.new_path(dismissed_all_state(self.repo))
         with mock.patch.object(finalize_inputs.batch_card, "decisions_report",
                                return_value=None):
             code, out, err = self.inproc(argv_for(sp, self.empty()))
@@ -1898,7 +1910,7 @@ class TestCliStderrParity(CliCase):
             self.assertEqual(o_err, not_json)
         self.assertEqual(self.cli(argv_for(sp, bp))[:3], (3, b"", not_json))
         # Report stage, run as the report-stage parity test runs it.
-        sp = self.new_path(dismissed_all_state())
+        sp = self.new_path(dismissed_all_state(self.repo))
         reader, calls = self.swap_reader(sp, NOT_UTF8)
         with mock.patch.object(finalize_inputs, "_read_text", reader):
             code, out, err = self.inproc(argv_for(sp, self.empty()))
@@ -2017,7 +2029,7 @@ class TestCliMutants(CliCase):
         self.assertEqual(json.loads(out)["action"], "outstanding-to-phase-5")
 
     def test_mutant_reading_an_existing_blob_out_trips_freshness(self):
-        state = fix_obsolete_state(self.blob(ARCH_FILE))
+        state = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
         sp = self.new_path(state)
         first = self.empty()
         self.assertEqual(json.loads(self.inproc(argv_for(sp, first))[1])
@@ -2091,7 +2103,7 @@ class TestCliMutants(CliCase):
                          carry_state.REASON_HEAD_BLOBS)
 
     def report_swap_run(self, module, swapped):
-        sp = self.new_path(dismissed_all_state())
+        sp = self.new_path(dismissed_all_state(self.repo))
         real = module._read_text
         calls = []
 
@@ -2165,7 +2177,7 @@ class TestCliWritesOnlyTheFingerprintFile(CliCase):
     missing fingerprint file is refused, never created."""
 
     def routes(self):
-        fix = fix_obsolete_state(self.blob(ARCH_FILE))
+        fix = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
         return {
             "write": (fix, True),
             "card": (load_six_row(), True),
@@ -2203,14 +2215,14 @@ class TestCliWritesOnlyTheFingerprintFile(CliCase):
         self.assertFalse(os.path.exists(bp))
 
     def test_mutant_side_file_or_state_write_trips(self):
-        good = self.run_route(fix_obsolete_state(self.blob(ARCH_FILE)))
+        good = self.run_route(fix_obsolete_state(self.blob(ARCH_FILE), self.repo))
         self.assertEqual(self.changed(good[0], good[1]), {good[2]})
         side = TestCliMutants.multi_mutant(self, (
             "            fh.write(json.dumps(blobs, sort_keys=True))\n",
             "            fh.write(json.dumps(blobs, sort_keys=True))\n"
             "        open(blob_out + \".err\", \"w\").close()\n"))
         before, after, bp, code = self.run_route(
-            fix_obsolete_state(self.blob(ARCH_FILE)), module=side)
+            fix_obsolete_state(self.blob(ARCH_FILE), self.repo), module=side)
         self.assertEqual(code, 0)
         self.assertEqual(self.changed(before, after), {bp, bp + ".err"})
         state_write = TestCliMutants.multi_mutant(self, (
@@ -2219,7 +2231,7 @@ class TestCliWritesOnlyTheFingerprintFile(CliCase):
             "    with open(state_file, \"w\", encoding=\"utf-8\") as sf:\n"
             "        sf.write(json.dumps(state, indent=1))\n"))
         before, after, bp, code = self.run_route(
-            fix_obsolete_state(self.blob(ARCH_FILE)), module=state_write)
+            fix_obsolete_state(self.blob(ARCH_FILE), self.repo), module=state_write)
         self.assertEqual(code, 0)
         self.assertEqual(len(self.changed(before, after)), 2)
 
@@ -2293,8 +2305,12 @@ class TestLedgerReplacements(CliCase):
         """Run the helper, record a dismissal of every open obligation through
         the 2.14.1 record-decisions command, run the helper again on a NEW
         fingerprint file. Returns (first result, second exit, second result,
-        the recorded state)."""
-        sp = self.new_path(load_six_row())
+        the recorded state). The six files the card decides are committed
+        and the last pass carries that reviewed tree."""
+        state = load_six_row()
+        bind_reviewed_tree(self.repo, state,
+                           reviewed_files(state, open_files(state)))
+        sp = self.new_path(state)
         code, out, err = self.inproc(argv_for(sp, self.empty()), module=module)
         self.assertEqual((code, err), (0, ""))
         first = json.loads(out)
@@ -2541,9 +2557,10 @@ class TestDecidedFixturesBindReviewedTree(CliCase):
         self.assertEqual(unbound_builder_calls(src, classes), [])
         # Mutant: one CLI test building its state without a repo is found.
         bound = "fix_obsolete_state(self.blob(ARCH_FILE), self.repo)"
-        self.assertIn(bound, src)
-        mutant = src.replace(bound, "fix_obsolete_state(self.blob(ARCH_FILE))",
-                             1)
+        at = src.index("class TestCliResult(")
+        self.assertIn(bound, src[at:])
+        mutant = src[:at] + src[at:].replace(
+            bound, "fix_obsolete_state(self.blob(ARCH_FILE))", 1)
         self.assertEqual(len(unbound_builder_calls(mutant, classes)), 1)
 
     def test_stale_route_is_exempt_from_unchanged_bytes_only(self):
