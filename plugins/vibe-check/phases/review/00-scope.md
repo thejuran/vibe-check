@@ -39,7 +39,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    GREPO=$(git rev-parse --show-toplevel)
    python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO"
    ```
-   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then assemble diff via:
+   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) (`--all` takes its own snapshot in 00-scope-all.md). Then assemble diff via:
    ```bash
    git diff HEAD
    git diff --staged
@@ -56,7 +56,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    [ "${#PR_HEAD}" -eq 40 ] || [ "${#PR_HEAD}" -eq 64 ] || PR_HEAD=
    python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --pr-head "$PR_HEAD"
    ```
-   The head is kept only when it is a 40- or 64-hex commit id (anything else — an error message, a crafted `$(...)` — is dropped where it is bound, never passed on). It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then:
+   The head is kept only when it is a 40- or 64-hex commit id (anything else — an error message, a crafted `$(...)` — is dropped where it is bound, never passed on). It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`). Then:
    ```bash
    gh pr diff <ref> --patch
    gh pr view <ref> --json title,body,author,headRefName
@@ -69,7 +69,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    GREPO=$(git rev-parse --show-toplevel)
    python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO" --range "<range>"
    ```
-   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`. Then:
+   It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`). Then:
    ```bash
    git diff <range>
    ```
@@ -106,7 +106,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    ```
    (Fail closed both ways: an empty `$GUARD_PY` short-circuits `&&` to the refusal arm, and a non-zero guard exit refuses.)
 
-   Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way. Skip it on `--finalize` (`FINALIZE_MODE=1`) and `--all`, exactly as in mode 1: those runs never reach Phase 3's collect, so a snapshot would only be left behind.
+   Then, in its own Bash call BEFORE the phase diff is assembled, take the same working-tree snapshot as mode 1 (the mode-1 `worktree_snap.py take --root "$GREPO"` fence, run here) and carry its printed `REVIEWED_SNAPSHOT=` literal to Phase 3 the same way. Skip it on `--finalize` (`FINALIZE_MODE=1`), exactly as in mode 1: that run never reaches Phase 3's collect, so a snapshot would only be left behind.
 
    Compute phase commit range (`"$PHASE_DIR"` is the literal printed after `PHASE_DIR=` above — substitute it):
    ```bash

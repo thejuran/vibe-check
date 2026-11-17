@@ -3,7 +3,7 @@
 > **Lazy-loaded.** Read from `phases/review/45-persist.md` when `$ALL_MODE` is set, before the pass entry is written. A plain diff review never reads it.
 > Part of Phase 4.5 — no announcement of its own. In `--all` mode, Read this file before Phase 4.5's `✓ Phase 4.5 — Persist pass state` line.
 
-**The three keys, and where they may appear.** `cap_applied`, `chunk_total` and `capped_chunks` are `--all`-only: they are listed once, in `45-persist.md`'s JSON block, and they are ABSENT from a diff-mode pass entry. `scripts/state_shape.py` enforces that through the schema's `pass_all_only` list. Do not add them to a diff-mode entry, even as `null`.
+**The three keys, and where they may appear.** `cap_applied`, `chunk_total` and `capped_chunks` are `--all`-only: they are listed once, in `45-persist.md`'s JSON block, and they are ABSENT from a diff-mode pass entry. `scripts/state_shape.py` enforces that through the schema's `pass_all_only` list. Do not add them to a diff-mode entry, even as `null`. `reviewed_tree` is NOT an `--all`-only key: it is the shared optional pass key from 45-persist.md and is written on `--all` too (Phase 66, D-12).
 
 **Where this entry is written.** The file is `$STATE_FILE` exactly as Phase 0.5 bound it. In `--all` mode `05-state-all.md` resolved it through `scripts/statepath.py` (the ONE state-filename rule) to `.turingmind/state/format-53/by-mode/all/<12hex>.json` (`current_path`), alias `$ALL_STATE_FILE`. Do not re-derive the path here.
 
