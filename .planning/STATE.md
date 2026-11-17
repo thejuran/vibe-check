@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.15
-milestone_name: Lean orchestration
-status: Awaiting next milestone — v2.15 shipped as 2.15.0
-last_updated: "2026-11-17T03:54:42Z"
-last_activity: "2026-11-16 -- Full backlog disposition plus updated code-map reconciliation; no additional milestone scope"
-stopped_at: "v2.15 shipped; Publication readiness scoped, not activated — next /gsd-new-milestone"
+milestone: v2.16
+milestone_name: Publication readiness
+status: planning
+last_updated: "2026-11-17T03:57:06.980Z"
+stopped_at: "v2.16 started; defining requirements"
+last_activity: 2026-11-16 -- Milestone v2.16 Publication readiness started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 29
-  completed_plans: 29
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,20 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** between milestones — Publication readiness next; correctness and submission packaging before optional efficiency
+**Current focus:** v2.16 Publication readiness — defining requirements and roadmap (phases from 66)
 
 ## Current Position
 
-Phase: Milestone v2.15 complete — shipped as 2.15.0
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-16 -- known-backlog disposition recorded; Publication readiness stays bounded and inactive; v2.15 remains shipped
+Status: Defining requirements
+Last activity: 2026-11-16 — Milestone v2.16 Publication readiness started
 
 ## Operator Next Steps
 
+- Define v2.16 requirements and create the roadmap (phases from 66)
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
-- Activate the bounded Publication readiness scope with /gsd-new-milestone; no version or phases assigned yet
-- Resolve 999.40, 999.27, 999.39 SA-01/WR-01, 999.41 and 999.43, with explicit outcomes for bounded checks 999.44/45, before portal submission; paid checks and submission require separate approval
+- Paid checks and portal submission require separate approval
 
 ## Deferred Items
 
