@@ -42,6 +42,7 @@ import finalize_gate  # noqa: E402  (oracle: the 2.14.1 gate)
 import finalize_inputs  # noqa: E402  (module under test)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
 from gitfixture import git, write  # noqa: E402
+from worktree_snap import OBJECT_ID_RE  # noqa: E402  (a well-formed tree id)
 
 MODULE_PATH = os.path.join(SCRIPTS_DIR, "finalize_inputs.py")
 FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "phase45-loop-state.json")
@@ -663,6 +664,129 @@ class TestMutants(InputsCase):
 # --------------------------------------------------------------------------- #
 SIX_ROW = os.path.join(SCRIPTS_DIR, "fixtures", "iplayarr45-six-row-state.json")
 ARCH_FILE = "plugins/vibe-check/phases/deep-review/01d-coverage.md"
+
+
+# --------------------------------------------------------------------------- #
+# Reviewed trees for decision-bearing fixtures.
+#
+# A record closed by a current owner decision (defer or dismiss) is only as
+# good as the code the reviewers read. Every fixture that reaches the helper
+# with such a record therefore sits on a temp repo whose last pass carries a
+# real `reviewed_tree` holding the decided file, with that file unchanged on
+# disk, so the fixture exercises the write path for real code rather than
+# for a state with no reviewed baseline.
+# --------------------------------------------------------------------------- #
+def decided_files(state):
+    """The files named by last-pass open records a current decision closes."""
+    return sorted({rec["file"] for rec in carry_state.open_findings(state)
+                   if carry_state.decision_state(rec, state) == "current"})
+
+
+def open_files(state):
+    """The files named by every last-pass open record (the files a card
+    route may decide)."""
+    return sorted({rec["file"] for rec in carry_state.open_findings(state)})
+
+
+def synthetic_text(lines):
+    """`lines` deterministic lines of text."""
+    return "".join("x%d\n" % i for i in range(1, lines + 1))
+
+
+def lines_needed(state, path):
+    """Enough lines that every last-pass record line on `path` exists, with
+    six lines after the last one."""
+    lines = [rec.get("line") for rec in carry_state.open_findings(state)
+             if rec.get("file") == path]
+    return max([n for n in lines if isinstance(n, int)] + [1]) + 6
+
+
+def reviewed_files(state, paths):
+    """{path: synthetic text} for `paths`, each long enough for its lines."""
+    return {p: synthetic_text(lines_needed(state, p)) for p in paths}
+
+
+def _head_bytes(repo, rel):
+    proc = subprocess.run(["git", "cat-file", "-p", "HEAD:" + rel], cwd=repo,
+                          env=gitfixture.helper_env(),
+                          stdin=subprocess.DEVNULL, capture_output=True,
+                          timeout=120)
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _disk_bytes(repo, rel):
+    try:
+        with open(os.path.join(repo, rel), "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def bind_reviewed_tree(repo, state, files=None):
+    """Commit the decided files in `repo` and stamp the last pass with the
+    resulting commit (`head_sha`) and tree (`reviewed_tree`); returns `state`.
+
+    `files` is {repo-relative path: text}. None means every file
+    `decided_files(state)` names: a file already committed, unchanged on disk
+    and long enough is kept as it is, any other is written with synthetic
+    text. Only the given paths are staged and committed, never other work in
+    the repo."""
+    if files is None:
+        files = {}
+        for path in decided_files(state):
+            need = lines_needed(state, path)
+            head = _head_bytes(repo, path)
+            if (head is None or _disk_bytes(repo, path) != head
+                    or head.count(b"\n") < need):
+                files[path] = synthetic_text(need)
+    for rel, text in files.items():
+        write(repo, rel, text)
+    if files:
+        paths = sorted(files)
+        git(repo, "add", "--", *paths)
+        staged = git(repo, "diff", "--cached", "--quiet", "--", *paths,
+                     check=False)
+        if staged.returncode != 0:
+            git(repo, "commit", "-q", "-m", "reviewed", "--", *paths)
+    last = state["passes"][-1]
+    last["head_sha"] = git(repo, "rev-parse", "HEAD").stdout.strip()
+    last["reviewed_tree"] = git(repo, "rev-parse",
+                                "HEAD^{tree}").stdout.strip()
+    return state
+
+
+def check_decided_fixture(repo, state, *, expect_unchanged=True):
+    """Problems (a list of strings; empty = none) with a fixture state that
+    reaches the helper from `repo`.
+
+    Tier A, for every state with a current decision: the last pass carries a
+    well-formed `reviewed_tree` and every decided file is in that tree.
+    Tier B, with `expect_unchanged` (write-path fixtures): each decided file
+    on disk is byte-identical to its copy in the tree. A state with no
+    current decision needs no tree."""
+    decided = decided_files(state)
+    if not decided:
+        return []
+    tree = state["passes"][-1].get("reviewed_tree")
+    if not isinstance(tree, str) or not OBJECT_ID_RE.match(tree):
+        return ["no reviewed_tree for decided %s" % decided]
+    problems = []
+    for rel in decided:
+        proc = subprocess.run(["git", "cat-file", "-p", tree + ":" + rel],
+                              cwd=repo, env=gitfixture.helper_env(),
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              timeout=120)
+        if proc.returncode != 0:
+            problems.append("%s not in the reviewed tree" % rel)
+        elif expect_unchanged and _disk_bytes(repo, rel) != proc.stdout:
+            problems.append("%s changed since the reviewed tree" % rel)
+    return problems
+
+
+def expects_unchanged(route_key):
+    """Write-path routes keep decided files unchanged; a route whose key
+    names `stale` edits a decided file on purpose."""
+    return "stale" not in route_key
 
 SWITCH_NAMES = ("noninteractive", "pr_mode", "range_mode")
 ALL_SWITCHES = [dict(zip(SWITCH_NAMES, combo))
@@ -2337,6 +2461,135 @@ class TestNextVocabularyProse(unittest.TestCase):
         mutant = self.text.replace(
             anchor, "- `stop-unknown` — stop.\n" + anchor, 1)
         self.assertNotEqual(next_vocabulary_problems(mutant), [])
+
+
+# The fixture builders whose state carries a current owner decision, and the
+# position of their `repo` argument.
+DECIDED_BUILDERS = {"dismissed_all_state": 0, "nv_open_state": 0,
+                    "medium_only_state": 0, "fix_obsolete_state": 1}
+
+
+def unbound_builder_calls(src, classes):
+    """[(class, line)] for each call, inside a class named in `classes`, to a
+    DECIDED_BUILDERS function without its `repo` argument and not handed
+    straight to `bind_reviewed_tree`."""
+    found = []
+    for node in ast.parse(src).body:
+        if not isinstance(node, ast.ClassDef) or node.name not in classes:
+            continue
+        bound = {id(arg) for call in ast.walk(node)
+                 if isinstance(call, ast.Call)
+                 and isinstance(call.func, ast.Name)
+                 and call.func.id == "bind_reviewed_tree"
+                 for arg in call.args}
+        for call in ast.walk(node):
+            if not (isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id in DECIDED_BUILDERS):
+                continue
+            if (id(call) in bound
+                    or len(call.args) > DECIDED_BUILDERS[call.func.id]
+                    or any(k.arg == "repo" for k in call.keywords)):
+                continue
+            found.append((node.name, call.lineno))
+    return found
+
+
+def cli_case_names():
+    """Names of the classes here that run the helper on a state file."""
+    return {name for name, obj in globals().items()
+            if isinstance(obj, type) and issubclass(obj, CliCase)}
+
+
+class TestDecidedFixturesBindReviewedTree(CliCase):
+    """Every fixture that reaches the helper with a record closed by a current
+    owner decision sits on a real reviewed tree holding the decided file
+    (tier A); on a write-path route that file is also unchanged on disk
+    (tier B). A route whose key names `stale` edits the decided file on
+    purpose and is held to tier A only."""
+
+    def decision_states(self):
+        """(label, state, expect_unchanged) for the states the CLI and
+        parity tests build, as they build them."""
+        out = [("prepared " + label, state, True)
+               for label, state, _ in self.prepared()]
+        for key, (state, _) in \
+                TestCliWritesOnlyTheFingerprintFile.routes(self).items():
+            if isinstance(state, dict):
+                out.append(("route " + key, state, expects_unchanged(key)))
+        _, _, _, recorded = TestLedgerReplacements.card_route(self)
+        out.append(("card route recorded", recorded, True))
+        return out
+
+    def test_every_decision_closed_fixture_has_reviewed_tree(self):
+        seen = 0
+        for label, state, unchanged in self.decision_states():
+            with self.subTest(fixture=label):
+                if decided_files(state):
+                    seen += 1
+                self.assertEqual(check_decided_fixture(
+                    self.repo, state, expect_unchanged=unchanged), [])
+        # The lock really covers decision-bearing fixtures.
+        self.assertGreaterEqual(seen, 5)
+
+    def test_cli_tests_build_decided_states_on_a_repo(self):
+        with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+            src = fh.read()
+        classes = cli_case_names()
+        self.assertIn("TestCliResult", classes)
+        self.assertNotIn("TestBuildResultParity", classes)
+        self.assertEqual(unbound_builder_calls(src, classes), [])
+        # Mutant: one CLI test building its state without a repo is found.
+        bound = "fix_obsolete_state(self.blob(ARCH_FILE), self.repo)"
+        self.assertIn(bound, src)
+        mutant = src.replace(bound, "fix_obsolete_state(self.blob(ARCH_FILE))",
+                             1)
+        self.assertEqual(len(unbound_builder_calls(mutant, classes)), 1)
+
+    def test_stale_route_is_exempt_from_unchanged_bytes_only(self):
+        state = bind_reviewed_tree(self.repo, dismissed_all_state())
+        decided = decided_files(state)
+        self.assertTrue(decided)
+        write(self.repo, decided[0], "edited after the review\n")
+        self.assertEqual(check_decided_fixture(
+            self.repo, state,
+            expect_unchanged=expects_unchanged("stale refusal")), [])
+        self.assertEqual(check_decided_fixture(
+            self.repo, state, expect_unchanged=expects_unchanged("write")),
+            ["%s changed since the reviewed tree" % decided[0]])
+        # Tier A still applies to a stale route: a tree without the decided
+        # file fails it.
+        git(self.repo, "rm", "-q", "-f", "--", decided[0])
+        git(self.repo, "commit", "-q", "-m", "drop")
+        missing = copy.deepcopy(state)
+        missing["passes"][-1]["reviewed_tree"] = git(
+            self.repo, "rev-parse", "HEAD^{tree}").stdout.strip()
+        self.assertEqual(check_decided_fixture(
+            self.repo, missing,
+            expect_unchanged=expects_unchanged("stale refusal")),
+            ["%s not in the reviewed tree" % decided[0]])
+
+    def test_mutant_dropping_reviewed_tree_trips(self):
+        state = bind_reviewed_tree(self.repo, dismissed_all_state())
+        self.assertEqual(check_decided_fixture(self.repo, state), [])
+        for label, value in (("deleted", None), ("not an id", "HEAD"),
+                             ("short", "abc123")):
+            with self.subTest(reviewed_tree=label):
+                mutant = copy.deepcopy(state)
+                if value is None:
+                    del mutant["passes"][-1]["reviewed_tree"]
+                else:
+                    mutant["passes"][-1]["reviewed_tree"] = value
+                self.assertNotEqual(check_decided_fixture(self.repo, mutant),
+                                    [])
+
+    def test_fixture_without_decisions_needs_no_tree(self):
+        for label, state in (("loop", load_fixture()),
+                             ("six-row", load_six_row())):
+            with self.subTest(fixture=label):
+                self.assertEqual(decided_files(state), [])
+                self.assertNotIn("reviewed_tree", state["passes"][-1])
+                self.assertEqual(check_decided_fixture(self.repo, state), [])
 
 
 if __name__ == "__main__":
