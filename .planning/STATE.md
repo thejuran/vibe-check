@@ -2,10 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
-status: "Phase 66 planned — ready to execute (9 plans, 5 waves)"
-stopped_at: "Phase 66 planned and plan-checked; next /bm:execute-phase 66"
-last_updated: "2026-11-17T20:09:33.000Z"
-last_activity: 2026-11-17 — Phase 66 planned (9 plans, 5 waves) on feat/v2.16-phase-66
+status: executing
+last_updated: "2026-11-17T20:10:43.110Z"
+last_activity: 2026-11-17 -- Phase 66 execution started
 progress:
   total_phases: 6
   completed_phases: 0
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.16 Publication readiness — Phase 66 Close out freshness planned, ready to execute (Phases 66-71 roadmapped; nothing implemented)
+**Current focus:** Phase 66: close-out-freshness
 
 ## Current Position
 
-Phase: 66 (Close out freshness) — planned, not started
-Plan: 0 of 9 complete (5 waves; 66-07/66-08 have conditional owner checkpoints)
-Status: Ready to execute — plan-checker 3 passes, 0 blockers; next /bm:execute-phase 66
-Last activity: 2026-11-17 — Phase 66 planned on feat/v2.16-phase-66
+Phase: 66 (close-out-freshness) — EXECUTING
+Plan: 1 of 9
+Status: Executing Phase 66
+Last activity: 2026-11-17 -- Phase 66 execution started
 
 ## Operator Next Steps
 
