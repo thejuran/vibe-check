@@ -32,6 +32,13 @@ Not in this phase: decision-identity redesign (999.31), scorer retuning, new rev
 - **D-10:** A shape that does not reproduce through the real flow is dropped with recorded proof: a committed test or counterexample/control showing the real flow cannot produce it, plus a note in the 999.44 backlog entry. No defensive code is added for unreproduced shapes.
 - **D-11:** Deleted-original relocation (identical text left elsewhere after the decided line is deleted) must be distinguished from the owner-accepted D-21 behaviour of adding a new identical copy while the original remains.
 
+### Owner answers to research open questions (2026-11-17, locked)
+- **D-12:** `--all` reviews save the reviewed code (`reviewed_tree`) the same way other routes do, so Close out applies the same freshness check on `--all`. No scorer effect. `--all` is NOT exempted.
+- **D-13:** A decision on an untracked file refuses with "add the file to git, then review again" (no saving untracked files at review time). A committed test must prove that next step clears the refusal (no loop).
+- **D-14:** If 999.44 shape 1 (deleted-original relocation) reproduces, the bounded review-side re-ask (re-ask the decision when its original line was deleted instead of moving it to identical text) counts as D-08's "equally small and clearly correct" repair. If it grows beyond a bounded change, stop and bring it back to the owner. D-21 identical-copy-while-original-remains behaviour is unchanged.
+- **D-15:** PR and range Close out keep D-04 (judge against files on disk). The refusal text gives an actionable next step: commit or revert the nearby edits, or check out the reviewed commit, then review again.
+- **D-16:** Every refusal cause must be clearable: a committed test shows refuse → fresh review → re-decide → Close out writes (no refusal loops).
+
 ### Carried from the milestone (locked, not re-asked)
 - Each repair starts with a reproduction that fails on 2.15.0; unchanged-code controls pass on both 2.15.0 and the candidate (GATE-07).
 - Fix-verdict freshness, 999.28 unchanged-worktree score parity and real-edit reopening keep passing.
