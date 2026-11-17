@@ -1,6 +1,6 @@
 # Roadmap: vibe-check
 
-Updated 2026-11-16 (v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); audit tech_debt 17/17. No milestone active; Publication readiness is the agreed next scope, activated separately with /gsd-new-milestone). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-11-16 (v2.16 Publication readiness activated: Phases 66-71 roadmapped from REQUIREMENTS.md, 18/18 requirements mapped; nothing implemented. v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); audit tech_debt 17/17). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
@@ -9,6 +9,7 @@ Updated 2026-11-16 (v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
 - ✅ v2.14 Decision reliability -- Phases 59–61 (shipped as 2.14.0; 2.14.1 patch fixed 999.28; known limits 999.23 residuals, 999.26, 999.27, 999.29, 999.30) — [archive](milestones/v2.14-ROADMAP.md) (shipped 2026-10-30)
 - ✅ v2.15 Lean orchestration -- Phases 62–65 (shipped as 2.15.0; known limits 999.34–999.39) — [archive](milestones/v2.15-ROADMAP.md) (shipped 2026-11-16)
+- 🚧 v2.16 Publication readiness -- Phases 66-71 (in progress)
 
 <details>
 <summary>✅ v2.14 Decision reliability (Phases 59–61) — SHIPPED 2026-10-30</summary>
@@ -33,20 +34,95 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 
 </details>
 
-## Next milestone: Publication readiness
+### 🚧 v2.16 Publication readiness (Phases 66-71, in progress)
 
-**Goal:** Make Close out and review scope trustworthy before Claude developer-portal submission, with the smallest correctness and packaging changes. Owner requested this roadmap update on 2026-11-16 after a read-only assessment of 2.15.0 at `c1461c5e`. Scope agreed; no milestone activated, version assigned or phases numbered.
+- [ ] **Phase 66: Close out freshness** - Close out refuses stale deferred/dismissed decisions and asks for a fresh review; the three legacy wrong-keep shapes get repair, safe refusal or recorded non-reproduction (999.40, 999.44)
+- [ ] **Phase 67: Trusted incremental scope** - A crafted commit id in repository state cannot hide a committed change from an incremental review; the effective range is shown (999.27)
+- [ ] **Phase 68: Unambiguous phase and scope binding** - Ambiguous phase names and container names are refused before state is touched; narrowed `--all`, colliding branch keys and PR/range identities get explicit outcomes (999.39 SA-01/WR-01, 999.45)
+- [ ] **Phase 69: Safe helper invocation** - Repository Python startup code cannot run through helper or hook calls; empty or missing helper paths refuse (999.43)
+- [ ] **Phase 70: Submission packaging and truthful claims** - Plugin-folder README, Python and companion setup docs, configured-default Codex labels, 12/15 beside 15/15, cost-estimate clarity, candidate check record (999.41)
+- [ ] **Phase 71: Release gate — publication readiness** - Reproduction/regression evidence per repair, offline suite and replay against 2.15.0 on the exact candidate, offline and live evidence recorded separately, ship via the existing close-and-publish workflow; no portal submission (GATE-07..09)
 
-1. [ ] **Close out freshness (999.40).** Refuse Close out when ordinary deferred/dismissed decisions refer to code changed since review; require a fresh review rather than automatically running paid reviewers. Done when both decision kinds reject an exact-line or nearby edit before Close out, unchanged reviewed code still closes, and fix-verdict freshness remains protected. Preserve 999.28 score parity and real-edit reopening. Include the bounded legacy wrong-keep checks in 999.44; fix a reproduced wrong keep or refuse the unsupported case, and drop refuted leads with evidence. This does not authorize identity redesign.
-2. [ ] **Trusted incremental scope (999.27).** Prevent repository-controlled state from silently choosing a narrower review base. Prefer the smallest trusted-resume or explicit-confirmation boundary and disclose the effective range. Done when a crafted valid current-HEAD SHA cannot hide a committed change, while legitimate incremental review still works. An ancestor check alone is insufficient.
-3. [ ] **Unambiguous phase and scope binding (999.39 SA-01/WR-01, 999.45).** Refuse duplicate exact/prefix matches and phase-container names before selecting state; correct the overbroad state-isolation sentence. Done when ambiguous inputs cannot review or close the wrong phase and both supported layouts still resolve unique phases. Also resolve the bounded narrowed-`--all` and colliding-scope checks in 999.45 before declaring scope safe; prefer refusal over a state-format migration.
-4. [ ] **Submission packaging and truthful setup/claims (999.41).** Add the plugin-folder README; document Python and optional companion setup; use configured-default Codex labels; disclose the v2.11 stricter 12/15 reading beside 15/15 and clarify estimated cost inclusions. Retain the existing companion, targeting and safety guards. Done when the submitted folder meets the documented README/license requirements, affected offline compatibility checks pass, and the exact candidate's installation/portal checks are recorded as performed or still pending.
+**Milestone goal:** Make Close out and review scope trustworthy before Claude developer-portal submission, with the smallest correctness and packaging changes. Owner requested the underlying roadmap update on 2026-11-16 after a read-only assessment of 2.15.0 at `c1461c5e`; activated as v2.16 the same day via `/bm:new-milestone` (baseline plugin 2.15.0, `d5acc19`). Each phase begins by reproducing its failure on 2.15.0 current code; a lead that does not reproduce is recorded with evidence and dropped, never replaced with invented work.
 
-5. [ ] **Safe helper invocation (999.43; promotes 999.38 R2-WR-01/02).** Prevent repository startup code from running through ambient Python imports or an empty helper path. Guard the resolved path in the invocation itself and isolate helper imports while preserving trusted sibling imports. Done when harmless repository `sitecustomize.py`/`__main__.py` markers cannot execute through actual affected command forms, missing paths refuse, and normal helper/hook calls still work. No interpreter-manager or operating-system sandbox redesign.
+**Finish line:** Targeted failing reproductions pass after the repairs; unchanged-code decision/scoring behavior and affected mode/recovery paths remain covered; candidate packaging and documentation agree. The bounded checks in 999.44/999.45 must have explicit repair, safe refusal, or evidence-backed non-reproduction outcomes; a historical waiver alone is insufficient. Record offline versus live evidence separately. Portal submission is recommended only after these repairs and a successful candidate validation; submission itself is not authorized by this milestone.
 
-**Finish line:** Targeted failing reproductions pass after the repairs; unchanged-code decision/scoring behavior and affected mode/recovery paths remain covered; candidate packaging and documentation agree. The bounded checks in 999.44/999.45 must have explicit repair, safe refusal, or evidence-backed non-reproduction outcomes; a historical waiver alone is insufficient. Record offline versus live evidence separately. Portal submission is recommended only after these repairs and a successful candidate validation; submission itself is not authorized by this planning update.
+**Exclusions:** No decision-identity redesign (999.31), new reviewer lanes, scorer retuning, Codex replacement, accounting infrastructure, broad orchestration refactor or new efficacy campaign. Empty-card Rerun handling (999.32), shared card plumbing (999.35), snapshot pruning (999.30), and Needs debugging (999.42) can ship later. Paid tests need separate bounded approval. Sandboxing arbitrary interpreters, git/node configuration or the OS is out of scope. No general state-format migration. Keep the shipped v2.15 milestone complete.
 
-**Exclusions:** No decision-identity redesign (999.31), new reviewer lanes, scorer retuning, Codex replacement, accounting infrastructure, broad orchestration refactor or new efficacy campaign. Empty-card Rerun handling (999.32), shared card plumbing (999.35), snapshot pruning (999.30), and Needs debugging (999.42) can ship later. Paid tests need separate bounded approval. Keep the shipped v2.15 milestone complete.
+### Phase 66: Close out freshness
+
+**Goal**: Close out never completes on a deferred or dismissed decision whose reviewed code changed since the review, and the three bounded legacy wrong-keep shapes each end with an evidence-backed outcome.
+**Depends on**: Nothing (first phase of v2.16; branch `feat/v2.16-phase-66` from `main` at 2.15.0)
+**Requirements**: FRESH-01, FRESH-02, FRESH-03
+**Backlog**: 999.40, 999.44
+**Success Criteria** (what must be TRUE):
+  1. The 999.40 assessment reproduction (defer or dismiss a finding, change the decided source line, run Close out) is first re-created as a fixture that fails on 2.15.0 code; after the repair, Close out refuses for both decision kinds on an exact-line edit and on a nearby edit, tells the user to run a fresh review, and never starts a paid reviewer on its own.
+  2. With the reviewed code unchanged, Close out still completes for both decision kinds exactly as on 2.15.0; fix-verdict freshness, 999.28 unchanged-worktree score parity and real-edit reopening tests all still pass.
+  3. Each of the three 999.44 shapes (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has a recorded outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample or control. The D-21 identical-copy addition is distinguished from deleted-original relocation. No decision-identity redesign.
+  4. Replay against 2.15.0 differs only by the intended refusals; every other run is unchanged.
+**Plans**: TBD
+
+### Phase 67: Trusted incremental scope
+
+**Goal**: Repository-controlled state cannot silently narrow the base of an incremental review, and the user sees the effective review range.
+**Depends on**: Phase 66 (sequencing only: one branch and PR per phase, cut from `main` after the previous PR merges)
+**Requirements**: SCOPE-01, SCOPE-02
+**Backlog**: 999.27
+**Success Criteria** (what must be TRUE):
+  1. The 999.27 reproduction (a committed state file carrying a crafted valid commit id, including current HEAD, while a committed source change exists against the original base) is first a fixture that fails on 2.15.0 code; after the repair, that state cannot hide the committed change: the review covers it, or stops and asks the user to confirm the base.
+  2. A fixture shows HEAD passing `merge-base --is-ancestor`, so the repair does not rest on an ancestor check alone; the existing refusal of anything but a commit id (Phase 60 CR-01) still passes.
+  3. A legitimate pass >= 2 resume still reviews only the new changes, and the effective range (base..HEAD or equivalent) is stated to the user on the review output or card.
+**Plans**: TBD
+
+### Phase 68: Unambiguous phase and scope binding
+
+**Goal**: An ambiguous phase name or a colliding scope key cannot cause a review or Close out to target the wrong phase or the wrong saved state.
+**Depends on**: Phase 67 (sequencing only)
+**Requirements**: BIND-01, BIND-02, BIND-03
+**Backlog**: 999.39 SA-01/WR-01, 999.45
+**Success Criteria** (what must be TRUE):
+  1. The 999.39 reproduction (two same-named phase folders silently resolved to one; `phases` accepted as a phase id) is first a fixture that fails on 2.15.0 code; after the repair, duplicate exact or prefix matches stop and list the candidates, and container names (`phases`, `milestones`, `v1-phases`) are refused even when unique, all before any review state file is read.
+  2. Unique phases still resolve in both supported layouts (fixtures for each), and the `05-state.md` state-isolation sentence claims only what the check enforces.
+  3. Narrowed `--all` (narrow-A vs narrow-B vs whole tree), colliding branch names (`feat/a` vs `feat-a`) and distinct PR/range identities each have a recorded outcome through resume and Close out: existing protection proven by a journey fixture, a concrete wrong-target failure repaired, or a conservative refusal. No general state-format migration; existing state and archives are preserved.
+**Plans**: TBD
+
+### Phase 69: Safe helper invocation
+
+**Goal**: Repository Python startup code cannot run through the plugin's helper or hook invocations, and an empty or missing helper path refuses in the same call.
+**Depends on**: Phase 68 (sequencing only)
+**Requirements**: HELP-01, HELP-02
+**Backlog**: 999.43 (promotes 999.38 R2-WR-01/02)
+**Success Criteria** (what must be TRUE):
+  1. The actual helper and hook invocations are inventoried, and the 999.43 reproductions (a `PYTHONPATH` `sitecustomize.py` marker printing before a helper runs; `python3 ""` executing a repository `__main__.py`) are first fixtures that fail on 2.15.0 code across the real command forms.
+  2. After the repair, the benign markers never execute through any inventoried helper or hook command form, while trusted sibling imports between the plugin's own scripts keep working and the offline suite passes.
+  3. An empty or missing helper path refuses in the same call with a one-line message and runs nothing; normal helper and hook calls behave as on 2.15.0. Trusted interpreter, git/node configuration and OS permissions remain documented prerequisites, not sandboxed.
+**Plans**: TBD
+
+### Phase 70: Submission packaging and truthful claims
+
+**Goal**: The submitted `plugins/vibe-check` folder meets the portal's documented README and license requirements, and every public setup, model-label, efficacy and cost statement is truthful for the candidate.
+**Depends on**: Phases 66-69 (the claims describe what shipped)
+**Requirements**: PKG-01, PKG-02, PKG-03, PKG-04, PKG-05
+**Backlog**: 999.41
+**Success Criteria** (what must be TRUE):
+  1. `plugins/vibe-check/README.md` exists as a standalone document with at least 40 prose words and valid links, and the folder meets the portal's documented README/license requirements (manifest `license: MIT`); a link check and word count are recorded.
+  2. Documentation states the Python prerequisites and supported-version expectations (including the TOML fallback below 3.11) and the optional Codex companion dependencies and setup (Node, authentication, watchdog).
+  3. Run output and docs label the Codex lane "Codex (configured default)" or show the resolved model; joined, skipped and failed outcomes are reported accurately (fixtures).
+  4. Public claims put the stricter v2.11 12/15 catch reading beside 15/15, keep the MISS verdict and the no-current-release-measurement disclosure, and say what estimated costs include; byte/step reductions are never presented as billing savings.
+  5. A record for the exact candidate lists installation and portal checks as performed or still pending, and the affected offline compatibility checks pass.
+**Plans**: TBD
+
+### Phase 71: Release gate — publication readiness
+
+**Goal**: 2.16.0 ships through the existing close-and-publish workflow with reproduction and regression evidence for every repair, offline and live evidence recorded separately, and portal submission left to separate owner authorization.
+**Depends on**: Phases 66-70
+**Requirements**: GATE-07, GATE-08, GATE-09
+**Success Criteria** (what must be TRUE):
+  1. Each implemented repair has a reproduction that fails on 2.15.0 and a regression that passes on the candidate; unchanged-code controls pass on both; investigation-only leads close with documented non-reproduction.
+  2. The full applicable offline suite and the replay against 2.15.0 run on the exact candidate commit; every difference is an explicitly accounted intended repair, and any unexplained difference blocks the release.
+  3. Offline and live evidence are recorded in separate sections; live checks run only under an owner-approved bounded proposal, otherwise they are listed as pending or explicitly waived, never as passed; a pending required check prevents the publication-readiness claim.
+  4. The candidate ships via the existing workflow (release PR, tree-identity check, tag on `origin/main`, GitHub release, plugin update) and the record states that Claude developer-portal submission was not performed and needs separate owner authorization.
+**Plans**: TBD
 
 ## Following milestone: Reviewer efficiency (conditional)
 
@@ -122,7 +198,7 @@ After the CR-01 rollback (58-REVIEW-FINAL.md), a title reference names a row onl
 
 A well-formed but crafted 40- or 64-hex `head_sha` committed into the reviewed repo's state file passes `carry_state.py last-head-sha` and can narrow the incremental (pass >= 2) range without telling the owner. Phase 60's CR-01 fix closed command injection, not scope trust. Owner ruling 2026-10-30 (60-HUMAN-UAT test 3): status quo accepted for v2.14; hardening deferred. Candidate direction: require the stored sha to be an ancestor of HEAD and state the narrowed range on the card. Also consider R26 (no write-side format check on `head_sha`). Reproduce on a real review first. Needs exploitation by someone who can commit to the repo. Not scheduled.
 
-**2026-11-16 reassessment:** Selected for Publication readiness, superseding the unscheduled disposition above without changing the v2.14 waiver. At `c1461c5e`, the real `last_head_sha` helper accepted current HEAD supplied in state; a temporary Git repo had a committed source change against its original base, but the selected incremental diff was empty. HEAD also passed `merge-base --is-ancestor`, so ancestry alone cannot repair scope trust. Helper/Git reproduction only; no live model review. Relevant implementation: [SHA validation](../plugins/vibe-check/scripts/carry_state.py), [incremental selection](../plugins/vibe-check/phases/review/05-state.md). Preserve command-injection refusal while establishing trusted or owner-confirmed resume scope.
+**2026-11-16 reassessment:** Selected for Publication readiness (v2.16 Phase 67, SCOPE-01..02), superseding the unscheduled disposition above without changing the v2.14 waiver. At `c1461c5e`, the real `last_head_sha` helper accepted current HEAD supplied in state; a temporary Git repo had a committed source change against its original base, but the selected incremental diff was empty. HEAD also passed `merge-base --is-ancestor`, so ancestry alone cannot repair scope trust. Helper/Git reproduction only; no live model review. Relevant implementation: [SHA validation](../plugins/vibe-check/scripts/carry_state.py), [incremental selection](../plugins/vibe-check/phases/review/05-state.md). Preserve command-injection refusal while establishing trusted or owner-confirmed resume scope.
 
 ### 999.29: A decided finding re-reported under a reworded title shows as new (2.14.1 live check)
 
@@ -208,7 +284,7 @@ The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a r
 
 Not scheduled.
 
-**Full disposition pass (2026-11-16):** R2-WR-01/02 are now selected as publication blocker 999.43. Narrowed-all/scope identity requires bounded pre-submission checks in 999.45. Other carries remain deferred or accepted as indexed below; this supersedes scheduling, not the historical ship decision.
+**Full disposition pass (2026-11-16):** R2-WR-01/02 are now selected as publication blocker 999.43 (v2.16 Phase 69). Narrowed-all/scope identity requires bounded pre-submission checks in 999.45 (v2.16 Phase 68). Other carries remain deferred or accepted as indexed below; this supersedes scheduling, not the historical ship decision.
 
 ### 999.39: Phase 65 code review carry (65-REVIEW.md, owner ruling 2026-11-16)
 
@@ -221,17 +297,17 @@ The owner chose "Ship + backlog (Recommended)" (AskUserQuestion, main session, 2
 
 Not scheduled.
 
-**2026-11-16 reassessment:** SA-01 and its WR-01 wording correction are selected for Publication readiness; the other carries remain deferred. Executing the current `00-scope.md` lookup fence in a temporary layout selected one of two `01-setup` directories without refusing, and accepted `phases` as a phase id. This freshly verifies lookup behavior; the wrong-close consequence follows from basename-keyed state and was recorded by the Phase 65 review. No live GSD session was run. Preserve the historical ship-with-backlog ruling above.
+**2026-11-16 reassessment:** SA-01 and its WR-01 wording correction are selected for Publication readiness (v2.16 Phase 68, BIND-01..02); the other carries remain deferred. Executing the current `00-scope.md` lookup fence in a temporary layout selected one of two `01-setup` directories without refusing, and accepted `phases` as a phase id. This freshly verifies lookup behavior; the wrong-close consequence follows from basename-keyed state and was recorded by the Phase 65 review. No live GSD session was run. Preserve the historical ship-with-backlog ruling above.
 
 ### 999.40: Keep: Close out freshness for ordinary owner decisions
 
-**Selected for Publication readiness; not implemented.** New offline evidence from the 2026-11-16 assessment at `c1461c5e` / 2.15.0: create a temporary Git repo with `test_decision_continuity.base_file()` at `src/a.py`, commit it, build pass-1 state with `pass1(lines, conf=95, kind=...)`, and record actual HEAD and `HEAD^{tree}`. For each of `defer` and `dismiss`, change source line 10 to `line_10 = danger()` and run the real `finalize_inputs.py` CLI with that state, a fresh empty blob file and all three switches false. Both exited 0 with `action: write`, `next: write-review-md`, and all outstanding counts zero despite the source diff. Temporary fixtures were removed; this record describes an assessment reproduction, not a committed regression test or live-model run.
+**Selected for Publication readiness (v2.16 Phase 66, FRESH-01..02); not implemented.** New offline evidence from the 2026-11-16 assessment at `c1461c5e` / 2.15.0: create a temporary Git repo with `test_decision_continuity.base_file()` at `src/a.py`, commit it, build pass-1 state with `pass1(lines, conf=95, kind=...)`, and record actual HEAD and `HEAD^{tree}`. For each of `defer` and `dismiss`, change source line 10 to `line_10 = danger()` and run the real `finalize_inputs.py` CLI with that state, a fresh empty blob file and all three switches false. Both exited 0 with `action: write`, `next: write-review-md`, and all outstanding counts zero despite the source diff. Temporary fixtures were removed; this record describes an assessment reproduction, not a committed regression test or live-model run.
 
 Mechanism: [review.md](../plugins/vibe-check/commands/review.md) skips scoring/carry-forward in Finalize; [finalize_inputs.py](../plugins/vibe-check/scripts/finalize_inputs.py) supplies stored-state counts and fix-verdict blobs; [carry_state.py](../plugins/vibe-check/scripts/carry_state.py) compares saved decision evidence with saved finding data and `_closed` accepts that decision before fix checks. The bounded repair is a freshness refusal requiring review again, with exact-line/nearby/unchanged controls for both decision kinds. Do not infer that this was introduced in 2.15 or reopen 999.28: subsequent-review snapshot/scoring tests passed, and this failure goes directly from edit to Close out.
 
 ### 999.41: Keep: Submission packaging, prerequisites and evidence disclosure
 
-**Selected for Publication readiness; not implemented.** At `c1461c5e`, the tracked `plugins/vibe-check` folder has no README, though it contains the manifest. The [official portal checklist](https://claude.com/docs/plugins/pre-submission-checklist), checked during the 2026-11-16 assessment, requires at least 40 prose words in that folder; manifest `license: MIT` satisfies the license requirement. Add a concise standalone README with valid links. Python hooks and text files over 256 KiB may cause reviewer holds, not automatic rejection; retain the safety hook. No tracked `.DS_Store` was found. Actual portal/name validation remains unperformed.
+**Selected for Publication readiness (v2.16 Phase 70, PKG-01..05); not implemented.** At `c1461c5e`, the tracked `plugins/vibe-check` folder has no README, though it contains the manifest. The [official portal checklist](https://claude.com/docs/plugins/pre-submission-checklist), checked during the 2026-11-16 assessment, requires at least 40 prose words in that folder; manifest `license: MIT` satisfies the license requirement. Add a concise standalone README with valid links. Python hooks and text files over 256 KiB may cause reviewer holds, not automatic rejection; retain the safety hook. No tracked `.DS_Store` was found. Actual portal/name validation remains unperformed.
 
 Include only these adjacent documentation tasks: Python prerequisites (TOML falls back below 3.11), optional companion/Node/authentication/watchdog setup, configured-default model labels, accurate joined/skipped/failed outcomes, and bounded offline compatibility checks. Reuse [Codex maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); no adapter redesign. Companion 1.0.4 was statically inspected, not authenticated or launched.
 
@@ -243,13 +319,13 @@ The 2026-11-16 source assessment found no explicit Needs debugging outcome. [fix
 
 ### 999.43: Block publication — safe Python helper invocation
 
-Promotes 999.38 R2-WR-01/02 from the historical Phase 63 waiver. Fresh offline probes on 2026-11-16: invoking the real `statepath.py` with `PYTHONPATH` pointing to a temporary repository containing a harmless `sitecustomize.py` printed its marker before helper execution; `-E -s` suppressed the marker while the helper succeeded. Separately, `python3 "" ...` in a temporary directory executed its `__main__.py`; a same-command nonempty-path guard refused instead. No malicious code, network or live model run was used. These are interpreter/command reproductions, not evidence of an exploited user session. Current printed helper calls (including `30-collect-score.md`'s `SCORE_PY`) do not uniformly enforce these boundaries in the invocation itself. Earlier fences do not retain variables in a fresh shell.
+**Selected for Publication readiness (v2.16 Phase 69, HELP-01..02); not implemented.** Promotes 999.38 R2-WR-01/02 from the historical Phase 63 waiver. Fresh offline probes on 2026-11-16: invoking the real `statepath.py` with `PYTHONPATH` pointing to a temporary repository containing a harmless `sitecustomize.py` printed its marker before helper execution; `-E -s` suppressed the marker while the helper succeeded. Separately, `python3 "" ...` in a temporary directory executed its `__main__.py`; a same-command nonempty-path guard refused instead. No malicious code, network or live model run was used. These are interpreter/command reproductions, not evidence of an exploited user session. Current printed helper calls (including `30-collect-score.md`'s `SCORE_PY`) do not uniformly enforce these boundaries in the invocation itself. Earlier fences do not retain variables in a fresh shell.
 
 Smallest scope: inventory the actual helper and hook invocations; ignore ambient Python startup/import overrides and reject empty/missing helper paths in the same call; preserve trusted sibling modules. Test the real command forms with benign markers and normal helper fixtures. `-E -s` is a demonstrated candidate, not an approved universal patch; verify import compatibility. Trusted interpreter, git/node configuration and OS permissions remain documented prerequisites, not a promise to sandbox arbitrary repositories. Existing SHA/pasted-name/path guards remain.
 
 ### 999.44: Pre-submission decision gate — unresolved legacy wrong-keeps
 
-Source: Phase 57 `deferred-items.md`, original WR-01 (unbounded relocation) and REVIEW-GAPS IN-03 (old covering decision wins); Phase 60 `60-REPRO.md` R7 (untracked files lack change ranges). These were missing from the broad “all remaining shapes over-ask” summary. They are considered within 999.40, not a new identity milestone.
+**Selected for Publication readiness (v2.16 Phase 66, FRESH-03); not implemented.** Source: Phase 57 `deferred-items.md`, original WR-01 (unbounded relocation) and REVIEW-GAPS IN-03 (old covering decision wins); Phase 60 `60-REPRO.md` R7 (untracked files lack change ranges). These were missing from the broad “all remaining shapes over-ask” summary. They are considered within 999.40, not a new identity milestone.
 
 Fresh evidence: the real scorer/state chain driven by `test_decision_continuity`'s **simulated relocation** kept a dismiss current and returned `write` after deleting the decided line 10 when identical text remained at line 49. This proves the helper chain given that relocation, not live orchestrator behavior. A separate **synthetic legacy-state** probe showed `_covering`'s sorted-first choice returning `current` with an older critical cover plus a newer medium cover, versus `stale` with the newer cover alone. Real writer producibility of that overlap remains unverified. `worktree_snap.py` explicitly excludes untracked files; no fresh end-to-end wrong-keep probe was run for R7.
 
@@ -257,7 +333,7 @@ Bound the work to these three shapes: reproduce through current documented colle
 
 ### 999.45: Pre-submission scope gate — narrowed all-mode and colliding keys
 
-Source: 999.38 second-review SA-01 and IN-02; `statepath.py`/`05-state-all.md`. A fresh helper probe confirmed `feat/a` and `feat-a` resolve to the same branch-state path. Default/PR/range state scope and all-mode fresh-shell narrowing need explicit journey checks; key equality alone is not proof of a wrong close. The historical narrowed-`--all` carry says the printed fence consumes `${NARROW:-}` without binding the selected value in that call. No live narrowed-all journey was run in this pass.
+**Selected for Publication readiness (v2.16 Phase 68, BIND-03); not implemented.** Source: 999.38 second-review SA-01 and IN-02; `statepath.py`/`05-state-all.md`. A fresh helper probe confirmed `feat/a` and `feat-a` resolve to the same branch-state path. Default/PR/range state scope and all-mode fresh-shell narrowing need explicit journey checks; key equality alone is not proof of a wrong close. The historical narrowed-`--all` carry says the printed fence consumes `${NARROW:-}` without binding the selected value in that call. No live narrowed-all journey was run in this pass.
 
 Within the existing scope item, exercise narrow-A versus narrow-B/whole-tree, colliding branch names, and different PR/range identities through resume and Close out. Stop once each named shape has an outcome: existing guard proven, concrete wrong-target failure repaired, or conservative refusal. Do not build a general state migration just to rename filenames. Spaces/quotes in the repository folder remain cosmetic/deferred unless a wrong target is demonstrated. Preserve existing state and archives.
 
@@ -275,7 +351,8 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)). Publication readiness is the agreed next scope, not active or versioned; 999.31 remains deferred behind it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.16 Publication readiness is active (Phases 66-71; baseline 2.15.0 `d5acc19`); nothing implemented at roadmap creation. 999.31 remains deferred behind it. Paid runs, new agents, publication and Claude developer-portal submission require explicit owner approval; this roadmap does not authorize them.
+- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)).
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.

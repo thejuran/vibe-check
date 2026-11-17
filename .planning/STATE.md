@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: planning
-last_updated: "2026-11-17T03:57:06.980Z"
-stopped_at: "v2.16 started; defining requirements"
-last_activity: 2026-11-16 -- Milestone v2.16 Publication readiness started
+last_updated: "2026-11-17T04:02:00Z"
+stopped_at: "v2.16 roadmap created; Phase 66 next"
+last_activity: 2026-11-16 -- v2.16 roadmap created (Phases 66-71)
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,18 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.16 Publication readiness — defining requirements and roadmap (phases from 66)
+**Current focus:** v2.16 Publication readiness — Phase 66 Close out freshness next (Phases 66-71 roadmapped; nothing implemented)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 66 (Close out freshness) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-11-16 — Milestone v2.16 Publication readiness started
+Status: Planning — roadmap created, awaiting owner approval; Phase 66 not discussed or planned
+Last activity: 2026-11-16 — v2.16 roadmap created (Phases 66-71, 18/18 requirements mapped)
 
 ## Operator Next Steps
 
-- Define v2.16 requirements and create the roadmap (phases from 66)
+- Approve the v2.16 roadmap, then `/bm:discuss-phase 66` and `/bm:plan-phase 66` (Close out freshness) on `feat/v2.16-phase-66` from `main`
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Paid checks and portal submission require separate approval
 
@@ -53,7 +53,7 @@ Carried from earlier:
 | Kind | Item | Status |
 |------|------|--------|
 | Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.29 | Deferred behind Publication readiness (999.28 shipped in 2.14.1) |
-| Next scope | 999.40 stale Close out; 999.27 untrusted incremental base; 999.39 ambiguous phase lookup; 999.41 submission docs | Offline/source evidence recorded 2026-11-16; selected, not implemented or activated |
+| Active scope | 999.40/999.44 (Phase 66); 999.27 (Phase 67); 999.39 SA-01/WR-01, 999.45 (Phase 68); 999.43 (Phase 69); 999.41 (Phase 70) | v2.16 Phases 66-71 roadmapped 2026-11-16; offline/source evidence recorded; nothing implemented |
 | Deferred | 999.42 Needs debugging outcome | Later bounded usability follow-up; not a publication blocker |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
 | Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
@@ -73,7 +73,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0. No milestone active. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.16 Publication readiness active (Phases 66-71; baseline 2.15.0 `d5acc19`). Paid runs, new agents and Claude developer-portal submission need explicit owner approval (a completed milestone always publishes through the existing close-and-publish workflow — standing directive; portal submission is separate).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -81,7 +81,7 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.15 Lean orchestration shipped as 2.15.0 → Publication readiness scoped but not active; conditional Reviewer efficiency follows; 999.31 and 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.16 Publication readiness active (Phases 66-71); v2.15 Lean orchestration shipped as 2.15.0; conditional Reviewer efficiency follows; 999.31 and 999.26 deferred.
 - [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md), [requirements](milestones/v2.15-REQUIREMENTS.md), [audit](milestones/v2.15-MILESTONE-AUDIT.md), phase dirs in milestones/v2.15-phases/.
 - [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
@@ -90,6 +90,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: v2.16 roadmap written: Phase 66 Close out freshness (FRESH-01..03; 999.40, 999.44), Phase 67 Trusted incremental scope (SCOPE-01..02; 999.27), Phase 68 Unambiguous phase and scope binding (BIND-01..03; 999.39 SA-01/WR-01, 999.45), Phase 69 Safe helper invocation (HELP-01..02; 999.43), Phase 70 Submission packaging and truthful claims (PKG-01..05; 999.41), Phase 71 Release gate — publication readiness (GATE-07..09). 18/18 mapped. Planning files only; no code changed; portal submission not part of any phase. Awaiting owner approval; uncommitted.
 
 2026-11-16: owner requested roadmap update after read-only assessment of clean main `c1461c5e` / 2.15.0. Recorded Publication readiness (999.40, 999.27, 999.39 SA-01/WR-01, 999.41); no activation or implementation. Fresh offline checks: 822 tests passed plus an overlapping 645-test suite; 18 non-UTF-8 parity scenarios unavailable here. Reproduced stale Close out for defer/dismiss, valid-SHA scope narrowing and ambiguous/container GSD lookup. Full release suite, paid reviews, fresh installation and portal validation were not run. Archived milestones and their waivers remain unchanged; 999.28 repair/scoring preservation remains supported. No code edits or publication authorized by this roadmap update.
 

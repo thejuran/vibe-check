@@ -73,15 +73,34 @@ Deferred; tracked in ROADMAP.md backlog, not in this roadmap.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Which phases cover which requirements. Updated during roadmap creation (2026-11-16, Phases 66-71).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| FRESH-01 | Phase 66 | Pending |
+| FRESH-02 | Phase 66 | Pending |
+| FRESH-03 | Phase 66 | Pending |
+| SCOPE-01 | Phase 67 | Pending |
+| SCOPE-02 | Phase 67 | Pending |
+| BIND-01 | Phase 68 | Pending |
+| BIND-02 | Phase 68 | Pending |
+| BIND-03 | Phase 68 | Pending |
+| HELP-01 | Phase 69 | Pending |
+| HELP-02 | Phase 69 | Pending |
+| PKG-01 | Phase 70 | Pending |
+| PKG-02 | Phase 70 | Pending |
+| PKG-03 | Phase 70 | Pending |
+| PKG-04 | Phase 70 | Pending |
+| PKG-05 | Phase 70 | Pending |
+| GATE-07 | Phase 71 | Pending |
+| GATE-08 | Phase 71 | Pending |
+| GATE-09 | Phase 71 | Pending |
 
 **Coverage:**
 - v2.16 requirements: 18 total
-- Mapped to phases: 0 (pending roadmap)
+- Mapped to phases: 18/18 (Phase 66: 3, Phase 67: 2, Phase 68: 3, Phase 69: 2, Phase 70: 5, Phase 71: 3)
+- Orphaned: 0
 
 ---
 *Requirements defined: 2026-11-16*
-*Last updated: 2026-11-16 after owner corrections to BIND, HELP, PKG and GATE*
+*Last updated: 2026-11-16 after roadmap creation (traceability Phases 66-71)*
