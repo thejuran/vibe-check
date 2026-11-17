@@ -56,21 +56,37 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 **Requirements**: FRESH-01, FRESH-02, FRESH-03
 **Backlog**: 999.40, 999.44
 **Success Criteria** (what must be TRUE):
+
   1. The 999.40 assessment reproduction (defer or dismiss a finding, change the decided source line, run Close out) is first re-created as a fixture that fails on 2.15.0 code; after the repair, Close out refuses for both decision kinds on an exact-line edit and on a nearby edit, tells the user to run a fresh review, and never starts a paid reviewer on its own.
   2. With the reviewed code unchanged, Close out still completes for both decision kinds exactly as on 2.15.0; fix-verdict freshness, 999.28 unchanged-worktree score parity and real-edit reopening tests all still pass.
   3. Each of the three 999.44 shapes (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has a recorded outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample or control. The D-21 identical-copy addition is distinguished from deleted-original relocation. No decision-identity redesign.
   4. Replay against 2.15.0 differs only by the intended refusals; every other run is unchanged.
+
 **Plans:** 9 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 66-01-PLAN.md — RED: 999.40 reproduction fixture + v2.15 (d5acc19) materializer + closeout_fresh contract skeleton
 - [ ] 66-02-PLAN.md — Re-home ~48 decision-bearing Finalize fixtures and the parity grid onto real reviewed trees
-- [ ] 66-03-PLAN.md — TDD: closeout_fresh.stale_decisions (reverse diff, window, delete/rename, untracked, fail closed) + mutation checks 2-7
-- [ ] 66-04-PLAN.md — Wire the refusal into finalize_inputs (stop-review-again), render it in 90-finalize.md, mutation checks 1/8/9
 - [ ] 66-05-PLAN.md — --all records reviewed_tree (D-12): take/collect/persist prose + locks + real-chain test
-- [ ] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 66-03-PLAN.md — TDD: closeout_fresh.stale_decisions (reverse diff, window, delete/rename, untracked, fail closed) + mutation checks 2-7
 - [ ] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record (conditional owner checkpoint on BOUND-EXCEEDED)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 66-04-PLAN.md — Wire the refusal into finalize_inputs (stop-review-again), render it in 90-finalize.md, mutation checks 1/8/9
 - [ ] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample (owner checkpoint before any carry_state.py edit)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
 
 ### Phase 67: Trusted incremental scope
@@ -80,9 +96,11 @@ Plans:
 **Requirements**: SCOPE-01, SCOPE-02
 **Backlog**: 999.27
 **Success Criteria** (what must be TRUE):
+
   1. The 999.27 reproduction (a committed state file carrying a crafted valid commit id, including current HEAD, while a committed source change exists against the original base) is first a fixture that fails on 2.15.0 code; after the repair, that state cannot hide the committed change: the review covers it, or stops and asks the user to confirm the base.
   2. A fixture shows HEAD passing `merge-base --is-ancestor`, so the repair does not rest on an ancestor check alone; the existing refusal of anything but a commit id (Phase 60 CR-01) still passes.
   3. A legitimate pass >= 2 resume still reviews only the new changes, and the effective range (base..HEAD or equivalent) is stated to the user on the review output or card.
+
 **Plans**: TBD
 
 ### Phase 68: Unambiguous phase and scope binding
@@ -92,9 +110,11 @@ Plans:
 **Requirements**: BIND-01, BIND-02, BIND-03
 **Backlog**: 999.39 SA-01/WR-01, 999.45
 **Success Criteria** (what must be TRUE):
+
   1. The 999.39 reproduction (two same-named phase folders silently resolved to one; `phases` accepted as a phase id) is first a fixture that fails on 2.15.0 code; after the repair, duplicate exact or prefix matches stop and list the candidates, and container names (`phases`, `milestones`, `v1-phases`) are refused even when unique, all before any review state file is read.
   2. Unique phases still resolve in both supported layouts (fixtures for each), and the `05-state.md` state-isolation sentence claims only what the check enforces.
   3. Narrowed `--all` (narrow-A vs narrow-B vs whole tree), colliding branch names (`feat/a` vs `feat-a`) and distinct PR/range identities each have a recorded outcome through resume and Close out: existing protection proven by a journey fixture, a concrete wrong-target failure repaired, or a conservative refusal. No general state-format migration; existing state and archives are preserved.
+
 **Plans**: TBD
 
 ### Phase 69: Safe helper invocation
@@ -104,9 +124,11 @@ Plans:
 **Requirements**: HELP-01, HELP-02
 **Backlog**: 999.43 (promotes 999.38 R2-WR-01/02)
 **Success Criteria** (what must be TRUE):
+
   1. The actual helper and hook invocations are inventoried, and the 999.43 reproductions (a `PYTHONPATH` `sitecustomize.py` marker printing before a helper runs; `python3 ""` executing a repository `__main__.py`) are first fixtures that fail on 2.15.0 code across the real command forms.
   2. After the repair, the benign markers never execute through any inventoried helper or hook command form, while trusted sibling imports between the plugin's own scripts keep working and the offline suite passes.
   3. An empty or missing helper path refuses in the same call with a one-line message and runs nothing; normal helper and hook calls behave as on 2.15.0. Trusted interpreter, git/node configuration and OS permissions remain documented prerequisites, not sandboxed.
+
 **Plans**: TBD
 
 ### Phase 70: Submission packaging and truthful claims
@@ -116,11 +138,13 @@ Plans:
 **Requirements**: PKG-01, PKG-02, PKG-03, PKG-04, PKG-05
 **Backlog**: 999.41
 **Success Criteria** (what must be TRUE):
+
   1. `plugins/vibe-check/README.md` exists as a standalone document with at least 40 prose words and valid links, and the folder meets the portal's documented README/license requirements (manifest `license: MIT`); a link check and word count are recorded.
   2. Documentation states the Python prerequisites and supported-version expectations (including the TOML fallback below 3.11) and the optional Codex companion dependencies and setup (Node, authentication, watchdog).
   3. Run output and docs label the Codex lane "Codex (configured default)" or show the resolved model; joined, skipped and failed outcomes are reported accurately (fixtures).
   4. Public claims put the stricter v2.11 12/15 catch reading beside 15/15, keep the MISS verdict and the no-current-release-measurement disclosure, and say what estimated costs include; byte/step reductions are never presented as billing savings.
   5. A record for the exact candidate lists installation and portal checks as performed or still pending, and the affected offline compatibility checks pass.
+
 **Plans**: TBD
 
 ### Phase 71: Release gate — publication readiness
@@ -129,10 +153,12 @@ Plans:
 **Depends on**: Phases 66-70
 **Requirements**: GATE-07, GATE-08, GATE-09
 **Success Criteria** (what must be TRUE):
+
   1. Each implemented repair has a reproduction that fails on 2.15.0 and a regression that passes on the candidate; unchanged-code controls pass on both; investigation-only leads close with documented non-reproduction.
   2. The full applicable offline suite and the replay against 2.15.0 run on the exact candidate commit; every difference is an explicitly accounted intended repair, and any unexplained difference blocks the release.
   3. Offline and live evidence are recorded in separate sections; live checks run only under an owner-approved bounded proposal, otherwise they are listed as pending or explicitly waived, never as passed; a pending required check prevents the publication-readiness claim.
   4. The candidate ships via the existing workflow (release PR, tree-identity check, tag on `origin/main`, GitHub release, plugin update) and the record states that Claude developer-portal submission was not performed and needs separate owner authorization.
+
 **Plans**: TBD
 
 ## Following milestone: Reviewer efficiency (conditional)
