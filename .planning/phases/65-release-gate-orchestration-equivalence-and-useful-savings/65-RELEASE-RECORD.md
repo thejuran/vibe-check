@@ -98,7 +98,7 @@ Stated limits, unchanged: the range route is thin, pause/resume is thin, and `--
 - The folder is unchanged since the Phase 62 merge: `git diff --quiet d0adb5b "$C" -- docs/design/lean-v2.15/baseline` exit 0.
 - GOLDEN_DIGEST in `plugins/vibe-check/scripts/test_score.py` is `7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124` at both C and v2.14.1.
 - G10: `score.py`, `replay.py` and `test_replay.py` are byte-identical to v2.14.1. G4a confirms both scorers hash to the same sha256 (`c6488729…f725`).
-- Together these show that the scoring formula, the replay safeguard and the baseline kit used to judge this release were not changed by the release. G4b shows the protected catches still hold (`REGRESSED 0`).
+- Together these show that the scoring formula, the replay safeguard and the baseline kit used to judge this release were not changed by the release. G4b shows no protected catch was lost: 25 of 26 kept, the 26th counted under standing amendment 008, `REGRESSED 0`, `UNEVALUABLE 0`.
 
 ## Accepted differences
 

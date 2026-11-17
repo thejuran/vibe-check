@@ -59,7 +59,7 @@ An earlier 2.15 build could let two GSD phases share one saved-progress file and
 
 ## Dependabot
 
-Dependabot alerts are turned off on this repository and the command-line tool cannot list Dependabot PRs, so that review could not run (it found no open Dependabot PRs). The shipped scripts use only Python's standard library; pytest is used only for tests. No setting was changed.
+Dependabot alerts are turned off on this repository, so the alerts list could not be read. The Dependabot pull-request listing did run and found no open Dependabot PRs. The shipped scripts use only Python's standard library; pytest is used only for tests. No setting was changed.
 
 ## Not proven live — waivers
 
