@@ -89,3 +89,10 @@
       - `$ALL_MODE=1` — the flag that gates the Phase-0.5 fresh-snapshot branch, the Phase-2 `<diff>`→`<files>` block swap, and the Phase-4 coverage note.
       - The existing Phase-2 bindings are REUSED via a conditional (not a rewrite): `{{filtered_file_list}}` ← `$REVIEW_SET` rendered as a name list, and `{{git_diff_output}}` ← the `<files>` block string (`$FILES_BLOCK`, built in Phase 2).
       - Leave `$PHASE_ID` / `$PHASE_DIR` UNSET — `--all` has no single-phase intent doc, so this correctly skips Phase 1.5 intent loading.
+
+   f. **Snapshot what this pass reviews.** Once `$REVIEW_SET` is final and before anything is sent to agents, in its own Bash call, take the same working-tree snapshot as mode 1 (the mode-1 fence in `00-scope.md`, run here):
+      ```bash
+      GREPO=$(git rev-parse --show-toplevel)
+      python3 "$VC_ROOT/scripts/worktree_snap.py" take --root "$GREPO"
+      ```
+      It prints `REVIEWED_SNAPSHOT=<nonce>` (empty on failure, never an error); carry that printed literal to Phase 3's `worktree_snap.py collect --before` (a shell variable does not survive into a separate Bash call). Phase 3 records the pass as reviewed only if the code is still exactly what was snapshotted here; anything that moves after this point (an edit, a commit, a push) records nothing, so the next pass re-asks (999.28). Skip it on `--finalize` (`FINALIZE_MODE=1`), exactly as in mode 1: that run never reaches Phase 3's collect, so a snapshot would only be left behind.
