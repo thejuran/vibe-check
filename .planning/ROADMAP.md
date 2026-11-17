@@ -28,7 +28,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 - [x] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
 - [x] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's input assembly and gate/report handoff run through stdlib helpers with the same gate decisions and reports as 2.14.1, and one general check catches shell variables read across Bash calls (completed 2026-11-16)
 - [x] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate) (completed 2026-11-15 as a recorded skip)
-- [ ] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars
+- [x] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars (completed 2026-11-17)
 
 **Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
 
@@ -49,7 +49,7 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 | 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
 | 63. Finalize extraction and cross-call variable check | 11/11 | Complete    | 2026-11-15 |
 | 64. Optional bounded extension (conditional) | 0/0 | Complete (recorded skip) | 2026-11-15 |
-| 65. Release gate — orchestration equivalence and useful savings | 6/7 | Awaiting owner sign-off | - |
+| 65. Release gate — orchestration equivalence and useful savings | 7/7 | Complete    | 2026-11-17 |
 
 ## Phase Details
 
@@ -185,7 +185,7 @@ Run order is by wave, not by plan number: wave 1 = 01 and 03, wave 2 = 02 and 04
   2. The release record shows safeguards and independent fix verification intact and a demonstrated reduction in loaded prose or mechanical steps, with byte/operation savings reported separately from tokens or dollars and no billing-savings claim without comparable usage evidence
   3. Live validation of changed orchestration paths runs only under an approved bounded proposal; otherwise the unmeasured behaviour is documented and the release goes out under an explicit owner waiver
 
-**Plans:** 7 plans
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1**
@@ -211,7 +211,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 65-07-PLAN.md — release notes, close runbook, one-page sign-off and the owner's go/no-go (GATE-04, GATE-05, GATE-06)
+- [x] 65-07-PLAN.md — release notes, close runbook, one-page sign-off and the owner's go/no-go (GATE-04, GATE-05, GATE-06)
 
 ## Future milestone: Reviewer efficiency (conditional)
 

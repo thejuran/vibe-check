@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "executing — Phase 65 signed off; next verify-work 65, then close"
-last_updated: "2026-11-17T02:35:43Z"
+status: "verifying — Phase 65 verified (passed 16/16); next close per 65-CLOSE-RUNBOOK.md"
+last_updated: "2026-11-17T02:58:17Z"
 last_activity: "2026-11-16 -- 65-07 complete: owner SIGNED OFF 2.15.0 on b073e31 (Go (Recommended), 93313b8; four waivers granted; tag v2.15, title v2.15 — Lean orchestration); release notes and close runbook ready; nothing pushed, tagged or released"
-stopped_at: "Phase 65 signed off — next /bm:verify-work 65, then close per 65-CLOSE-RUNBOOK.md"
+stopped_at: "Phase 65 verified — next 65-CLOSE-RUNBOOK.md step 1 (/bm:verify-work 65, /bm:audit-milestone v2.15, /bm:complete-milestone v2.15 without its tag), then push/PR/CI/owner merge OK/tag"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 29
-  completed_plans: 28
+  completed_plans: 29
   percent: 50
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-13)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 65: release-gate-orchestration-equivalence-and-useful-savings
+**Current focus:** Phase 65 close: publish 2.15.0 per 65-CLOSE-RUNBOOK.md
 
 ## Current Position
 
-Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — SIGNED OFF, awaiting verify-work and close
+Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — all 7 plans done, verified passed; NOT yet published
 Plan: 7 of 7
-Status: Phase 65 signed off by the owner 2026-11-16; all 7 plans done; next /bm:verify-work 65, then publish per 65-CLOSE-RUNBOOK.md from the main session
-Last activity: 2026-11-16 -- 65-07 complete: owner SIGNED OFF 2.15.0 on b073e31 ("Go (Recommended)", 93313b8; four waivers granted; tag v2.15, title v2.15 — Lean orchestration); release notes and close runbook ready; nothing pushed, tagged or released
+Status: Phase 65 verified (65-VERIFICATION.md passed 16/16; 65-REVIEW.md 0C/1W/2I carried to 999.39 by owner ruling; 65-SECURITY.md threats_open 0); next close per 65-CLOSE-RUNBOOK.md from the main session
+Last activity: 2026-11-17 -- Phase 65 code review, security audit and verification complete; candidate C b073e31 unchanged; nothing pushed, tagged or released
 
 ## Operator Next Steps
 
