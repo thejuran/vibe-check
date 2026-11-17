@@ -60,7 +60,18 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
   2. With the reviewed code unchanged, Close out still completes for both decision kinds exactly as on 2.15.0; fix-verdict freshness, 999.28 unchanged-worktree score parity and real-edit reopening tests all still pass.
   3. Each of the three 999.44 shapes (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has a recorded outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample or control. The D-21 identical-copy addition is distinguished from deleted-original relocation. No decision-identity redesign.
   4. Replay against 2.15.0 differs only by the intended refusals; every other run is unchanged.
-**Plans**: TBD
+**Plans:** 9 plans
+
+Plans:
+- [ ] 66-01-PLAN.md — RED: 999.40 reproduction fixture + v2.15 (d5acc19) materializer + closeout_fresh contract skeleton
+- [ ] 66-02-PLAN.md — Re-home ~48 decision-bearing Finalize fixtures and the parity grid onto real reviewed trees
+- [ ] 66-03-PLAN.md — TDD: closeout_fresh.stale_decisions (reverse diff, window, delete/rename, untracked, fail closed) + mutation checks 2-7
+- [ ] 66-04-PLAN.md — Wire the refusal into finalize_inputs (stop-review-again), render it in 90-finalize.md, mutation checks 1/8/9
+- [ ] 66-05-PLAN.md — --all records reviewed_tree (D-12): take/collect/persist prose + locks + real-chain test
+- [ ] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
+- [ ] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record
+- [ ] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample
+- [ ] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
 
 ### Phase 67: Trusted incremental scope
 
