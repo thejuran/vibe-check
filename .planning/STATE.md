@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "verifying — Phase 65 verified (passed 16/16); next close per 65-CLOSE-RUNBOOK.md"
-last_updated: "2026-11-17T02:58:17Z"
-last_activity: "2026-11-16 -- 65-07 complete: owner SIGNED OFF 2.15.0 on b073e31 (Go (Recommended), 93313b8; four waivers granted; tag v2.15, title v2.15 — Lean orchestration); release notes and close runbook ready; nothing pushed, tagged or released"
-stopped_at: "Phase 65 verified — next 65-CLOSE-RUNBOOK.md step 1 (/bm:verify-work 65, /bm:audit-milestone v2.15, /bm:complete-milestone v2.15 without its tag), then push/PR/CI/owner merge OK/tag"
+status: "verifying — Phase 65 verified (16/16) and UAT complete (5/5 pass); next close per 65-CLOSE-RUNBOOK.md"
+last_updated: "2026-11-17T03:05:05Z"
+last_activity: "2026-11-16 -- /bm:verify-work 65: UAT complete, 5 passed, 0 issues (65-UAT.md, dfddfef); nothing pushed, tagged or released"
+stopped_at: "Phase 65 UAT complete — next 65-CLOSE-RUNBOOK.md step 1 (/bm:audit-milestone v2.15, /bm:complete-milestone v2.15 without its tag), then push/PR/CI/owner merge OK/tag"
 progress:
   total_phases: 4
   completed_phases: 2
