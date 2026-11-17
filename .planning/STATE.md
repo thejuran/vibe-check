@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: executing
-last_updated: "2026-11-17T20:10:43.110Z"
-last_activity: 2026-11-17 -- Phase 66 execution started
+stopped_at: "Phase 66 wave 1 complete (66-01, 66-02, 66-05); wave 2 next"
+last_updated: "2026-11-17T21:05:00.000Z"
+last_activity: 2026-11-17 -- Phase 66 wave 1 complete (3/9 plans)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 9
-  completed_plans: 0
-  percent: 0
+  completed_plans: 3
+  percent: 33
 ---
 
 # Project State
@@ -25,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 66 (close-out-freshness) — EXECUTING
-Plan: 1 of 9
+Plan: 3 of 9 complete (wave 1 done: 66-01, 66-02, 66-05; waves 2-5 remain)
 Status: Executing Phase 66
-Last activity: 2026-11-17 -- Phase 66 execution started
+Last activity: 2026-11-17 -- Phase 66 wave 1 complete (3/9 plans)
 
 ## Operator Next Steps
 
-- `/bm:plan-phase 66` (Close out freshness) on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
+- `/bm:execute-phase 66` (Close out freshness) in progress on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Paid checks and portal submission require separate approval
 

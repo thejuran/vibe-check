@@ -67,9 +67,9 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 Plans:
 **Wave 1**
 
-- [ ] 66-01-PLAN.md — RED: 999.40 reproduction fixture + v2.15 (d5acc19) materializer + closeout_fresh contract skeleton
-- [ ] 66-02-PLAN.md — Re-home ~48 decision-bearing Finalize fixtures and the parity grid onto real reviewed trees
-- [ ] 66-05-PLAN.md — --all records reviewed_tree (D-12): take/collect/persist prose + locks + real-chain test
+- [x] 66-01-PLAN.md — RED: 999.40 reproduction fixture + v2.15 (d5acc19) materializer + closeout_fresh contract skeleton
+- [x] 66-02-PLAN.md — Re-home ~48 decision-bearing Finalize fixtures and the parity grid onto real reviewed trees
+- [x] 66-05-PLAN.md — --all records reviewed_tree (D-12): take/collect/persist prose + locks + real-chain test
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
