@@ -93,7 +93,7 @@ Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-
 
 ## Current State: v2.15 shipped (2026-11-16)
 
-**v2.15 Lean orchestration shipped as plugin 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)).** Close out now runs its fingerprint, counting and decision commands through one checked stdlib helper; reviewers, the scoring formula and scores are unchanged. The offline suite runs in CI on every push and PR to `main`. No next milestone is scoped; 999.31 (decision identity design) and the conditional Reviewer efficiency milestone wait for one. The last measured efficacy is still v2.11 (5/18 · 15/15).
+**v2.15 Lean orchestration shipped as plugin 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)).** Close out now runs its fingerprint, counting and decision commands through one checked stdlib helper; reviewers, the scoring formula and scores are unchanged. The offline suite runs in CI on every push and PR to `main`. Publication readiness is the agreed next scope, not activated: stale Close out (999.40), trusted incremental scope (999.27), unambiguous GSD lookup (999.39 SA-01/WR-01), and submission packaging/setup/claims (999.41). See [ROADMAP.md](ROADMAP.md). Decision identity design (999.31) remains deferred and Reviewer efficiency stays conditional afterward. The last measured efficacy is still v2.11 (5/18 · 15/15; stricter catch reading 12/15); no current-release accuracy or billed-savings claim.
 
 ### Earlier: v2.15 started (2026-11-13)
 
@@ -362,7 +362,7 @@ crash-proofed and built the test-sufficiency agent on top of.
 
 <!-- No milestone active. The next one is defined by /bm:new-milestone. -->
 
-(None — next milestone not scoped. Candidates: 999.31 decision identity design; Reviewer efficiency stays conditional.)
+(None active — Publication readiness scope agreed on 2026-11-16; activate separately with /gsd-new-milestone. No version, phases or requirement IDs assigned. 999.31 remains deferred; Reviewer efficiency stays conditional.)
 
 (v2.15, v2.14 and v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
@@ -390,7 +390,7 @@ added. 142-test suite green.
 dogfood found in the plugin's own prose and built the deterministic-core `score.py` + state-safety
 hardening (CLOSE-01 PASS, owner sign-off).
 
-**Current milestone:** v2.12 Quiet without hiding — see Current Milestone at the top.
+**Current milestone:** none active; v2.15 shipped. Publication readiness is the agreed next scope — see ROADMAP.md.
 
 ### Out of Scope
 
@@ -488,4 +488,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-16 after v2.15 milestone (shipped as 2.15.0)*
+*Last updated: 2026-11-16 after the 2.15.0 assessment and owner-requested Publication readiness roadmap update; v2.15 remains shipped.*

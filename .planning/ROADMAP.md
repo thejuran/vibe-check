@@ -1,6 +1,6 @@
 # Roadmap: vibe-check
 
-Updated 2026-11-16 (v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); audit tech_debt 17/17. No milestone active; the next starts with /bm:new-milestone). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-11-16 (v2.15 Lean orchestration shipped as 2.15.0: PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest); audit tech_debt 17/17. No milestone active; Publication readiness is the agreed next scope, activated separately with /gsd-new-milestone). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
@@ -33,11 +33,24 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 
 </details>
 
-## Future milestone: Reviewer efficiency (conditional)
+## Next milestone: Publication readiness
+
+**Goal:** Make Close out and review scope trustworthy before Claude developer-portal submission, with the smallest correctness and packaging changes. Owner requested this roadmap update on 2026-11-16 after a read-only assessment of 2.15.0 at `c1461c5e`. Scope agreed; no milestone activated, version assigned or phases numbered.
+
+1. [ ] **Close out freshness (999.40).** Refuse Close out when ordinary deferred/dismissed decisions refer to code changed since review; require a fresh review rather than automatically running paid reviewers. Done when both decision kinds reject an exact-line or nearby edit before Close out, unchanged reviewed code still closes, and fix-verdict freshness remains protected. Preserve 999.28 score parity and real-edit reopening.
+2. [ ] **Trusted incremental scope (999.27).** Prevent repository-controlled state from silently choosing a narrower review base. Prefer the smallest trusted-resume or explicit-confirmation boundary and disclose the effective range. Done when a crafted valid current-HEAD SHA cannot hide a committed change, while legitimate incremental review still works. An ancestor check alone is insufficient.
+3. [ ] **Unambiguous GSD phase (999.39 SA-01/WR-01).** Refuse duplicate exact/prefix matches and phase-container names before selecting state; correct the overbroad state-isolation sentence. Done when ambiguous inputs cannot review or close the wrong phase and both supported layouts still resolve unique phases.
+4. [ ] **Submission packaging and truthful setup/claims (999.41).** Add the plugin-folder README; document Python and optional companion setup; use configured-default Codex labels; disclose the v2.11 stricter 12/15 reading beside 15/15 and clarify estimated cost inclusions. Retain the existing companion, targeting and safety guards. Done when the submitted folder meets the documented README/license requirements, affected offline compatibility checks pass, and the exact candidate's installation/portal checks are recorded as performed or still pending.
+
+**Finish line:** Targeted failing reproductions pass after the repairs; unchanged-code decision/scoring behavior and affected mode/recovery paths remain covered; candidate packaging and documentation agree. Record offline versus live evidence separately. Portal submission is recommended only after these repairs and a successful candidate validation; submission itself is not authorized by this planning update.
+
+**Exclusions:** No decision-identity redesign (999.31), new reviewer lanes, scorer retuning, Codex replacement, accounting infrastructure, broad orchestration refactor or new efficacy campaign. Empty-card Rerun handling (999.32), shared card plumbing (999.35), snapshot pruning (999.30), and Needs debugging (999.42) can ship later. Paid tests need separate bounded approval. Keep the shipped v2.15 milestone complete.
+
+## Following milestone: Reviewer efficiency (conditional)
 
 **Goal:** Reduce review usage or latency only where a bounded experiment demonstrates that expected defect detection and false-alarm behavior are preserved.
 
-**Activation:** Decision reliability and Lean orchestration have shipped; attributable costs or a reproduced repeated-work case identify a meaningful target; the owner approves a bounded comparison proposal and any paid runs. No phase numbers or implementation commitment before this gate. Size remains unknown until one experiment is selected.
+**Activation:** Publication readiness is complete; Decision reliability and Lean orchestration remain shipped; attributable costs or a reproduced repeated-work case identify a meaningful target; the owner approves a bounded comparison proposal and any paid runs. No phase numbers or implementation commitment before this gate. Size remains unknown until one experiment is selected.
 
 1. [ ] **Select one evidence-backed experiment.** Compare architecture/impact routing, targeted fix rechecks with dependency/snapshot invalidation, OR narrower specialist context; do not bundle interventions. Preserve bugs/security coverage and independent confirmation, and fall back to existing coverage when impact is uncertain. Check actual cache-read/write fields instead of assuming parallel dispatch shares a cache. Predeclare the baseline, model/configuration/cache conditions, fresh defect/clean cases, repeats and useful savings threshold before running. Include large/cross-file changes and repair journeys; preserve sealed evaluation access boundaries.
 
@@ -46,6 +59,8 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 **Out of scope:** Automatic model downgrades based only on diff size, persistence weighting or severity retunes, broader reviewer replacement and new accounting infrastructure. Persistence-as-second-opinion remains a separate hypothesis needing its own bounded proposal; this sequence does not authorize scorer changes.
 
 ## Sequence rationale and evidence
+
+**Priority update (2026-11-16):** Publication readiness now precedes optional efficiency work. Stale Close out affects the core closure path; untrusted scope and ambiguous phase selection can hide work or target the wrong findings. Reach is unmeasured (ambiguous layouts are uncommon), but current offline reproductions support correctness repairs ahead of optional savings. The plugin-folder README is a concrete submission requirement. The smallest repair/verification scope wins; adding a helper or abstraction requires a demonstrated need. v2.15 remains worthwhile: its Close out reduction was 3.48% in instruction bytes and 92 → 85 counted steps, not measured billing savings; review paths grew slightly.
 
 Wrong-keeps and deferral loss undermine the core gate, so their repair ships first. Finalize recovery is a small prerequisite repair, distinct from its later extraction. Cost feasibility and a Finalize-only refactor keep the second milestone bounded. Reviewer changes have uncertain marginal value and stay conditional. Each milestone owns its verification and release; no later experiment delays earlier correctness work. Keep 999.26, generic cleanup, broad duplicate reduction and Phase 55/holdout sweeps deferred.
 
@@ -105,6 +120,8 @@ After the CR-01 rollback (58-REVIEW-FINAL.md), a title reference names a row onl
 
 A well-formed but crafted 40- or 64-hex `head_sha` committed into the reviewed repo's state file passes `carry_state.py last-head-sha` and can narrow the incremental (pass >= 2) range without telling the owner. Phase 60's CR-01 fix closed command injection, not scope trust. Owner ruling 2026-10-30 (60-HUMAN-UAT test 3): status quo accepted for v2.14; hardening deferred. Candidate direction: require the stored sha to be an ancestor of HEAD and state the narrowed range on the card. Also consider R26 (no write-side format check on `head_sha`). Reproduce on a real review first. Needs exploitation by someone who can commit to the repo. Not scheduled.
 
+**2026-11-16 reassessment:** Selected for Publication readiness, superseding the unscheduled disposition above without changing the v2.14 waiver. At `c1461c5e`, the real `last_head_sha` helper accepted current HEAD supplied in state; a temporary Git repo had a committed source change against its original base, but the selected incremental diff was empty. HEAD also passed `merge-base --is-ancestor`, so ancestry alone cannot repair scope trust. Helper/Git reproduction only; no live model review. Relevant implementation: [SHA validation](../plugins/vibe-check/scripts/carry_state.py), [incremental selection](../plugins/vibe-check/phases/review/05-state.md). Preserve command-injection refusal while establishing trusted or owner-confirmed resume scope.
+
 ### 999.29: A decided finding re-reported under a reworded title shows as new (2.14.1 live check)
 
 Seen in the 2.14.1 live check (default route, unchanged tree): the bugs lane re-titled the deferred SQL-injection finding on pass 2, so the row got a new stable_hash and was shown as an undecided new finding with no "(was: deferred)" context. The original decision was kept as a member obligation (no nearby stamp, not re-asked). In 2.14.0 this was masked by the false 999.28 nearby reason. Fails toward asking; nothing lost. Candidate direction: carry decision context onto a lead whose members include a decided obligation for the same file and line. Reproduce on the real chain first. Not scheduled.
@@ -115,7 +132,7 @@ Seen in the 2.14.1 live check (default route, unchanged tree): the bugs lane re-
 
 ### 999.31: Decision identity design (groups the remaining decision-continuity limits)
 
-Owner decision 2026-11-13: stop scheduling the remaining decision-continuity limits one at a time and treat them as one design question, to be taken after Lean orchestration ships. This entry commits no work, phase numbers or dates.
+Owner decision 2026-11-13: stop scheduling the remaining decision-continuity limits one at a time and treat them as one design question, to be taken after Lean orchestration ships. This entry commits no work, phase numbers or dates. Following the 2026-11-16 assessment, Publication readiness comes first; this design remains deferred.
 
 The shared cause: a decision is tied to a finding by its title-derived `stable_hash` plus nearby line numbers, so a reworded title or a new identical copy needs another special rule. This area was repaired in v2.11, v2.12, v2.13 (Phase 57), v2.14 (Phases 59–60) and 2.14.1 and still has open shapes. Every open shape fails toward asking again; none is a silent keep.
 
@@ -200,6 +217,26 @@ The owner chose "Ship + backlog (Recommended)" (AskUserQuestion, main session, 2
 
 Not scheduled.
 
+**2026-11-16 reassessment:** SA-01 and its WR-01 wording correction are selected for Publication readiness; the other carries remain deferred. Executing the current `00-scope.md` lookup fence in a temporary layout selected one of two `01-setup` directories without refusing, and accepted `phases` as a phase id. This freshly verifies lookup behavior; the wrong-close consequence follows from basename-keyed state and was recorded by the Phase 65 review. No live GSD session was run. Preserve the historical ship-with-backlog ruling above.
+
+### 999.40: Keep: Close out freshness for ordinary owner decisions
+
+**Selected for Publication readiness; not implemented.** New offline evidence from the 2026-11-16 assessment at `c1461c5e` / 2.15.0: create a temporary Git repo with `test_decision_continuity.base_file()` at `src/a.py`, commit it, build pass-1 state with `pass1(lines, conf=95, kind=...)`, and record actual HEAD and `HEAD^{tree}`. For each of `defer` and `dismiss`, change source line 10 to `line_10 = danger()` and run the real `finalize_inputs.py` CLI with that state, a fresh empty blob file and all three switches false. Both exited 0 with `action: write`, `next: write-review-md`, and all outstanding counts zero despite the source diff. Temporary fixtures were removed; this record describes an assessment reproduction, not a committed regression test or live-model run.
+
+Mechanism: [review.md](../plugins/vibe-check/commands/review.md) skips scoring/carry-forward in Finalize; [finalize_inputs.py](../plugins/vibe-check/scripts/finalize_inputs.py) supplies stored-state counts and fix-verdict blobs; [carry_state.py](../plugins/vibe-check/scripts/carry_state.py) compares saved decision evidence with saved finding data and `_closed` accepts that decision before fix checks. The bounded repair is a freshness refusal requiring review again, with exact-line/nearby/unchanged controls for both decision kinds. Do not infer that this was introduced in 2.15 or reopen 999.28: subsequent-review snapshot/scoring tests passed, and this failure goes directly from edit to Close out.
+
+### 999.41: Keep: Submission packaging, prerequisites and evidence disclosure
+
+**Selected for Publication readiness; not implemented.** At `c1461c5e`, the tracked `plugins/vibe-check` folder has no README, though it contains the manifest. The [official portal checklist](https://claude.com/docs/plugins/pre-submission-checklist), checked during the 2026-11-16 assessment, requires at least 40 prose words in that folder; manifest `license: MIT` satisfies the license requirement. Add a concise standalone README with valid links. Python hooks and text files over 256 KiB may cause reviewer holds, not automatic rejection; retain the safety hook. No tracked `.DS_Store` was found. Actual portal/name validation remains unperformed.
+
+Include only these adjacent documentation tasks: Python prerequisites (TOML falls back below 3.11), optional companion/Node/authentication/watchdog setup, configured-default model labels, accurate joined/skipped/failed outcomes, and bounded offline compatibility checks. Reuse [Codex maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); no adapter redesign. Companion 1.0.4 was statically inspected, not authenticated or launched.
+
+The [v2.11 report](../plugins/vibe-check/docs/efficacy/RESULTS-v2.11.md) records a stricter 12/15 catch reading versus headline 15/15 (five defect diffs, three repeats), tuning overlap and owner-only repos. Put that caveat beside the public headline; preserve historical verdict MISS and no-current-release-efficacy disclosure. Clarify main-session/cache assumptions in cost estimates; byte/step reductions are not billing measurements. No benchmark or accounting restart.
+
+### 999.42: Deferred: Needs debugging outcome
+
+The 2026-11-16 source assessment found no explicit Needs debugging outcome. [fix.md](../plugins/vibe-check/agents/fix.md) has `needs-human` for product/architecture decisions or changes beyond scope, plus unsuccessful repair outcomes. When a concrete repair journey needs investigation before a safe fix, consider a small investigation-required reason/outcome that keeps the finding open and explains the next diagnostic step. Existing no-fabricated-fix rules remain. No autonomous debugging pipeline or automatic paid investigation; not a publication blocker and not scheduled.
+
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
@@ -214,7 +251,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)). No next milestone is scoped; 999.31 (decision identity design) waits for it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.15 Lean orchestration shipped 2026-11-16 as 2.15.0 (PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)). Publication readiness is the agreed next scope, not active or versioned; 999.31 remains deferred behind it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.

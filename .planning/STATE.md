@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
 status: Awaiting next milestone — v2.15 shipped as 2.15.0
-last_updated: "2026-11-17T03:40:00Z"
-last_activity: "2026-11-16 -- 2.15.0 shipped: PR #12 squash d5acc19, tag v2.15 on origin/main, GitHub release v2.15 (Latest); installed plugin updated, relaunch pending"
-stopped_at: "v2.15 shipped — next /bm:new-milestone (after a Claude Code relaunch to load 2.15.0)"
+last_updated: "2026-11-17T03:41:51Z"
+last_activity: "2026-11-16 -- Read-only 2.15.0 assessment; owner requested bounded Publication readiness roadmap update"
+stopped_at: "v2.15 shipped; Publication readiness scoped, not activated — next /gsd-new-milestone"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,19 +21,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** between milestones — /bm:new-milestone next
+**Current focus:** between milestones — Publication readiness next; correctness and submission packaging before optional efficiency
 
 ## Current Position
 
 Phase: Milestone v2.15 complete — shipped as 2.15.0
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-11-16 -- PR #12 squash `d5acc19`, tag `v2.15` on origin/main, GitHub release v2.15 (Latest)
+Last activity: 2026-11-16 -- assessment recorded and Publication readiness scope agreed; v2.15 remains shipped
 
 ## Operator Next Steps
 
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
-- Start the next milestone with /bm:new-milestone (999.31 decision identity design is the waiting candidate)
+- Activate the bounded Publication readiness scope with /gsd-new-milestone; no version or phases assigned yet
+- Resolve 999.40, 999.27, 999.39 SA-01/WR-01 and 999.41 before portal submission; paid checks and submission require separate approval
 
 ## Deferred Items
 
@@ -51,7 +52,9 @@ Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
+| Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.29 | Deferred behind Publication readiness (999.28 shipped in 2.14.1) |
+| Next scope | 999.40 stale Close out; 999.27 untrusted incremental base; 999.39 ambiguous phase lookup; 999.41 submission docs | Offline/source evidence recorded 2026-11-16; selected, not implemented or activated |
+| Deferred | 999.42 Needs debugging outcome | Later bounded usability follow-up; not a publication blocker |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
 | Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
 | Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled; not selected in Phase 64 (recorded skip 2026-11-15) — reproduce first |
@@ -62,7 +65,7 @@ Carried from earlier:
 | Backlog | 999.36 Cross-call check: C2 exception and known limits | Not scheduled |
 | Backlog | 999.37 Finalize helper input gaps matched to 2.14.1 (D-06) | Not scheduled |
 | Backlog | 999.38 Phase 63 review carry (63-REVIEW.md, 63-REVIEW-2.md) | Owner accepted as carried at the go 2026-11-15; not scheduled |
-| Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
+| Conditional follow-up | Reviewer efficiency | After Publication readiness and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
 | Deferred | Phase 55 measurement and cancelled Phase 54 sweeps | No automatic restart; v2.12 outcome remains UNMET |
@@ -78,7 +81,7 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.15 Lean orchestration shipped as 2.15.0 → no next milestone scoped; conditional Reviewer efficiency; 999.31 waits for the next milestone; 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration shipped as 2.15.0 → Publication readiness scoped but not active; conditional Reviewer efficiency follows; 999.31 and 999.26 deferred.
 - [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md), [requirements](milestones/v2.15-REQUIREMENTS.md), [audit](milestones/v2.15-MILESTONE-AUDIT.md), phase dirs in milestones/v2.15-phases/.
 - [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
@@ -87,6 +90,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: owner requested roadmap update after read-only assessment of clean main `c1461c5e` / 2.15.0. Recorded Publication readiness (999.40, 999.27, 999.39 SA-01/WR-01, 999.41); no activation or implementation. Fresh offline checks: 822 tests passed plus an overlapping 645-test suite; 18 non-UTF-8 parity scenarios unavailable here. Reproduced stale Close out for defer/dismiss, valid-SHA scope narrowing and ambiguous/container GSD lookup. Full release suite, paid reviews, fresh installation and portal validation were not run. Archived milestones and their waivers remain unchanged; 999.28 repair/scoring preservation remains supported. No code edits or publication authorized by this roadmap update.
 
 2026-11-16: 2.15.0 shipped per 65-CLOSE-RUNBOOK.md: release PR #12, G12 green on aa1a781 and re-run green on 5e8734e, owner merge OK ("Merge when green"), squash d5acc19, tree identity vs b073e31 OK, tag v2.15 on origin/main, GitHub release v2.15 (Latest), `claude plugin update` 2.14.1 → 2.15.0 (relaunch pending), feat/v2.15-phase-65 deleted locally and on GitHub, main realigned to origin/main.
 
