@@ -2,49 +2,50 @@
 gsd_state_version: 1.0
 milestone: v2.15
 milestone_name: Lean orchestration
-status: "Ready to discuss Phase 64; Phase 63 closed 2026-11-15"
-stopped_at: "Phase 63 complete: Finalize extraction PASS, verification passed 5/5 on round 5, PR #10 (4ac7ee4) and follow-up PR #11 (b49d40a) merged with CI green on main; next is the Phase 64 discussion (a recorded skip or at most one family)"
-last_updated: "2026-11-16T03:55:02Z"
-last_activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
+status: "in review — v2.15 closed and archived; release PR for 2.15.0 not yet opened, merged, tagged or released"
+last_updated: "2026-11-17T03:40:00Z"
+last_activity: "2026-11-16 -- /bm:complete-milestone v2.15: archived roadmap, requirements, audit and phase dirs; no tag made (runbook step 1)"
+stopped_at: "v2.15 archived — next 65-CLOSE-RUNBOOK.md steps 2-10 (freshness, Dependabot, release PR + G12, owner merge OK, tag on origin/main, GitHub release, plugin update)"
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 22
-  completed_plans: 22
-  percent: 50
+  completed_phases: 4
+  total_plans: 29
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-13)
+See: .planning/PROJECT.md (updated 2026-11-16)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 64 — optional bounded extension (conditional): a recorded skip or at most one family
+**Current focus:** publish 2.15.0 per 65-CLOSE-RUNBOOK.md (milestone archived); then /bm:new-milestone
 
 ## Current Position
 
-Phase: 64 (optional-bounded-extension, conditional) — NOT STARTED
-Plan: Not started (Phase 63: 11 of 11 complete)
-Status: Ready to discuss Phase 64; Phase 63 complete, merged and verified
-Last activity: 2026-11-15 -- Phase 63 complete; follow-up PR #11 merged, CI green on main
+Phase: 65 (release-gate-orchestration-equivalence-and-useful-savings) — complete, milestone archived; 2.15.0 NOT yet published
+Plan: 7 of 7
+Status: v2.15 closed and archived (audit tech_debt 17/17); release PR, G12, owner merge OK, tag and GitHub release pending
+Last activity: 2026-11-16 -- /bm:complete-milestone v2.15 (phase dirs now in milestones/v2.15-phases/)
 
 ## Operator Next Steps
 
-- `/bm:discuss-phase 64`: record a skip, or select at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step); a recorded skip completes the phase
-- Before Phase 65's equivalence gate relies on them: close 999.34 WR-02/WR-03; weigh the 999.38 carry
-- No release in Phase 63: the installed plugin keeps the 2.14.1 instructions until the 2.15 release is installed and the session relaunched
+- Run 65-CLOSE-RUNBOOK.md steps 2-4: freshness assert, Dependabot re-check, release PR with G12 on its head, then the owner's merge OK
+- Steps 5-10: tree identity, tag v2.15 on origin/main, GitHub release, plugin update + relaunch, branch cleanup, mark shipped here and in ROADMAP
+- Then /bm:new-milestone (999.31 decision identity design is the waiting candidate)
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-10-30. All were deferred earlier by the owner and are carried, not re-decided:
+Items acknowledged and deferred at milestone close on 2026-11-16 (v2.15; owner chose "Defer all 4"). The three v2.12 holdout-kit sessions were also deferred at the 2026-10-30 close:
 
 | Category | Item | Status |
 |----------|------|--------|
 | debug | dryrun-replace-retired-ignored | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
 | debug | finder-check-blocked-sandbox | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
 | debug | role-session-shared-tmp-leak | awaiting_human_verify (v2.12 holdout kit; deferred again from 2026-10-28) |
+| debug | 999-28-uncommitted-reask | awaiting_human_verify (fix shipped in 2.14.1; owner live /review check still open) |
 | verification_gap | Phase 59 59-VERIFICATION.md | gaps_found, non-blocking; WR-01/WR-02 owner-parked to 999.23 (2026-10-29) |
 
 Carried from earlier:
@@ -54,7 +55,7 @@ Carried from earlier:
 | Backlog | 999.23 residuals (D-01 over-ask, WR-01, WR-02), 999.27, 999.29 | Carried from v2.14 / 2.14.1; reproduce first (999.28 shipped in 2.14.1) |
 | Maintenance | 999.30 snapshot store + temp leftovers pruning | 2.14.1 known limit; not scheduled |
 | Backlog | 999.31 Decision identity design (groups 999.23 residuals, 999.26, 999.29, `--all` decision memory) | Owner decision 2026-11-13; after Lean orchestration; no work committed |
-| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled |
+| Backlog | 999.32 fix loop stops instead of Rerun after a typed defer (C4, moved from 999.28) | Carried; not scheduled; not selected in Phase 64 (recorded skip 2026-11-15) — reproduce first |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Closed | 999.12 cost visibility feasibility | Phase 62 done 2026-11-14: owner NO-GO (follows the note); accounting work stops, labelled byte and step counts are the evidence |
 | Backlog | 999.34 Phase 62 review carry (WR-01..WR-06, SA-01, SA-02 in 62-REVIEW.md) | Owner merged with them carried 2026-11-14; WR-02/WR-03 before Phase 65's gate relies on them; WR-06 needs a minimum-Python ruling; not scheduled |
@@ -70,7 +71,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- v2.15 Lean orchestration is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.15 Lean orchestration is closed and archived; publication per 65-CLOSE-RUNBOOK.md. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -78,13 +79,23 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): v2.15 Lean orchestration active, Phases 62–65 (62 baseline 999.12 + continuous test run, 63 Finalize extraction + cross-call variable check, 64 optional extension, 65 release gate) → conditional Reviewer efficiency; 999.31 waits until v2.15 ships; 999.26 deferred. v2.14 archived: [roadmap](milestones/v2.14-ROADMAP.md).
+- [Roadmap](ROADMAP.md): v2.15 Lean orchestration closed (publishing 2.15.0) → no next milestone scoped; conditional Reviewer efficiency; 999.31 waits for the next milestone; 999.26 deferred.
+- [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md), [requirements](milestones/v2.15-REQUIREMENTS.md), [audit](milestones/v2.15-MILESTONE-AUDIT.md), phase dirs in milestones/v2.15-phases/.
+- [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md).
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-11-16: /bm:complete-milestone v2.15. Pre-close audit: 4 open debug sessions, owner deferred all 4 (AskUserQuestion). Archived v2.15 ROADMAP, REQUIREMENTS and audit to milestones/; phase dirs moved to milestones/v2.15-phases/; MILESTONES, PROJECT, ROADMAP and RETROSPECTIVE updated; REQUIREMENTS.md removed. No tag made (runbook step 1: the tag goes on origin/main in step 6). Next: runbook steps 2-10.
+
+2026-11-16: Phase 65 plan 07 complete. Owner signed off 2.15.0 on b073e31 in the main session (AskUserQuestion, "Go (Recommended)"; recorded in 93313b8): four waivers granted, named growth signed, tag v2.15 / title "v2.15 — Lean orchestration". Two wording fixes in planning docs: the record's catch line now states 25 of 26 kept, 1 under standing amendment 008, 0 regressed; the sign-off's Dependabot line now says the PR listing ran and found none. Next: /bm:verify-work 65, then 65-CLOSE-RUNBOOK.md.
+
+2026-11-16: Phase 65 plan 07 tasks 1-2 complete. 65-RELEASE-RECORD.md finished: live smoke effective outcome PASS (the only run, on C = b073e31), stated limits, four validation gaps with waivers pending sign-off, publish status pending close (G12 at the PR). 65-RELEASE-NOTES.md (accepted differences, size block in bytes and steps, six known limits incl. live-smoke K1 in the notes only, 4,126 tests) and 65-CLOSE-RUNBOOK.md (10 steps, G12 on the PR head, tree identity, tag on origin/main, release, plugin update, branch cleanup) committed (ac0d8c5). Freshness: HEAD equals C outside .planning. 65-SIGNOFF.md written with Status: AWAITING OWNER. ROADMAP 999.38 corrected: WR-02 was a regression introduced during v2.15, fixed before release by b281042. Stopped at the owner go/no-go.
+
+2026-11-16: Phase 65 plan 02 complete. 65-LIVE-SMOKE-PROPOSAL.md written (3c26d68) and APPROVED by the owner via AskUserQuestion in the main session, selection "Approve (Recommended)" (368ba54): three fresh sessions on the candidate (S1 review + defer, S2 Close out, S3 Close out via the decision card), one invalid-run retry, est. $20-30, an estimate not a cap. GSD, range, PR, incremental, `--all` and the fix loop stay offline-only and go to the waiver list at sign-off. Nothing run or spent yet; the smoke runs in 65-06 after the free gates pass. Next: 65-03 (WR-02 fix).
 
 2026-11-15: Phase 63 complete. Finalize extraction PASS on its own (`c7d92c9`: 92 → 83 steps, 136,114 → 129,451 bytes); phase end after the owner-chosen fixes 85 steps, 130,886 bytes (plain review 193,267 vs 192,057; deep 270,219 vs 268,997). Owner "go" recorded on 63-RESULT.md; PR #10 squash-merged as 4ac7ee4 (main run 43771152210 green). Phase verification then found one gate-decision difference from 2.14.1 per round for four rounds (D-24 dash file names, D-25 root trimming, D-26 folder of the per-file checks, D-28 a regression from the D-26 fix); owner chose to match 2.14.1 and to add a permanent side-by-side test (833 scenarios); D-27 keeps the 60-second git limit as an accepted difference. Follow-up PR #11 squash-merged as b49d40a (main run 43800239296 green; grids 0 unexpected on Linux). Round 5 passed 5/5 (ran on Opus 5.5 because of a Fable rate limit). Backlog filed: 999.35–999.38. Next: /bm:discuss-phase 64.
 

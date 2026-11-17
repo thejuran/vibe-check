@@ -324,6 +324,45 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 
 ---
 
+## Milestone: v2.15 — Lean orchestration
+
+**Completed:** 2026-11-16 (2.15.0 signed off on b073e31; release in progress; not B3-measured)
+**Phases:** 62–65 | **Plans:** 29 (11 + 11 + 0 recorded skip + 7)
+
+### What Was Built
+- A pinned 2.14.1 baseline (suite, 170-run replay, five Finalize situations, byte and step counts) with the improvement criterion written before any extraction, and an offline-suite CI workflow on every push and PR to `main`.
+- Cost visibility judged from existing records: NO-GO, so every savings claim is labelled bytes and counted steps.
+- Close out's fingerprint, counting and decision commands now run through one tested stdlib helper (extraction alone: 92 → 83 steps, 136,114 → 129,451 bytes; at release 85 steps, 131,381 bytes).
+- One general check for shell values read across Bash calls; nine reproduced places fixed.
+- A release gate (G1–G11 + bounded live smoke) that passed on the first candidate after the one WR-02 fix round.
+
+### What Worked
+- Writing the improvement criterion and baseline before touching code made the pass/fail call mechanical (D-16: judged on the extraction alone).
+- The permanent side-by-side test of the literal 2.14.1 Finalize step beside the helper (833 scenarios) ended the one-difference-per-round loop at round 5.
+- The recorded-skip option for Phase 64 kept the milestone bounded without inventing work.
+- CI on every push caught nothing new but removed the manual "did the suite run" question from every merge.
+
+### What Was Inefficient
+- Phase 63 verification found one gate-decision difference from 2.14.1 per round for four rounds before the side-by-side test existed — the one-sided parity tests had a decorative-guard blind spot.
+- Phase 62's own baseline checks passed on inputs they should reject (999.34); Phase 65 had to bypass them with direct recounts.
+- Two of the release's safety stops added +1,705 to +1,966 bytes to each review path, so the milestone's size win is on Close out only.
+
+### Patterns Established
+- For any "same as version X" claim, build a two-sided differential test against the literal old procedure first.
+- Cost/usage claims need an independent run total; without one, report labelled byte/step counts and say so.
+- A conditional phase can close as a recorded skip with the deferred families named.
+
+### Key Lessons
+- Extraction parity is cheapest to prove when the old procedure stays runnable beside the new one.
+- The "no growth per round" rule held across four verification rounds and one fix round; everything else went to 999.34–999.39.
+- A pre-release regression (WR-02) was caught by reproducing carried review items on the candidate before building it.
+
+### Cost Observations
+- One owner-approved bounded live smoke (3 sessions, est. $20–30). All other evidence was local or CI (suite 4126/4599, replay 170 runs, 833-scenario side-by-side).
+- Notable: Phase 63's verification rounds dominated session time, as gap rounds did in v2.13 and v2.14.
+
+---
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |
@@ -332,7 +371,8 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 | v2.2 Codex adversarial reviewer | 3 (4-6) | 6 | 2026-06-21 | EFF-01/EFF-02 PASS (2 cross-confirms, de-auth degraded) |
 | v2.5 Sharper, more legible reviews | 4 (19-22) | 8 | 2026-06-28 | CLOSE-01 PASS (`--all` self-dogfood, owner sign-off, 2 self-defects caught + fixed) |
 | v2.13 Reliable fix closure and recovery | 3 (56-58) | 52 | 2026-10-28 | Not measured (regression fixtures + replay 0 regressed; known limits 999.23–999.26) |
-| v2.14 Decision reliability | 3 (59-61) | 27 | 2026-10-30 (release in progress) | Not measured (suite 3821/0, replay 170 runs 0 differing, live smoke PASS with C1 disclosed; known limits 999.23 residuals, 999.26–999.28) |
+| v2.14 Decision reliability | 3 (59-61) | 27 | 2026-10-30 | Not measured (suite 3821/0, replay 170 runs 0 differing, live smoke PASS with C1 disclosed; known limits 999.23 residuals, 999.26–999.28) |
+| v2.15 Lean orchestration | 4 (62-65) | 29 | 2026-11-16 (release in progress) | Not measured (suite 4126/0, replay vs 2.14.1 170 runs 0 differing, live smoke PASS; Close out 92 → 85 steps; known limits 999.34–999.39) |
 
 **Recurring pattern:** every milestone closes with an efficacy test + owner sign-off as the human
 bar — the right verification shape for a prompt-only review plugin where coverage, not unit tests, is

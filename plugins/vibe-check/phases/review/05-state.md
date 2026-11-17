@@ -6,12 +6,14 @@
 State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`, so every downstream consumer (Phase 4.5 persist, Finalize read/archive) reads the SAME handle regardless of mode — Finalize must NOT re-derive a path:
 - GSD phase mode: `.turingmind/state/format-53/<$PHASE_ID>.json` where `$PHASE_ID` is the **full resolved directory name** from Phase 0 (e.g. `02-real-data-path`, NOT `02`). Use the resolved name verbatim — do NOT abbreviate to the prefix the user typed. Abbreviating means a second invocation looking for `02-real-data-path.json` won't find a state written as `02.json`, and carry-forward silently restarts from pass 1. Bind:
   ```bash
+  [ -n "${PHASE_ID}" ] || { echo "Review halted — the phase id is empty; nothing was scored." >&2; exit 1; }
   LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"
   STATE_FILE=".turingmind/state/format-53/${PHASE_ID}.json"
   case "$LEGACY_STATE_FILE$STATE_FILE" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the state-file name (repo folder, branch or phase) holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
   printf 'LEGACY_STATE_FILE=%s\n' "$LEGACY_STATE_FILE"
   printf 'STATE_FILE=%s\n' "$STATE_FILE"
   ```
+  `${PHASE_ID}` is the literal printed after `PHASE_ID=` by `00-scope.md` — substitute it; a shell variable does not survive into a separate Bash call. An empty id stops the review here, so two GSD phases never share one state file.
   `$LEGACY_STATE_FILE` is the shipped key, used ONLY by the forward migration (below), which copies it forward and then archives it.
   - ✓ Correct: `.turingmind/state/format-53/02-real-data-path.json`, `.turingmind/state/format-53/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
   - 🚫 Wrong: `.turingmind/state/format-53/02.json`, `.turingmind/state/format-53/31.json`

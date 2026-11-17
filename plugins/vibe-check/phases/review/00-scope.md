@@ -92,6 +92,8 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    fi
    case "$PHASE_DIR" in *[\$\`\"\\$'\n\r']*) echo "Review halted — the phase folder path holds \$, \`, \", \\ or a line break; nothing was scored." >&2; exit 1;; esac
    printf 'PHASE_DIR=%s\n' "$PHASE_DIR"
+   PHASE_ID=$(basename "$PHASE_DIR")
+   printf 'PHASE_ID=%s\n' "$PHASE_ID"
    ```
    - Unique match → `$PHASE_DIR` is set; continue.
    - Zero matches → error: "Phase '<arg>' not found under .planning/phases/ or .planning/milestones/. Available: <list dirs from both roots>".
@@ -122,7 +124,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged. A `PHASE_START=` value that is not a commit id halts the run before anything is printed, so what 30-collect-score.md substitutes is always a commit id git itself produced.
    Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ "<phase-start-sha>"` (the literal printed after `PHASE_START=` above — substitute it; a shell variable does not survive into a separate Bash call; `HEAD` when it is empty; one diff, commit vs working tree).
 
-   Set `$PHASE_ID = $(basename "$PHASE_DIR")` for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
+   `$PHASE_ID` is the literal printed after `PHASE_ID=` by the resolution fence above (`basename` of the phase folder), for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
 
 5. **`--all` mode** — reached only via the branch-flip guard above (the `--all` token is present in `$ARGUMENTS`). Whole-codebase selection over tracked files instead of a diff.
 

@@ -1,6 +1,6 @@
 # Roadmap: vibe-check
 
-Updated 2026-11-13 (v2.15 Lean orchestration active as of 2026-11-13: Phases 62–65 mapped to its 17 requirements; requirements and roadmap defined, no code changed; Reviewer efficiency stays conditional and is not activated). v2.14 Decision reliability shipped as 2.14.0 (PR #7, squash ecc3299, tag v2.14, GitHub release), then 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1, GitHub release) fixing 999.28. Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-11-16 (v2.15 Lean orchestration closed and archived: Phases 62–65 complete, audit tech_debt 17/17; publishing as 2.15.0 through the release PR per 65-CLOSE-RUNBOOK.md — not yet merged, tagged or released). Each phase begins by reproducing its failure, or recording the behaviour or measurement it intends to change, on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
@@ -8,9 +8,7 @@ Updated 2026-11-13 (v2.15 Lean orchestration active as of 2026-11-13: Phases 62�
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
 - ✅ v2.14 Decision reliability -- Phases 59–61 (shipped as 2.14.0; 2.14.1 patch fixed 999.28; known limits 999.23 residuals, 999.26, 999.27, 999.29, 999.30) — [archive](milestones/v2.14-ROADMAP.md) (shipped 2026-10-30)
-- 🚧 v2.15 Lean orchestration -- Phases 62–65 (in progress)
-
-Active milestone: v2.15 Lean orchestration (Phases 62–65). Reviewer efficiency is scoped below and stays conditional; backlog records remain the evidence ledger.
+- 🚧 v2.15 Lean orchestration -- Phases 62–65 (in progress: closed and archived, release PR in review; 2.15.0 not yet published) — [archive](milestones/v2.15-ROADMAP.md)
 
 <details>
 <summary>✅ v2.14 Decision reliability (Phases 59–61) — SHIPPED 2026-10-30</summary>
@@ -23,167 +21,14 @@ Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub relea
 
 </details>
 
-### 🚧 v2.15 Lean orchestration (Phases 62–65, in progress)
+### 🚧 v2.15 Lean orchestration (Phases 62–65, in progress: closing — release PR in review)
 
-- [x] **Phase 62: Baseline and continuous test run** - A go/no-go cost and quality baseline from existing local records, the pinned 2.14.1 behavioural baseline and the improvement criterion are recorded before any extraction, and the offline suite runs on every push and pull request to `main` (999.12)
-- [x] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's input assembly and gate/report handoff run through stdlib helpers with the same gate decisions and reports as 2.14.1, and one general check catches shell variables read across Bash calls (completed 2026-11-16)
-- [ ] **Phase 64: Optional bounded extension (conditional)** - After Finalize passes equivalence, a recorded decision selects at most one further family or skips; a recorded skip completes the phase (999.32 is a candidate)
-- [ ] **Phase 65: Release gate — orchestration equivalence and useful savings** - Offline suite, archived replay and mode/recovery checks pass on the exact candidate against 2.14.1, and the savings in loaded prose or mechanical steps are shown separately from tokens or dollars
+- [x] **Phase 62: Baseline and continuous test run** - 2.14.1 baseline pinned, cost visibility NO-GO (owner), offline suite on every push and PR to `main` (11/11 plans) — completed 2026-11-14
+- [x] **Phase 63: Finalize extraction and cross-call variable check** - Finalize's gate inputs from one tested stdlib helper (92 → 83 steps on the extraction alone); one general cross-call variable check (11/11 plans) — completed 2026-11-15
+- [x] **Phase 64: Optional bounded extension (conditional)** - Closed as a recorded skip (owner); evidence/envelope assembly, dispatch selection and 999.32 deferred — completed 2026-11-15
+- [x] **Phase 65: Release gate — orchestration equivalence and useful savings** - G1–G11 PASS on candidate `b073e31`; replay 170 runs, 0 differences; live smoke PASS; Close out 136,114 → 131,381 bytes, 92 → 85 steps (7/7 plans) — completed 2026-11-17
 
-**Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
-
-**Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behavior delivered by Decision reliability.
-
-**Status:** Activated 2026-11-13 as v2.15 via `/bm:new-milestone` (research skipped by the owner; scope is this owner-approved section; requirements BASE, CI, FINX, XVAR, EXT, GATE in REQUIREMENTS.md, 17 mapped). The prerequisite is met: Decision reliability passed its release gate and shipped (2.14.0, then 2.14.1). The equivalence baseline is plugin 2.14.1 (PR #8, squash `dd8e4ab`, tag `v2.14.1`). Estimated size: medium, with Finalize as the initial implementation boundary. Requirements and roadmap are defined; no code has changed.
-
-**Sequence:** The baseline and the continuous test run come before any extraction (Phase 62); the test run is the standing check behind the later equivalence gate. Finalize is the first and only committed extraction, and the cross-call variable check rides with it (Phase 63). The extension is conditional and may close as a recorded skip (Phase 64). The release gate is last (Phase 65). Finalize alone can satisfy the milestone.
-
-**No growth per round (owner, 2026-10-17, restated 2026-10-28):** a new review, gap or fix round is not a reason to add points to a task, plan, success criterion or acceptance list. A round may add work only for a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, or a broken required workflow. Everything else is carried.
-
-**Out of scope:** Reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Missing cost attribution ends accounting work, not the milestone; use labeled footprint/operation evidence instead.
-
-**Next action:** `/bm:discuss-phase 64` — a recorded decision to skip the optional extension or to select at most one family (999.32 is a candidate); a recorded skip completes the phase. Phase 63 closed 2026-11-15: PR #10 squash-merged as `4ac7ee4` and follow-up PR #11 as `b49d40a`, CI green on `main`; verification passed 5/5 on round 5; Finalize extraction PASS (92 → 83 steps, 136,114 → 129,451 bytes on its own; 85 steps and 130,886 bytes at phase end after the owner-chosen fixes). This roadmap does not authorize paid runs.
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 62. Baseline and continuous test run | 11/11 | Complete    | 2026-11-14 |
-| 63. Finalize extraction and cross-call variable check | 11/11 | Complete    | 2026-11-15 |
-| 64. Optional bounded extension (conditional) | 0/TBD | Not started | - |
-| 65. Release gate — orchestration equivalence and useful savings | 0/TBD | Not started | - |
-
-## Phase Details
-
-### Phase 62: Baseline and continuous test run
-
-**Goal**: Before any extraction starts, the owner has a go/no-go note on cost visibility built from existing records, the 2.14.1 behaviour and footprint are pinned as the comparison baseline with the improvement criterion written down, and every push and pull request to `main` runs the offline suite automatically (999.12)
-**Depends on**: Nothing in v2.15 (first phase). Uses the released 2.14.1 baseline (`dd8e4ab`) and its archived replay results as they are
-**Requirements**: BASE-01, BASE-02, BASE-03, BASE-04, CI-01, CI-02
-**Approved scope** (owner, 2026-10-28; continuous test run added 2026-11-13): *Baseline cost and quality with existing evidence (999.12, bounded feasibility).* Inspect local archives only; identify trustworthy per-run/per-lane model, input/output/cache usage, retries and elapsed time where present. Report missing attribution explicitly; do not reconstruct invented usage or treat subscription usage as a bill. Record current mode-path bytes and actual loaded-file traces separately from token and price estimates. Retain a pinned current-code behavioral baseline and archived replay results before refactoring. **Done when:** a go/no-go note names available fields, the smallest useful report, the intended comparison workload, and the improvement criterion chosen before implementation. If reliable attribution is unavailable, stop accounting work and use clearly labeled footprint/operation counts. No new telemetry service, accounting platform, paid baseline or enforceable-dollar-cap claim. *Continuous test run.* Add one GitHub Actions workflow that runs the existing offline suite and the stdlib-only check on every push and pull request to `main`. It uses no secrets, no paid runs and no live model calls, and it changes no branch-protection setting. **Done when:** `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red. This is the standing check behind the equivalence gate in Phase 65; it does not replace the release gates or any live check.
-**Success Criteria** (what must be TRUE):
-
-  1. A go/no-go note built from existing local records only names which usage fields are trustworthy per run and per lane (model, input/output/cache usage, retries, elapsed time), states what attribution is missing, and names the smallest useful report; no usage is reconstructed or invented and no paid run is started
-  2. Current mode-path bytes and actual loaded-file traces are recorded for plain review, deep review and Finalize, kept separate from any token or price estimate
-  3. A pinned behavioural baseline of the 2.14.1 code and its archived replay results are retained before any refactoring starts
-  4. The comparison workload and the improvement criterion for this milestone are written down before any extraction work begins; if reliable attribution is unavailable, accounting work stops and labelled footprint/operation counts are named as the evidence instead
-  5. One GitHub Actions workflow runs the existing offline suite and the stdlib-only check on every push and every pull request to `main`, with no secrets, no paid runs, no live model calls and no branch-protection change; `main` shows a green run on the release baseline and a deliberately failing commit on a throwaway branch shows red
-
-**Plans:** 11/11 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 62-01-PLAN.md — stdlib-only check, the left-out list guard and the skip-set guard for CI, each with mutants (CI-01)
-- [x] 62-02-PLAN.md — the one GitHub Actions workflow and its shape locks, one break test per rule (CI-01)
-- [x] 62-03-PLAN.md — step-counting rule as a script, 2.14.1 step counts, improvement criterion and comparison workload (BASE-04)
-- [x] 62-04-PLAN.md — Finalize capture harness pinned to 2.14.1 and the two close routes (BASE-03)
-- [x] 62-05-PLAN.md — mode-path bytes and labelled loaded-file traces for plain review, deep review and Finalize (BASE-02)
-- [x] 62-06-PLAN.md — usage-field reader and the cost visibility go/no-go note (BASE-01)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 62-10-PLAN.md — the remaining three Finalize situations and the five-situation record with a fingerprint (BASE-03)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 62-07-PLAN.md — suite and replay baseline and the manifest with one verify command (BASE-03)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 62-11-PLAN.md — the plain-terms baseline page and kit README, figures locked to the records (BASE-03)
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 62-08-PLAN.md — CI proof before merge: recording run and pinned skip list, green on the phase branch, red on a throwaway branch (CI-02)
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [x] 62-09-PLAN.md — pull request, owner go/no-go and merge, main's first run, phase close (CI-02)
-
-Run order is by wave, not by plan number: wave 1 = 01–06, wave 2 = 10, wave 3 = 07, wave 4 = 11, wave 5 = 08, wave 6 = 09. Plans 08 and 09 run on the phase branch in the primary checkout, without worktree isolation.
-
-### Phase 63: Finalize extraction and cross-call variable check
-
-**Goal**: Finalize's mechanical steps run through tested stdlib helpers and behave exactly as in 2.14.1, with less model-interpreted prose on the same paths, and a shell variable read across Bash calls is caught by one general check in any phase file
-**Depends on**: Phase 62 (the pinned baseline, the comparison workload and the improvement criterion must exist first; the continuous test run is the standing check)
-**Requirements**: FINX-01, FINX-02, FINX-03, FINX-04, FINX-05, XVAR-01, XVAR-02
-**Approved scope** (owner, 2026-10-28; cross-call variable check added 2026-11-13): Reuse existing stdlib helpers and the single-writer state path to assemble Finalize inputs and perform the gate/report handoff. Return compact structured results and explicit next actions. Keep judgment, owner decisions and reviewer calls in the existing host; remove superseded prose and locks while retaining behavioral invariants and recovery guidance. **Done when:** equivalent inputs produce the same gate decisions and reports as the released Decision reliability baseline; missing, malformed or stale inputs fail visibly; restart/retry works across fresh shells. Compare loaded prose and helper/tool steps on the same paths before and after. Revert the slice if it adds complexity without demonstrable benefit. Also add one general check (owner-approved 2026-11-13) that walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; today only the two repaired 999.25 cases are covered. It needs a mutant, and any phase file it flags is recorded with its repro before being changed. No new orchestration framework, wholesale state rewrite or changed model defaults.
-**Success Criteria** (what must be TRUE):
-
-  1. Finalize's input assembly and gate/report handoff run through stdlib helpers on the existing single-writer state path, and equivalent inputs produce the same gate decisions and reports as the 2.14.1 baseline
-  2. Missing, malformed or stale Finalize inputs stop with a plain message; a failed or refused attempt writes no report and archives nothing; restart and retry work across fresh shell calls
-  3. Superseded Finalize prose and locks are removed while behavioural invariants and recovery guidance are kept; judgment, owner decisions and reviewer calls stay in the existing host
-  4. Loaded prose and helper/tool steps on the same Finalize paths are compared before and after against the Phase 62 criterion; the slice is reverted if it adds complexity without a demonstrated benefit
-  5. One general check walks every phase file and fails when a fence reads a shell variable set in an earlier fence without the printed-path rule; a mutant proves the check trips; any phase file it flags is recorded with its reproduction before it is changed
-
-**Plans:** 11/11 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 63-01-PLAN.md — starting figures recorded from the commits; HEAD fingerprints in the new helper, validated before git (FINX-01, FINX-05)
-- [x] 63-03-PLAN.md — the general cross-call variable check over all 27 phase files, named exceptions, mutants (XVAR-01)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 63-02-PLAN.md — the helper's one call: counts, gate, next action, report bundle, fixed exit codes (FINX-01, FINX-02)
-- [x] 63-04-PLAN.md — fresh-shell reproduction of every flagged place, recorded before any change (XVAR-02)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 63-05-PLAN.md — removal ledger from a scratch-copy red list; replacements with mutants land first (FINX-04)
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 63-06-PLAN.md — Finalize gate inputs become one helper call; superseded instructions and locks removed under the ledger (FINX-01..04)
-
-**Wave 5** *(blocked on Wave 4 completion)*
-
-- [x] 63-07-PLAN.md — "what the helper counts" moved word for word to a design document; report data handed over in the helper result (FINX-01, FINX-04)
-
-**Wave 6** *(blocked on Wave 5 completion)*
-
-- [x] 63-08-PLAN.md — second capture driver and compare: the five situations' outcomes against the 2.14.1 record (FINX-01..03)
-
-**Wave 7** *(blocked on Wave 6 completion)*
-
-- [x] 63-09-PLAN.md — before/after figures at the extraction-only commit and verdict; owner confirms the fix/pin split (FINX-05, XVAR-02)
-
-**Wave 8** *(blocked on Wave 7 completion)*
-
-- [x] 63-10-PLAN.md — fixes for the places the owner marked, exceptions list shrunk, phase-end figures and named growth (XVAR-02, FINX-05)
-
-**Wave 9** *(blocked on Wave 8 completion)*
-
-- [x] 63-11-PLAN.md — owner result page, pull request, owner go, merge and phase close (FINX-05, XVAR-01)
-
-Run order is by wave, not by plan number: wave 1 = 01 and 03, wave 2 = 02 and 04, then 05, 06, 07, 08, 09, 10, 11 one per wave. Plans 09 and 11 pause for the owner. Plan 11 runs on the phase branch in the primary checkout, without worktree isolation.
-
-### Phase 64: Optional bounded extension (conditional)
-
-**Goal**: The owner has a recorded decision on whether one more family is worth extracting; if one is selected it behaves exactly as before with demonstrated savings, and if not, the skip is on record and the milestone proceeds on Finalize alone
-**Depends on**: Phase 63. This phase activates only after the Finalize extraction has passed its equivalence checks; it does not start before that
-**Requirements**: EXT-01
-**Conditional**: A recorded skip satisfies EXT-01 and completes this phase. A skip changes no code. If the Finalize slice is inconclusive or was reverted, this phase closes as a recorded skip.
-**Approved scope** (owner, 2026-10-28; 999.32 named as a candidate 2026-11-13): Only consider repeated evidence/envelope assembly or deterministic dispatch selection when the first extraction passes equivalence checks and the baseline identifies another worthwhile source of repeated work. Choose at most one additional family during detailed scoping; defer the remainder rather than grow the milestone. **Done when:** the selected slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behavior, with demonstrated footprint/operation savings. Skip this item if the first slice is inconclusive; Finalize alone can satisfy the milestone. The 999.32 fix-loop Rerun step is a candidate family alongside these two.
-**Success Criteria** (what must be TRUE):
-
-  1. No extension work starts until Phase 63's Finalize extraction has passed its equivalence checks
-  2. A recorded decision either skips the extension or selects at most one family (repeated evidence/envelope assembly, deterministic dispatch selection, or the 999.32 fix-loop Rerun step) that the Phase 62 baseline identifies as worthwhile; families not selected are deferred, not added to this milestone. A recorded skip satisfies this phase
-  3. If a family is selected, its slice preserves roster, prompts/evidence, scores, decision eligibility and recovery behaviour against the 2.14.1 baseline, with demonstrated footprint/operation savings
-
-**Plans**: TBD
-
-### Phase 65: Release gate — orchestration equivalence and useful savings
-
-**Goal**: The release candidate is proven equivalent to 2.14.1 in behaviour, its reduction in loaded prose or mechanical steps is shown without any unsupported cost claim, and it ships through the existing close workflow without waiting for reviewer-efficiency work
-**Depends on**: Phase 63, and Phase 64 closed (as a recorded skip or a completed slice)
-**Requirements**: GATE-04, GATE-05, GATE-06
-**Approved scope** (owner, 2026-10-28): Run the applicable full offline suite, archived replay and mode/recovery integration checks on the exact candidate, comparing against the released reliability baseline. Unexpected behavioral differences block release. **Done when:** safeguards and independent fix verification remain intact and the included extraction demonstrably reduces loaded prose or mechanical work without an unaccounted regression. Report byte/operation savings separately from tokens or dollars; claim billing savings only with comparable usage evidence. Any approved live validation covers changed orchestration paths under the default configuration; offline parity alone does not prove live model quality. Document any unmeasured behavior and require an explicit release waiver if needed. Publish independently; reviewer-efficiency experiments are not a prerequisite.
-**Success Criteria** (what must be TRUE):
-
-  1. On the exact release candidate, the full offline suite, archived replay and mode/recovery integration checks pass against the 2.14.1 baseline; any unexpected behavioural difference blocks release
-  2. The release record shows safeguards and independent fix verification intact and a demonstrated reduction in loaded prose or mechanical steps, with byte/operation savings reported separately from tokens or dollars and no billing-savings claim without comparable usage evidence
-  3. Live validation of changed orchestration paths runs only under an approved bounded proposal; otherwise the unmeasured behaviour is documented and the release goes out under an explicit owner waiver
+Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milestones/v2.15-MILESTONE-AUDIT.md)). Full phase details: [archive](milestones/v2.15-ROADMAP.md). Known limits and carried review items: 999.34–999.39. Remaining close steps (runbook 4–10): release PR + CI on its head (G12), owner merge OK, squash merge, tree-identity check, tag `v2.15` on `origin/main`, GitHub release, plugin update.
 
 ## Future milestone: Reviewer efficiency (conditional)
 
@@ -286,6 +131,8 @@ Design question to answer before any code: what a decision is attached to (for e
 
 Moved out of 999.28 on 2026-11-13 so it is not lost inside a shipped item. Reproduced in the Phase 61 live smoke (61-LIVE-SMOKE.md S2) and again in the 2.14.1 live check: after a typed `defer` in the fix-loop card flow (`phases/review/50-fix-loop.md`), the model stops and lists choices instead of taking the automatic Rerun step. Fails toward stopping: decisions are saved and nothing is lost, at the cost of one manual step. This is model-interpreted prose, so a fix belongs with the Lean orchestration work if the fix loop is chosen as its optional extension; otherwise reproduce first. Not scheduled.
 
+Related observation (65-LIVE-SMOKE.md K1, 2026-11-16, candidate 2.15.0): in the default review, after every row was deferred the Rerun did run (this item did not reproduce), but pass 2 had an empty fix-loop card and the model stopped, saying the prose does not cover an empty card. Decisions and state were saved and Close out then completed. Listed as a known limit in the 2.15.0 release notes.
+
 ### 999.28: SHIPPED in 2.14.1 — Default route: decisions on uncommitted code re-asked every pass (false nearby reason) (Phase 61 C1)
 
 Fixed in 2.14.1 (PR #8, squash dd8e4ab, tag v2.14.1) on every route except `--all`, including the same re-ask found on PR and range reviews of committed code (owner chose to fix both before release). Debug record: `.planning/debug/999-28-uncommitted-reask.md`. Live check (default route only, owner-approved): unchanged tree kept the decision; an edit 3 lines above re-asked with the true reason. PR/range/GSD live check skipped by owner decision (tests only). C4 (model stops instead of Rerun after a typed defer) reproduced again and is now tracked as 999.32.
@@ -321,7 +168,9 @@ The helper behaves as 2.14.1 does on inputs a stricter helper could refuse: a fi
 
 ### 999.38: Phase 63 review carry (63-REVIEW.md, 63-REVIEW-2.md)
 
-The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a regression from 2.14.1.
+The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a regression from 2.14.1 except WR-02 (correction, 2026-11-16, 65-REPRO-WR02.md).
+
+**WR-02 outcome (Phase 65):** WR-02 was a regression introduced during v2.15, not present in 2.14.1: under the fresh-shell standard 2.14.1 fails closed ("No prior review passes."), while the pre-fix candidate closed phase B on phase A's saved progress (a wrong close). Fixed before release, test-first, in the one D-08 fix round (65-03: RED `976e3fe`, GREEN `b281042`; +495 bytes, 0 steps per path); it never shipped. The remaining items below stay carried.
 
 - WR-02: if the phase id comes through empty, every phase in a repo shares one saved-progress file.
 - WR-03: the unsafe-name stop blocks only characters that are live inside double quotes; it is safe only while every paste is double-quoted (`;`, `&` and `'` pass).
@@ -332,7 +181,19 @@ The owner accepted these as carried at the Phase 63 go (2026-11-15). None is a r
 - R2-WR-02: an empty helper path would make Python run a `__main__.py` from the reviewed repo; five call sites have no emptiness check in the same command.
 - R2-WR-03: the check that inline Python runs isolated recognises today's command shapes only (e.g. `python3 -X utf8 -c`, stdin scripts would be missed).
 - Set aside by the second review: a narrowed `--all` run may lose its narrowing value in a fresh shell; a version manager or active virtual environment can choose `python3`; the `git` and `node` calls beside the inline commands were not assessed.
+- Live smoke carry (65-LIVE-SMOKE.md K3, 2026-11-16): Close out can write REVIEW.md's audit-trail line naming the archive before the final archive name is known; in the live run the model corrected the line itself. Wording only, no state lost. K1 (empty fix-loop card after the Rerun) is noted under 999.32.
 - Verifier notes: the five-situation comparison does not look at the helper's `next` field (unit tests in CI cover it); the Codex collect timing test was flaky on CI before this phase and was fixed test-only by warming node (cause best-supported, not proven).
+
+Not scheduled.
+
+### 999.39: Phase 65 code review carry (65-REVIEW.md, owner ruling 2026-11-16)
+
+The owner chose "Ship + backlog (Recommended)" (AskUserQuestion, main session, 2026-11-16): ship 2.15.0 as signed off, name the lookup gap as a release-notes known limit, and carry both items here. Neither is a regression from 2.14.1.
+
+- SA-01 (lookup, pre-2.15): the GSD phase lookup in `00-scope.md` silently picks one folder when two phase folders share a name (e.g. `v1-phases/01-setup` and `v2-phases/01-setup`) instead of the "multiple matches" stop its instructions describe, and accepts a container name (`phases`, `milestones`, `v1-phases`) as a phase. Two phases can then share one saved-progress file and Close out can close on the wrong findings (wrong close, unusual layouts only). Fix: refuse multiple matches and container names in the lookup fence, test-first with mutants.
+- WR-01 (wording, from the WR-02 fix): the sentence at `05-state.md:16` says "two GSD phases never share one state file"; the check only refuses an empty id. Reword to claim only that, together with the SA-01 fix.
+- Info: IN-01 (cross-class helper borrow at `test_pasted_name_guard.py:400`) and IN-02 (label-suffix-gated message check at lines 334–335) are test tidiness only.
+- SA-02 (no live GSD check of the printed-id substitution) is covered by the 2.15.0 waiver; if a live model drops the id, GSD reviews stop safely with "phase id is empty".
 
 Not scheduled.
 
@@ -350,7 +211,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- v2.15 Lean orchestration is the only active milestone (activated 2026-11-13; requirements and roadmap defined, Phases 62–65; no code changed). Its scope includes the continuous test run and the general cross-call variable check (owner-approved 2026-11-13). Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.15 Lean orchestration (Phases 62–65) is closed and archived; 2.15.0 is publishing through the release PR per `65-CLOSE-RUNBOOK.md`. No next milestone is scoped; 999.31 (decision identity design) waits for it. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.
@@ -360,6 +221,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Release records
 
+- [v2.15 archived roadmap](milestones/v2.15-ROADMAP.md): lean orchestration (2.14.1 baseline + CI, Finalize helper extraction, cross-call variable check, release gate); known limits 999.34–999.39.
 - [v2.14 archived roadmap](milestones/v2.14-ROADMAP.md): decision reliability (stale decisions, exact change evidence, reliable Finalize); known limits 999.23 residuals, 999.26–999.28.
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md): reliable fix closure, decision continuity and recovery; known limits 999.23–999.26.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped reliability improvements; measurement incomplete.

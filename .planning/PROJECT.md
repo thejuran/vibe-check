@@ -16,24 +16,11 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Current Milestone: v2.15 Lean orchestration
+## Last Milestone: v2.15 Lean orchestration (CLOSED 2026-11-16; publishing as 2.15.0 — release PR pending)
 
-**Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behaviour delivered by v2.14 Decision reliability (released baseline: 2.14.1, `dd8e4ab`).
+**Goal (met, with owner-accepted known limits):** reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behaviour of 2.14.1 (`dd8e4ab`). The milestone met 17/17 requirements (BASE-01..04, CI-01..02, FINX-01..05, XVAR-01..02, EXT-01, GATE-04..06). The audit is tech_debt: integration 7/7, flows 2/2. On candidate `b073e31` the suite ran 4126 passed (scripts) / 4599 (repo root), 0 failed; replay against 2.14.1 gave 170 runs with 0 differences; a bounded live smoke passed. Close out went 136,114 → 131,381 bytes and 92 → 85 counted steps; each review path grew +1,705 to +1,966 bytes and +2 steps (named growth, owner-signed). Not B3-measured; cost visibility NO-GO, so no token or dollar claim. Known limits: 999.34–999.39. Phase 64 closed as a recorded skip. Full record: [archive](milestones/v2.15-ROADMAP.md), [MILESTONES.md](MILESTONES.md); release per `milestones/v2.15-phases/65-release-gate-orchestration-equivalence-and-useful-savings/65-CLOSE-RUNBOOK.md`.
 
-**Target features:**
-- Cost and quality baseline from existing local records only (999.12): a go/no-go note; missing attribution ends accounting work and labelled footprint/operation counts are used instead
-- Continuous test run: one GitHub Actions workflow running the offline suite and the stdlib-only check on every push and pull request to `main` (no secrets, no paid or live model calls)
-- Finalize extraction: input assembly and the gate/report handoff move to stdlib helpers with the same gate decisions and reports as the baseline, plus one general check for shell variables read across Bash calls
-- Optional bounded extension: at most one more family, only if Finalize proves useful and the baseline identifies it (999.32 fix-loop Rerun is a candidate)
-- Release gate: orchestration equivalence against the released baseline and demonstrated loaded-prose or mechanical-step savings, reported separately from tokens or dollars
-
-Activated 2026-11-13 via `/bm:new-milestone` (research skipped; scope is the owner-approved roadmap section). Phases continue from 62. Out of scope: reviewer routing, narrower reviewer context, new agents, model downgrades, scoring retunes, new services and broad cleanup. Reviewer efficiency stays conditional; 999.31 (decision identity design) waits until this milestone ships.
-
-Phase 62 complete 2026-11-14 (PR #9, `d0adb5b`): the 2.14.1 baseline is pinned under `docs/design/lean-v2.15/` (suite 3,886 passed; replay 170 runs, 0 differing; five Finalize situations; Finalize 92 model-run steps over 136,114 bytes), the offline suite runs in GitHub Actions on every push and pull request, and cost visibility is NO-GO (owner), so the milestone is judged on labelled byte and step counts. Review warnings are carried as backlog 999.34.
-
-Phase 63 complete 2026-11-15 (PR #10 `4ac7ee4`, follow-up PR #11 `b49d40a`): Finalize's gate inputs now come from one tested stdlib helper call; the extraction alone passes the improvement criterion (92 → 83 model-run steps, 136,114 → 129,451 bytes) and the five recorded situations match 2.14.1. One general check now catches shell values lost between Bash calls in every phase file; all nine reproduced places were fixed. A permanent side-by-side test runs the literal 2.14.1 Finalize step beside the helper (833 scenarios). Named differences the owner accepted are on `63-RESULT.md`. Validated: FINX-01..05, XVAR-01..02.
-
-## Last Milestone: v2.14 Decision reliability (SHIPPED 2026-10-30 as 2.14.0; patched as 2.14.1)
+## Earlier Milestone: v2.14 Decision reliability (SHIPPED 2026-10-30 as 2.14.0; patched as 2.14.1)
 
 **Goal (met, with owner-accepted known limits):** close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy. The milestone met 16/16 requirements (STALE-01..06, DEFR-01..02, EVID-01..03, FINL-01..02, GATE-01..03). The audit is tech_debt: integration 8/9, flows 5/5. The suite ran 3821 passed with 0 failed. Replay against 2.13 gave 170 runs with 0 differing. This was not B3-measured. Candidate 47978aa was signed off by the owner (Decision 1 = B: README states C1). The release follows `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. Full record: [archive](milestones/v2.14-ROADMAP.md), [MILESTONES.md](MILESTONES.md).
 
@@ -104,9 +91,13 @@ results + README. Backlog effects: 999.12 promoted in, 999.8 absorbed, 999.13 re
 after this milestone; gitleaks (999.2), SARIF (999.3), PR-posting (999.5) unchanged/deferred.
 Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
 
-## Current State: v2.15 Lean orchestration started (2026-11-13)
+## Current State: v2.15 closed, 2.15.0 publishing (2026-11-16)
 
-**v2.15 Lean orchestration is active and at requirements/roadmap definition; no code has changed.** The installed baseline is plugin 2.14.1 (PR #8, squash `dd8e4ab`, tag `v2.14.1`), which fixed 999.28 on every route except `--all`. The last measured efficacy is still v2.11 (5/18 · 15/15).
+**v2.15 Lean orchestration is closed and archived; 2.15.0 (candidate `b073e31`) is going out through the release PR, then tag `v2.15` on `origin/main` and the GitHub release.** Close out now runs its fingerprint, counting and decision commands through one checked stdlib helper; reviewers, the scoring formula and scores are unchanged. The offline suite runs in CI on every push and PR to `main`. No next milestone is scoped; 999.31 (decision identity design) and the conditional Reviewer efficiency milestone wait for one. The last measured efficacy is still v2.11 (5/18 · 15/15).
+
+### Earlier: v2.15 started (2026-11-13)
+
+Activated via `/bm:new-milestone` (research skipped; scope was the owner-approved roadmap section). Baseline: plugin 2.14.1 (PR #8, squash `dd8e4ab`, tag `v2.14.1`).
 
 ### Earlier: v2.14 shipped (2026-10-30)
 
@@ -361,18 +352,19 @@ crash-proofed and built the test-sufficiency agent on top of.
 - ✓ Nearby/in-diff evidence uses only actually changed lines on every route — v2.14 (PR route tests-only; fails closed above GitHub diff limits; uncommitted-code re-ask C1: 999.28)
 - ✓ Finalize works across fresh shell calls; a failed or refused attempt writes no report and a retry revalidates freshness — v2.14 (state-file scope trust deferred: 999.27)
 - ✓ Release gate passed with no replay differences (170 runs) and a bounded live smoke — v2.14
+- ✓ Cost visibility judged from existing records: NO-GO (owner); savings reported as labelled bytes and steps only — v2.15
+- ✓ Offline suite and stdlib-only check run in CI on every push and PR to `main` — v2.15
+- ✓ Finalize mechanical steps run through a tested stdlib helper with the same gate decisions and reports as 2.14.1 — v2.15 (card temp-file plumbing not extracted: 999.35; helper input gaps matched to 2.14.1: 999.37)
+- ✓ One general check catches shell values read across Bash calls in every phase file — v2.15 (exceptions and blind spots: 999.36)
+- ✓ Release gate passed against 2.14.1 (replay 170 runs, 0 differences; live smoke PASS) with demonstrated step and byte savings on Close out — v2.15
 
 ### Active
 
-<!-- v2.15 Lean orchestration. REQ-IDs live in REQUIREMENTS.md. -->
+<!-- No milestone active. The next one is defined by /bm:new-milestone. -->
 
-- [ ] Cost visibility feasibility from existing records, or an explicit no-go (999.12)
-- [ ] Offline suite and stdlib-only check run automatically on every push and pull request to `main`
-- [ ] Finalize mechanical steps extracted to helpers with equivalent gate decisions and reports
-- [ ] One general check fails when a fence reads a shell variable set in an earlier fence without the printed-path rule
-- [ ] Release gate: equivalence against the 2.14.1 baseline and demonstrated loaded-prose or mechanical-step savings
+(None — next milestone not scoped. Candidates: 999.31 decision identity design; Reviewer efficiency stays conditional.)
 
-(v2.14 and v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
+(v2.15, v2.14 and v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
 
 Deferred to a later milestone: gitleaks deterministic secret-scan (999.2 — owner-deferred at
@@ -471,7 +463,12 @@ hardening (CLOSE-01 PASS, owner sign-off).
 | v2.14: no growth per round; add work only for the four qualifying classes (gate failure, data loss, silent finding loss, broken required workflow) | Phase 57 ran four open-ended rounds; bound each round | ✓ Good — Phase 60 took three gap rounds, each tied to a reproduced FINL-02 failure; everything else was carried |
 | v2.14: park Phase 59 WR-01 (card wording) and WR-02 (note after pass 3) to 999.23 under the STALE-06 one-cycle stop | Both fail toward asking and lose no finding | — Pending — reopen with the 999.23 follow-up |
 | v2.14 Decision 1 = B: state C1 (uncommitted-code re-ask) in the README and re-gate a README-only candidate (47978aa) | The README made positive claims that C1 contradicts | ✓ Good — plugins/ byte-identical, G1–G9 re-run PASS |
-| v2.14: tag origin/main after the squash merge and a tree-identity check, never the branch tip | A squash merge leaves the branch commit off main's ancestry | — Pending — runbook steps 5–6 |
+| v2.14: tag origin/main after the squash merge and a tree-identity check, never the branch tip | A squash merge leaves the branch commit off main's ancestry | ✓ Good — v2.14, 2.14.1 tagged this way; reused for v2.15 |
+| v2.15: cost visibility NO-GO; judge savings on labelled bytes and counted steps, never tokens or dollars | Records have no independent run total, so all fifteen deciding cells were estimates | ✓ Good — the release claims only byte/step savings |
+| v2.15: Finalize-only extraction; Phase 64 closed as a recorded skip | Finalize alone met the improvement criterion; other families need their own baseline | ✓ Good — smaller candidate, gate passed first time on equivalence |
+| v2.15: permanent side-by-side test of the literal 2.14.1 Finalize step beside the helper | One-sided parity tests had missed four differences (Phase 63 rounds 1–4) | ✓ Good — round 5 passed 5/5; the test stays in the suite |
+| v2.15: accept named review-path growth (+1,705 to +1,966 bytes, +2 steps) for the safety stops | The halts on unsafe names and empty phase ids prevent wrong closes | — Pending — revisit if a later milestone targets review-path size |
+| v2.15: one D-08 fix round, spent on WR-02 (empty GSD phase id) | It reproduced as a wrong close and a regression from 2.14.1 | ✓ Good — fixed test-first with a mutant; rest carried to 999.34–999.39 |
 
 ## Evolution
 
@@ -491,4 +488,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-15 after Phase 63 (Finalize extraction and cross-call variable check)*
+*Last updated: 2026-11-16 after v2.15 milestone close (2.15.0 publish pending)*
