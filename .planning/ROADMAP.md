@@ -69,8 +69,8 @@ Plans:
 - [ ] 66-04-PLAN.md — Wire the refusal into finalize_inputs (stop-review-again), render it in 90-finalize.md, mutation checks 1/8/9
 - [ ] 66-05-PLAN.md — --all records reviewed_tree (D-12): take/collect/persist prose + locks + real-chain test
 - [ ] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
-- [ ] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record
-- [ ] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample
+- [ ] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record (conditional owner checkpoint on BOUND-EXCEEDED)
+- [ ] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample (owner checkpoint before any carry_state.py edit)
 - [ ] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
 
 ### Phase 67: Trusted incremental scope
