@@ -27,7 +27,7 @@ Precondition (checked before every gate fence, 2026-11-16): C was read with `sed
 | G9 | Plugin manifest valid | GATE-04 | `✔ Validation passed`; version `2.15.0`; same 3 non-blocking directory warnings as 2.14 (ICON_MISSING, `.DS_Store`, `docs/.DS_Store`; both `.DS_Store` files are untracked and gitignored) | PASS |
 | G10 | Frozen scorer/replay | GATE-05 | `git diff --quiet v2.14.1 "$C" -- …/score.py …/replay.py …/test_replay.py` exit 0 | PASS |
 | G11 | Instruction-diff surface | GATE-04 | exactly the 9 D-09 files (list below) | PASS |
-| G12 | CI offline-suite green on the PR head | GATE-04 | pending close — runbook step 4 | PENDING |
+| G12 | CI offline-suite green on the PR head | GATE-04 | PR #12 head `aa1a781`, run https://github.com/thejuran/vibe-check/actions/runs/44009382461: `4592 passed, 2 skipped, 5 deselected, 6471 subtests passed`; skipped set matches the recorded 2 | PASS |
 
 0 failed and 0 errors in every pytest run. Suite form per gate: G1a, G3, G4e and the fix-verification run used `pytest -q -p no:cacheprovider` from `plugins/vibe-check/scripts`; G1b and G2 ran from the repo root. All used bare `pytest`.
 
@@ -257,7 +257,7 @@ WR-02 is not carried: it was fixed before release (b281042) and is covered by te
 ## Publish status
 
 GATE-04/05/06 "ships through the existing close workflow": pending close — see [65-CLOSE-RUNBOOK.md](65-CLOSE-RUNBOOK.md).
-G12 (CI `offline-suite` green on the PR head): pending close — runbook step 4.
+G12 (CI `offline-suite` green on the PR head): PASS 2026-11-16 on PR #12 head `aa1a781` (https://github.com/thejuran/vibe-check/actions/runs/44009382461; `4592 passed, 2 skipped, 5 deselected, 2 warnings, 6471 subtests passed`; skip guard: skipped set matches the recorded 2). Plugin tree identical to candidate `b073e31`.
 Nothing has been pushed, tagged, merged or released from this phase.
 
 ## Post-sign-off review carry (2026-11-16)
