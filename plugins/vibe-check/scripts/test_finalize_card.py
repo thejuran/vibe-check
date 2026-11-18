@@ -2075,6 +2075,164 @@ def inputs_block_holds(text):
 
 
 RETRY_HEAD = "**One automatic rebuild, then stop (D-07/D-08).**"
+# --------------------------------------------------------------------------- #
+# The freshness refusal: `stop-review-again`.
+# --------------------------------------------------------------------------- #
+REVIEW_AGAIN_HEADER = "- `stop-review-again` —"
+# Each phrase the bullet must carry (D-01, D-02, D-03, D-06, D-09, D-13,
+# D-15), with the reason it is there.
+REVIEW_AGAIN_NEEDLES = (
+    # D-01: the to-do list header and row shape, by the existing join rule.
+    'Print: "Cannot finalize — {{N}} decision(s) were made on code that has '
+    'changed since the review:"',
+    "each entry of `stale`",
+    "`{{file}}:{{line}} — {{title}} ({{kind}}; {{cause sentence}})`",
+    "by the join rule above",
+    "`deferred` or `dismissed`",
+    # The five cause sentences, one per token (D-01, D-06, D-09).
+    "`line` → that line changed",
+    "`nearby` → code near it changed",
+    "`deleted` → the file was deleted or renamed",
+    "`untracked` → the file is not tracked by git",
+    "`unverifiable` → it could not be checked against the reviewed code",
+    # D-01: the cap.
+    "at most 10 rows",
+    "+{{N}} more",
+    # D-02: the same-scope review command, per route.
+    "`/review{{ <phase>}}`",
+    "`/review <ref>`",
+    "`/review <range>`",
+    "`/review --all{{ <narrow>}}`",
+    "`/deep-review`",
+    "A review starts the (paid) reviewers; Close out never starts them.",
+    # D-13 and D-15: the next step that clears the refusal.
+    "First add the file to git (`git add` or `git add -N`), then review "
+    "again.",
+    "Commit or revert the edits near these lines, or check out the reviewed "
+    "commit, then review again.",
+    # D-03: nothing written, and stop.
+    "Do NOT write REVIEW.md or archive state.",
+    "No asks, no writes, and stop.",
+)
+# Wording that would start a paid reviewer from the refusal (D-02).
+REVIEW_AGAIN_FORBIDDEN = ("dispatch", "phase 1", "run the reviewers")
+
+
+def review_again_bullet(text):
+    """The `stop-review-again` bullet with its sub-bullets, or ""."""
+    i = text.find(REVIEW_AGAIN_HEADER)
+    if i < 0:
+        return ""
+    end = text.find("\n- ", i)
+    return text[i:end if end >= 0 else len(text)]
+
+
+def review_again_bullet_holds(text):
+    """Problems with the freshness refusal's prose (empty = none)."""
+    bullet = review_again_bullet(text)
+    if not bullet:
+        return ["no `stop-review-again` bullet"]
+    problems = ["stop-review-again bullet lacks: " + n
+                for n in REVIEW_AGAIN_NEEDLES if n not in bullet]
+    low = bullet.lower()
+    problems += ["stop-review-again bullet says: " + n
+                 for n in REVIEW_AGAIN_FORBIDDEN if n in low]
+    refused = text.find("- `stop-refused`")
+    if refused < 0 or text.find(REVIEW_AGAIN_HEADER) < refused:
+        problems.append("stop-review-again bullet is not after stop-refused")
+    return problems
+
+
+class TestReviewAgainProse(LockCase):
+    """The refusal Close out gives when a decision went stale: a to-do list,
+    the same-scope review command, never a reviewer started, nothing
+    written."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, review_again_bullet(self.text))
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def _trips_without(self, *phrases):
+        for phrase in phrases:
+            with self.subTest(removed=phrase[:50]):
+                self.assert_trips(review_again_bullet_holds,
+                                  self._mutant(phrase))
+
+    def test_review_again_bullet_holds(self):
+        self.assert_holds(review_again_bullet_holds, self.text)
+
+    def test_every_needle_is_required(self):
+        self._trips_without(*REVIEW_AGAIN_NEEDLES)
+
+    def test_mutant_header_removed(self):
+        self.assert_trips(review_again_bullet_holds,
+                          self.text.replace(REVIEW_AGAIN_HEADER, "- `gone` —"))
+
+    def test_mutant_row_shape(self):
+        self._trips_without(
+            "`{{file}}:{{line}} — {{title}} ({{kind}}; {{cause sentence}})`",
+            "by the join rule above", "each entry of `stale`")
+
+    def test_mutant_cause_sentences(self):
+        self._trips_without(*[n for n in REVIEW_AGAIN_NEEDLES if " → " in n])
+
+    def test_mutant_cap(self):
+        self._trips_without("at most 10 rows", "+{{N}} more")
+
+    def test_mutant_route_commands(self):
+        self._trips_without("`/review{{ <phase>}}`", "`/review <ref>`",
+                            "`/review <range>`", "`/review --all{{ <narrow>}}`",
+                            "`/deep-review`")
+
+    def test_mutant_paid_reviewer_sentence(self):
+        self._trips_without(
+            "A review starts the (paid) reviewers; Close out never starts them.")
+
+    def test_mutant_untracked_next_step(self):
+        self._trips_without("First add the file to git (`git add` or "
+                            "`git add -N`), then review again.")
+
+    def test_mutant_pr_range_next_step(self):
+        self._trips_without("Commit or revert the edits near these lines, or "
+                            "check out the reviewed commit, then review again.")
+
+    def test_mutant_writes_nothing(self):
+        self._trips_without("Do NOT write REVIEW.md or archive state.")
+
+    def test_mutant_and_stop(self):
+        self._trips_without("No asks, no writes, and stop.")
+
+    def test_mutant_dispatch_inserted(self):
+        anchor = "No asks, no writes, and stop."
+        self.assert_trips(review_again_bullet_holds, self._mutant(
+            anchor, anchor + " Then dispatch the reviewers."))
+
+    def test_mutant_run_the_reviewers_inserted(self):
+        anchor = "No asks, no writes, and stop."
+        self.assert_trips(review_again_bullet_holds, self._mutant(
+            anchor, "Run the reviewers now (Phase 1). " + anchor))
+
+    def test_mutant_bullet_moved_before_stop_refused(self):
+        bullet = review_again_bullet(self.text)
+        refused = self.text.index("- `stop-refused`")
+        moved = self.text.replace(bullet + "\n", "", 1)
+        moved = moved[:refused] + bullet + "\n" + moved[refused:]
+        self.assertNotEqual(moved, self.text)
+        self.assert_trips(review_again_bullet_holds, moved)
+
+    def test_retry_rule_names_review_again(self):
+        needle = "A `next` of `stop-review-again` is never retried."
+        self.assertIn(needle, RETRY_NEEDLES)
+        self.assert_holds(retry_rule_holds, self.text)
+        self.assertIn(needle, self.text)
+        self.assert_trips(retry_rule_holds, self.text.replace(needle, ""))
+
+
 RETRY_NEEDLES = (
     "run the SAME fence again ONCE",
     "it mints and prints a NEW `BLOBFILE=`",
@@ -2085,6 +2243,7 @@ RETRY_NEEDLES = (
     "A second failure stops.",
     "Exit 5 stops at once",
     "A `next` of `stop-refused` is never retried.",
+    "A `next` of `stop-review-again` is never retried.",
 )
 RETRY_FORBIDDEN = ("GATEFILE", "Exit 5 is rebuilt")
 REFUSED_NEEDLES = (
