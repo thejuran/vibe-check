@@ -384,6 +384,18 @@ Shape 1 recorded as an owner-accepted known limit (not a repair) — deleted-ori
 
 Within the existing scope item, exercise narrow-A versus narrow-B/whole-tree, colliding branch names, and different PR/range identities through resume and Close out. Stop once each named shape has an outcome: existing guard proven, concrete wrong-target failure repaired, or conservative refusal. Do not build a general state migration just to rename filenames. Spaces/quotes in the repository folder remain cosmetic/deferred unless a wrong target is demonstrated. Preserve existing state and archives.
 
+### 999.46: Carried: Phase 66 code-review minor items and review-side flagged-file snapshot
+
+Source: `.planning/phases/66-close-out-freshness/66-REVIEW.md` (2026-11-18). Not scheduled; none met the add-work classes at review time. Phase 66 fixed CR-01, WR-01 (owner ruling: Close out refuses decisions on `skip-worktree`/`assume-unchanged` files with "clear the flag, then review again") and WR-02.
+
+- **SA-01:** `worktree_snap.take` (the review's own snapshot) also misses on-disk edits to flagged files. Pre-existing. Close out's refusal bounds the effect: clearing the flag and reviewing again records a true snapshot.
+- **IN-01:** the object-id regex accepts a trailing newline; git rejects it, so it is harmless.
+- **IN-02:** CRLF/LF-only changes are invisible under `core.autocrlf`, although D-07 says any byte change counts.
+- **IN-03:** after `git rm --cached`, the refusal says "that line changed" instead of "no longer tracked", so the advice is imprecise but still refuses.
+- **IN-04:** add `--no-replace-objects` to the freshness git calls so replace refs cannot stand in for the reviewed tree.
+
+Promote an item only if it reproduces as a wrong keep, a refusal loop or silent finding loss.
+
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
