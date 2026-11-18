@@ -87,7 +87,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
+- [x] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
 
 ### Phase 67: Trusted incremental scope
 
