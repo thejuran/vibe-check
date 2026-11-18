@@ -4280,7 +4280,145 @@ class TestShape1DeletedOriginal(_RealChain):
                                  "write")
 
 
-PR_TOP_FIVE = ["pr_top_%d = 0" % i for i in range(5)]
+# 999.44 shape 2 (Phase 57 REVIEW-GAPS IN-03): two decisions whose `covers`
+# both name one finding. Only the older decision's title changes between the
+# two orders; it picks which decision hash sorts first in `decisions`.
+SHAPE2_KINDS = ("defer", "dismiss")
+SHAPE2_OLDER_TITLE = {"older_first": "Injection at B",
+                      "newer_first": "Injection at E"}
+SHAPE2_NEWER_TITLE = "Style issue at X"
+
+
+def covering_order_scenario(kind, order, decide=("older", "newer")):
+    """999.44 shape 2 driven only through `run_pass` + `decide_on` (the real
+    scorer and `record_decisions`; no decision or `covers` is written by
+    hand).
+
+    Pass 1: `security` X1 at line 12 leads a row holding `bugs` M (line 10)
+    as a plain member. Pass 2: a quiet pass; the persisted row rises to
+    critical, and with "older" in `decide` the owner decides X1 there (its
+    `covers` names M at band critical). Pass 3: X1's line is rewritten (diff
+    [[12, 12]]) and X1's lane answers its re-check `resolved`; a fresh
+    `perf` X2 at line 11 now leads M's row at medium, and with "newer" in
+    `decide` the owner decides X2 (its `covers` names M at band medium).
+    Pass 4: no code change; M's own lane re-reports it at conf 95 critical
+    and `security` corroborates it, so M leads its own row at critical with
+    a lane its covers did not record. Judged against X1's cover it is
+    current (no rise); against X2's it is stale (a rise a new lane backs).
+
+    `order` ("older_first" / "newer_first") picks X1's title so that X1's
+    decision hash sorts before or after X2's.
+    -> dict(s=state after pass 4, rec=M's open record, hM, hX1, hX2)."""
+    L0 = base_file()
+    x1_title = SHAPE2_OLDER_TITLE[order]
+    s1, r1 = run_pass(empty_state(), L0, [
+        fresh("bugs", 10, L0, TITLE_A, conf=60),
+        fresh("security", 12, L0, x1_title, conf=100, severity="critical",
+              category="injection")], 1, {F: [[1, 200]]})
+    assert [f["agent"] for f in r1["findings"]] == ["security"], r1["findings"]
+    s2, r2 = run_pass(s1, L0, [], 2, {F: []})
+    x1 = r2["findings"][0]
+    assert (x1["agent"], x1["band"]) == ("security", "critical"), x1
+    hX1 = x1["stable_hash"]
+    if "older" in decide:
+        s2 = decide_on(s2, hX1, kind=kind)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'fixed'"
+    req = {"token": "TX1", "agents": ["security"], "stable_hash": hX1,
+           "file": F, "line": 12, "agent": "security", "title": x1_title}
+    verdict = {"source": "recheck", "token": "TX1", "agent": "security",
+               "verdict": "resolved", "reason": "line rewritten"}
+    s3, r3 = run_pass(s2, L1, [fresh("perf", 11, L1, SHAPE2_NEWER_TITLE,
+                                     conf=85, category="performance")],
+                      3, {F: [[12, 12]]}, decided=target_decided(s2),
+                      recheck_requests=[req], verdicts=[verdict])
+    x2 = [f for f in r3["findings"] if f["agent"] == "perf"]
+    assert len(x2) == 1 and x2[0]["band"] == "medium", r3["findings"]
+    hX2 = x2[0]["stable_hash"]
+    if "newer" in decide:
+        s3 = decide_on(s3, hX2, kind=kind)
+    s4, _ = run_pass(s3, L1, [
+        fresh("bugs", 10, L1, TITLE_A, conf=95, severity="critical"),
+        fresh("security", 10, L1, TITLE_A, conf=70, category="injection")],
+        4, {F: []}, decided=target_decided(s3))
+    hM = score.stable_hash(F, L1[9], TITLE_A)
+    return {"s": s4, "rec": record_of(s4, hM), "hM": hM, "hX1": hX1,
+            "hX2": hX2}
+
+
+def _covers_naming(state, rec):
+    """Decision hashes whose `covers` has an entry matching `rec`."""
+    out = []
+    for dh, d in sorted(state.get("decisions", {}).items()):
+        covers = d.get("covers") if isinstance(d, dict) else None
+        if any(isinstance(e, dict) and carry_state._covers_entry_matches(e, rec)
+               for e in (covers if isinstance(covers, list) else [])):
+            out.append(dh)
+    return out
+
+
+class TestShape2CoveringOrder(_Base):
+    """999.44 shape 2: when two decisions' `covers` both name a finding, the
+    newest decision (highest `at_pass`) decides it, whatever order the
+    decision hashes sort in."""
+
+    def _scenario(self, kind, order, decide=("older", "newer")):
+        sc = covering_order_scenario(kind, order, decide)
+        self.assertIsNotNone(sc["rec"], "M is not an open record")
+        self.assertEqual((sc["rec"]["agent"], sc["rec"]["band"]),
+                         ("bugs", "critical"))
+        self.assertNotIn(sc["hM"], sc["s"].get("decisions", {}))
+        return sc
+
+    def test_shape2_two_covers_producible_covering_order(self):
+        for kind in SHAPE2_KINDS:
+            for order in SHAPE2_OLDER_TITLE:
+                with self.subTest(kind=kind, order=order):
+                    sc = self._scenario(kind, order)
+                    self.assertEqual(
+                        (sc["hX1"] < sc["hX2"]), order == "older_first",
+                        "fixture hash order moved")
+                    names = _covers_naming(sc["s"], sc["rec"])
+                    self.assertEqual(
+                        sorted(names), sorted([sc["hX1"], sc["hX2"]]),
+                        "covers entries naming M: %d" % len(names))
+                    ats = [sc["s"]["decisions"][h]["at_pass"]
+                           for h in (sc["hX1"], sc["hX2"])]
+                    self.assertEqual(ats, [2, 3])
+
+    def test_shape2_newest_cover_decides_covering_order(self):
+        for kind in SHAPE2_KINDS:
+            newest_only = self._scenario(kind, "older_first", ("newer",))
+            want = carry_state.decision_state(newest_only["rec"],
+                                              newest_only["s"])
+            self.assertEqual(want, "stale")
+            for order in SHAPE2_OLDER_TITLE:
+                with self.subTest(kind=kind, order=order):
+                    sc = self._scenario(kind, order)
+                    self.assertEqual(
+                        carry_state.decision_state(sc["rec"], sc["s"]), want,
+                        "decision_state follows the older cover")
+                    self.assertEqual(
+                        carry_state.covering_decision(sc["rec"], sc["s"])[0],
+                        sc["hX2"])
+                    self.assertNotEqual(e2e_gate(sc["s"], {}), "write")
+
+    def test_shape2_single_cover_control_covering_order(self):
+        for kind in SHAPE2_KINDS:
+            for order in SHAPE2_OLDER_TITLE:
+                for decide, want in ((("older",), "current"),
+                                     (("newer",), "stale")):
+                    with self.subTest(kind=kind, order=order, decide=decide):
+                        sc = self._scenario(kind, order, decide)
+                        only = sc["hX1"] if decide == ("older",) else sc["hX2"]
+                        self.assertEqual(_covers_naming(sc["s"], sc["rec"]),
+                                         [only])
+                        self.assertEqual(
+                            carry_state.decision_state(sc["rec"], sc["s"]),
+                            want)
+
+
+PR_TOP_FIVE =["pr_top_%d = 0" % i for i in range(5)]
 
 
 class TestCoordinateSpaces60(_RealChain):
