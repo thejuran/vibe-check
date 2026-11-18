@@ -54,12 +54,15 @@ from unittest import mock
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
 
+import carry_state  # noqa: E402  (decision_state of the re-review)
 import closeout_fresh  # noqa: E402  (module under test)
 import finalize_inputs  # noqa: E402  (the candidate helper, in-process)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
 import score  # noqa: E402  (oracle for the mirrored window, D-05)
 import test_decision_continuity as tdc  # noqa: E402  (pass1, base_file, F)
 import test_worktree_snap as tws  # noqa: E402  (_Chain: a reviewed tree in the store)
+import test_diff_ranges as tdr  # noqa: E402  (prose range placeholders)
+import worktree_snap  # noqa: E402  (STORE_REL)
 from gitfixture import git, write  # noqa: E402
 from test_finalize_inputs import argv_for, sha256_of, tree_listing  # noqa: E402
 
@@ -1055,6 +1058,463 @@ class _Sink:
 
     def flush(self):
         pass
+
+
+# --------------------------------------------------------------------------- #
+# Loop freedom (D-16): every refusal clears through the step it names. The
+# review the refusal asks for runs through the real prose fences in fresh
+# shells (`test_worktree_snap._Chain`), the owner re-decides what the review
+# re-asks, Phase 4.5 persists, and Close out writes.
+# --------------------------------------------------------------------------- #
+README = "README"
+
+
+class _ClearChain(tws._Chain):
+    """`_Chain` (finding at src/a.py:40 in an uncommitted block) with the
+    pass-1 decision kind chosen per test, every collected reviewed tree
+    kept, and Close out run through the real helper."""
+
+    def setUp(self):
+        super().setUp()
+        # Not `self._env`: _Chain uses that name for its fence environment.
+        patcher = mock.patch.dict(os.environ, gitfixture.helper_env(),
+                                  clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.trees = []
+        self._calls = 0
+
+    # -- the review, with the kind and the reviewed tree captured -------- #
+    def collect(self, state_path, **kw):
+        tree, nearby = super().collect(state_path, **kw)
+        self.trees.append(tree)
+        return tree, nearby
+
+    def decided_pass1(self, kind, route="default"):
+        """`_Chain.pass1` with the owner's answer `kind` (defer/dismiss)."""
+        real = tdc.decide_on
+
+        def answer(state, h, kind=None, reason=tdc.REASON):
+            del kind  # pass1 always answers "defer"; the test chooses
+            return real(state, h, kind=chosen, reason=reason)
+
+        chosen = kind
+        with mock.patch.object(tdc, "decide_on", answer):
+            self.pass1(route=route)
+        self.kind = kind
+        self.assertEqual(self.s1["decisions"][self.h]["decision"], kind)
+
+    def review_again(self, file_lines, findings, route="default"):
+        """Pass 2 by the same fences as `_Chain.pass2`, for working trees
+        where src/a.py is gone (`file_lines` is what Phase 1 reads there,
+        [] when absent) or the route is `--all` -> (state, result)."""
+        if route == "all":
+            changed = {}
+        else:
+            sha = self.last_reviewed_sha(self.state_path)
+            changed = self.ranges("default or GSD", tdr.INCR_PLACEHOLDER, sha)
+        _, nearby = self.collect(self.state_path)
+        over = {}
+        if route == "all":
+            over = tws._all_mode_over(file_lines, nearby)
+        elif nearby:
+            over["nearby_line_ranges"] = json.loads(nearby)
+        return tdc.run_pass(self.s1, file_lines, findings, 2, changed,
+                            decided=tdc.target_decided(self.s1), **over)
+
+    # -- Close out ------------------------------------------------------- #
+    def close_out(self, state_path, switches=None):
+        """Finalize's helper on a fresh empty fingerprint file -> result."""
+        self._calls += 1
+        blob_out = os.path.join(os.path.dirname(self.repo.repo),
+                                "blobs-%d.json" % self._calls)
+        with open(blob_out, "wb"):
+            pass
+        code, out = finalize_inputs.run(
+            argv_for(state_path, blob_out, switches), cwd=self.repo.repo)
+        self.assertEqual(code, 0, out)
+        return json.loads(out)
+
+    def assert_refused(self, result, cause):
+        self.assertEqual((result["action"], result["next"]),
+                         ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN))
+        self.assertEqual(result["stale"], [
+            {"hash": self.h, "kind": KIND_WORD[self.kind], "cause": cause}])
+        self.assertIsNone(result["report"])
+
+    def assert_writes(self, result):
+        self.assertEqual((result["action"], result["next"]),
+                         ("write", "write-review-md"), result)
+        self.assertNotIn("stale", result)
+
+    # -- after the fresh review ------------------------------------------ #
+    def undecided(self, s2):
+        """Hashes of open records the owner has no current decision on."""
+        return sorted(rec["stable_hash"]
+                      for rec in carry_state.open_findings(s2)
+                      if carry_state.decision_state(rec, s2) != "current")
+
+    def reasked_or_gone(self, s2):
+        """The pass-1 decision does not stand: its record is re-asked
+        (decision stale) or gone; either way something is left to decide
+        unless nothing was re-reported."""
+        rec = tdc.record_of(s2, self.h)
+        if rec is not None:
+            self.assertEqual(carry_state.decision_state(rec, s2), "stale",
+                             "the fresh review kept a decision on changed code")
+
+    def redecide_persist_close(self, s2, switches=None):
+        """The owner answers every re-asked record with the same kind,
+        Phase 4.5 persists the new reviewed tree, Close out runs."""
+        for h in self.undecided(s2):
+            s2 = tdc.decide_on(s2, h, kind=self.kind, reason="re-decided")
+        self.assertEqual(self.undecided(s2), [])
+        head = self.repo.git("rev-parse", "HEAD").stdout.strip()
+        self.assertTrue(self.trees[-1], "the fresh review recorded no tree")
+        _, path = self.persist(s2, head, self.trees[-1])
+        return self.close_out(path, switches)
+
+
+class TestClearable(_ClearChain):
+    """refuse -> the requested fresh review -> re-decide -> Close out writes,
+    for every cause and both decision kinds (D-16, RESEARCH Pitfall 1)."""
+
+    def test_clearable_line(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                L2 = list(self.L1)
+                L2[39] = "uncommitted_40 = safe_query(user_input)"
+                self.repo.write(L2)
+                self.assert_refused(self.close_out(self.state_path), "line")
+                s2, _, _, _ = self.pass2(L2)
+                self.reasked_or_gone(s2)
+                self.assertTrue(self.undecided(s2), "nothing re-asked")
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def test_clearable_nearby(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                L2 = list(self.L1)
+                L2[42] = "uncommitted_43 = other_call()"
+                self.repo.write(L2)
+                self.assert_refused(self.close_out(self.state_path), "nearby")
+                s2, _, _, _ = self.pass2(L2)
+                self.assertEqual(self.undecided(s2), [self.h])
+                self.assertEqual(carry_state.stale_cause(
+                    tdc.record_of(s2, self.h), s2), "nearby")
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def keep_tree_nonempty(self):
+        """A second tracked file, so the working tree stays non-empty once
+        src/a.py is removed (a real repo has more than one file)."""
+        gitfixture.write(self.repo.repo, README, "readme\n")
+        self.repo.git("add", README)
+
+    def test_clearable_deleted_rm(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                self.keep_tree_nonempty()
+                self.repo.git("rm", "-qf", tdc.F)
+                self.assert_refused(self.close_out(self.state_path),
+                                    "deleted")
+                s2, _ = self.review_again([], [])
+                self.assertIsNone(tdc.record_of(s2, self.h))
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def test_clearable_deleted_mv(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                self.repo.git("mv", "-f", tdc.F, "src/b.py")
+                self.assert_refused(self.close_out(self.state_path),
+                                    "deleted")
+                moved = dict(self.finding(self.L1), file="src/b.py")
+                s2, _ = self.review_again([], [moved])
+                # Either outcome is a valid review: re-asked at the new
+                # path, or the decision followed the record there.
+                rec = tdc.record_of(s2, self.h)
+                if rec is not None and rec["file"] == "src/b.py":
+                    self.assertIn(carry_state.decision_state(rec, s2),
+                                  ("current", "stale"))
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def test_clearable_untracked(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.untracked_pass1(kind)
+                self.assert_refused(self.close_out(self.state_path),
+                                    "untracked")
+                # The refusal's next step (D-13): add the file, review again.
+                self.repo.git("add", "-N", tdc.F)
+                s2, _, _, _ = self.pass2(self.L1)
+                self.reasked_or_gone(s2)
+                self.assertTrue(self.undecided(s2), "nothing re-asked")
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def untracked_pass1(self, kind):
+        """Pass 1 on a src/a.py that git does not track (README is the
+        committed file): the reviewed tree cannot hold it."""
+        self.L0 = tdc.base_file()
+        self.repo = tdc.RealDiffRepo.make(self, self.L0)
+        gitfixture.write(self.repo.repo, README, "readme\n")
+        self.repo.git("add", README)
+        self.repo.git("rm", "-q", "--cached", tdc.F)
+        self.repo.git("commit", "-qm", "untrack")
+        self.L1 = self.L0
+        head = self.repo.git("rev-parse", "HEAD").stdout.strip()
+        r1 = self.ranges("default")
+        self.assertNotIn(tdc.F, r1)
+        tree, _ = self.collect(os.path.join(self.repo.repo, "absent"))
+        finding = tdc.fresh("security", 40, self.L1, tws.TITLE, conf=95)
+        s1, res = tdc.run_pass(tdc.empty_state(), self.L1, [finding], 1, r1)
+        self.assertEqual(len(res["findings"]), 1, res["filtered"])
+        self.h = res["findings"][0]["stable_hash"]
+        s1 = tdc.decide_on(s1, self.h, kind=kind, reason="later")
+        self.kind = kind
+        self.s1, self.state_path = self.persist(s1, head, tree)
+
+    def test_clearable_unverifiable_store_removed(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                shutil.rmtree(os.path.join(self.repo.repo,
+                                           worktree_snap.STORE_REL))
+                self.assert_refused(self.close_out(self.state_path),
+                                    "unverifiable")
+                s2, _, _, nearby = self.pass2(self.L1)
+                # The code did not change: the fresh review keeps the
+                # decision (999.28 parity); a re-ask would be a false reopen.
+                self.assertEqual(json.loads(nearby), {})
+                self.assert_keeps(s2, self.h, 40)
+                self.assertEqual(self.undecided(s2), [])
+                self.assert_writes(self.redecide_persist_close(s2))
+
+
+class TestAllRouteClearable(_ClearChain):
+    """`--all` (D-12): a decision and an edit refuse; a fresh `--all` review
+    clears. An edit to the decided line is re-asked. An edit only near it is
+    NOT re-asked on `--all`: that route never sends `nearby_line_ranges`
+    (no scorer effect, 66-05), so the fresh review keeps the decision and
+    records the new tree, and Close out then writes. Either way no loop."""
+
+    def finding(self, lines):
+        # No in-diff term on --all; a confident finding still survives.
+        return tdc.fresh("security", 40, lines, tws.TITLE, conf=95)
+
+    EDITS = ((40, "uncommitted_40 = safe_query(user_input)", "line"),
+             (43, "uncommitted_43 = other_call()", "nearby"))
+
+    def test_all_route_refuses_then_clears(self):
+        for kind in KINDS:
+            for at, text, cause in self.EDITS:
+                with self.subTest(kind=kind, cause=cause):
+                    self.decided_pass1(kind, route="all")
+                    self.assertTrue(
+                        self.s1["passes"][-1].get("reviewed_tree"))
+                    L2 = list(self.L1)
+                    L2[at - 1] = text
+                    self.repo.write(L2)
+                    self.assert_refused(self.close_out(self.state_path),
+                                        cause)
+                    s2, _ = self.review_again(L2, [self.finding(L2)],
+                                              route="all")
+                    if cause == "line":
+                        self.reasked_or_gone(s2)
+                        self.assertTrue(self.undecided(s2),
+                                        "nothing re-asked")
+                    else:
+                        self.assert_keeps(s2, self.h, 40)
+                    self.assert_writes(self.redecide_persist_close(s2))
+
+
+# --------------------------------------------------------------------------- #
+# 999.44 shape 3 (60-REPRO R7): a decision on a file git does not track.
+# No reviewed copy exists (the snapshot copies tracked files only, and
+# copying untracked files was rejected: they may hold secrets), so the
+# decision cannot be checked: refuse until the owner adds the file (D-13).
+# --------------------------------------------------------------------------- #
+NEW_FILE = "notes/new.py"
+UNTRACKED_ROW = "if file not in reviewed_paths:"
+
+
+class TestShape3Untracked(DecidedCase):
+
+    def shape3_state(self, kind):
+        """A finding on notes/new.py, written AFTER the commit and never
+        added, that the owner decided; the last pass is bound to HEAD and
+        `HEAD^{tree}` -> (state_file, hash)."""
+        state, h = self.decided(kind)
+        state = json.loads(json.dumps(state).replace(tdc.F, NEW_FILE))
+        self.put(self.lines, rel=NEW_FILE)
+        listed = git(self.repo, "ls-files", "--", NEW_FILE).stdout
+        self.assertEqual(listed, "", "notes/new.py must be untracked")
+        state_file = os.path.join(os.path.dirname(self.repo), "state.json")
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        self.blob_out = os.path.join(os.path.dirname(self.repo), "blobs.json")
+        return state_file, h
+
+    def test_old_helper_writes_on_untracked_decided_file(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, _ = self.shape3_state(kind)
+                code, out = self.run_old_case(state_file)
+                self.assertEqual(code, 0, out)
+                result = json.loads(out)
+                # The R7 wrong keep on 2.15.0: nothing checks the decision.
+                self.assertEqual((result["action"], result["next"]),
+                                 ("write", "write-review-md"))
+                self.assertNotIn("stale", result)
+
+    def test_candidate_refuses_untracked(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, h = self.shape3_state(kind)
+                code, out = self.run_new_case(state_file)
+                self.assertEqual(code, 0, out)
+                result = json.loads(out)
+                self.assertEqual((result["action"], result["next"]),
+                                 ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN))
+                self.assertEqual(result["stale"],
+                                 self.one(h, kind, "untracked"))
+                self.assertIsNone(result["report"])
+
+    def test_git_add_n_then_review_clears(self):
+        # Adding the file alone does not clear: the reviewed tree still
+        # lacks it, so the review the refusal names is required.
+        for kind in KINDS:
+            with self.subTest(kind=kind, step="git add -N only"):
+                state_file, h = self.shape3_state(kind)
+                git(self.repo, "add", "-N", NEW_FILE)
+                result = json.loads(self.run_new_case(state_file)[1])
+                self.assertEqual(result["stale"],
+                                 self.one(h, kind, "untracked"))
+        # Add, then review again through the real fences: clears (D-13).
+        outcome = unittest.TestResult()
+        TestClearable("test_clearable_untracked").run(outcome)
+        self.assertEqual(outcome.testsRun, 1)
+        self.assertTrue(outcome.wasSuccessful(),
+                        outcome.failures + outcome.errors)
+
+    # Mutation check 6 at the CLI boundary: without the reviewed-tree
+    # membership check the untracked decision has no ranges and Close out
+    # writes again (the 2.15.0 wrong keep).
+    def test_mutant_skip_absent_check_writes(self):
+        mod = _load_mutant(CLOSEOUT_PATH, "closeout_fresh_mutant",
+                           ((UNTRACKED_ROW, "if False:"),))
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, _ = self.shape3_state(kind)
+                real = json.loads(self.run_new_case(state_file)[1])
+                self.assertEqual(real["action"], "refuse")
+                with mock.patch.object(finalize_inputs, "closeout_fresh",
+                                       mod):
+                    wrong = json.loads(self.run_new_case(state_file)[1])
+                self.assertEqual((wrong["action"], wrong["next"]),
+                                 ("write", "write-review-md"))
+                self.assertNotIn("stale", wrong)
+
+
+# --------------------------------------------------------------------------- #
+# PR and range Close out (D-15, D-04): judged against the files on disk.
+# The last pass reviewed a commit (reviewed_tree = the range-end commit id).
+# --------------------------------------------------------------------------- #
+PR_RANGE = (("range", {"range_mode": True}), ("PR", {"pr_mode": True}))
+
+
+class TestPrRangeDisk(DecidedCase):
+
+    def range_state(self, kind):
+        """Two commits; the review covered base..end and recorded the end
+        commit as its reviewed tree (a decided finding at line 10) ->
+        (state_file, hash, end commit)."""
+        state, h = self.decided(kind)
+        self.lines[49] = "line_50 = changed_in_the_range()"
+        self.put(self.lines)
+        git(self.repo, "commit", "-qam", "range end")
+        end = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        last = state["passes"][-1]
+        last["head_sha"] = end
+        last["reviewed_tree"] = end
+        state_file = os.path.join(os.path.dirname(self.repo), "state.json")
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        self.blob_out = os.path.join(os.path.dirname(self.repo), "blobs.json")
+        return state_file, h, end
+
+    def close_out(self, state_file, switches):
+        result = self.unchanged(state_file, lambda: run_new(
+            argv_for(state_file, self.fresh_blob_out(), switches),
+            self.repo))
+        self.assertEqual(result[0], 0, result[1])
+        return json.loads(result[1])
+
+    def fresh_blob_out(self):
+        with open(self.blob_out, "wb"):
+            pass
+        return self.blob_out
+
+    def assert_writes(self, result):
+        self.assertEqual((result["action"], result["next"]),
+                         ("write", "write-review-md"), result)
+        self.assertNotIn("stale", result)
+
+    def assert_refuses(self, result, h, kind, cause):
+        self.assertEqual((result["action"], result["next"]),
+                         ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN))
+        self.assertEqual(result["stale"], self.one(h, kind, cause))
+
+    def each(self):
+        for kind in KINDS:
+            for route, switches in PR_RANGE:
+                with self.subTest(kind=kind, route=route):
+                    yield kind, switches
+
+    def test_range_closeout_refuses_on_nearby_disk_edit(self):
+        for kind, switches in self.each():
+            state_file, h, _ = self.range_state(kind)
+            self.assert_writes(self.close_out(state_file, switches))
+            self.edit(13)  # uncommitted, within the +/- 5 window
+            self.assert_refuses(self.close_out(state_file, switches),
+                                h, kind, "nearby")
+
+    def test_revert_edit_clears(self):
+        for kind, switches in self.each():
+            state_file, h, _ = self.range_state(kind)
+            self.edit(13)
+            self.assert_refuses(self.close_out(state_file, switches),
+                                h, kind, "nearby")
+            git(self.repo, "checkout", "-q", "--", tdc.F)
+            self.assert_writes(self.close_out(state_file, switches))
+
+    def test_checkout_reviewed_commit_clears(self):
+        for kind, switches in self.each():
+            state_file, h, end = self.range_state(kind)
+            self.edit(13)
+            git(self.repo, "commit", "-qam", "after the review")
+            self.assert_refuses(self.close_out(state_file, switches),
+                                h, kind, "nearby")
+            git(self.repo, "checkout", "-q", end)
+            self.assertEqual(git(self.repo, "status", "--porcelain").stdout,
+                             "")
+            self.assert_writes(self.close_out(state_file, switches))
+
+    def test_pr_head_absent_locally_is_unverifiable(self):
+        for kind, switches in self.each():
+            state_file, h, _ = self.range_state(kind)
+            with open(state_file, "r", encoding="utf-8") as fh:
+                state = json.load(fh)
+            absent = "0123456789abcdef" * 2 + "01234567"
+            self.assertRegex(absent, worktree_snap.OBJECT_ID_RE)
+            state["passes"][-1]["reviewed_tree"] = absent
+            with open(state_file, "w", encoding="utf-8") as fh:
+                json.dump(state, fh)
+            # Fail closed: never fetched, never read as unchanged.
+            self.assert_refuses(self.close_out(state_file, switches),
+                                h, kind, "unverifiable")
 
 
 if __name__ == "__main__":
