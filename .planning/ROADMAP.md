@@ -79,11 +79,11 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 66-04-PLAN.md — Wire the refusal into finalize_inputs (stop-review-again), render it in 90-finalize.md, mutation checks 1/8/9
-- [ ] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample (owner checkpoint before any carry_state.py edit)
+- [x] 66-08-PLAN.md — 999.44 shape 2 covering order: producibility through record_decisions, repair or counterexample (owner checkpoint before any carry_state.py edit)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
+- [x] 66-06-PLAN.md — Loop-freedom: every refusal cause clearable (D-16); 999.44 shape 3 untracked (D-13); PR/range disk outcome (D-15)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -369,6 +369,10 @@ Fresh evidence: the real scorer/state chain driven by `test_decision_continuity`
 Bound the work to these three shapes: reproduce through current documented collection/persistence and both decision kinds; distinguish deleted-original relocation from the owner-accepted D-21 addition of an identical copy. Repair a real wrong keep or require a fresh review/refuse that unsupported decision. If a shape is not producible, record the counterexample/control and remove it from the gate. Preserve ordinary line shifts, scoring, genuine nearby-edit reopening and 999.28 unchanged-worktree behavior. No general matching redesign or scorer retune.
 
 Shape 1 outcome (Phase 66, 2026-11-18): owner-accepted known limit — reproduced through the real flow for defer and dismiss (decided line deleted while an identical line already existed elsewhere: decision kept current at the other line, Close out writes); a correct re-ask needs old-side "removed since review" lines from worktree_snap.py, beyond the D-14 bound, and the Close out code-changed refusal does not bound it (the next review relocates again) — tests: TestShape1DeletedOriginal.test_shape1_deleted_original_is_reasked_at_pass2_known_limit, test_shape1_closeout_does_not_write_on_deleted_original_known_limit (expectedFailure), control test_shape1_copy_written_by_the_same_change_reasks_control; D-21 distinguished by test_d21_identical_copy_added_while_original_remains_keeps.
+
+Shape 2 outcome (Phase 66, 2026-11-18): repaired — _covering prefers the newest cover (highest at_pass, hash tie-break; owner-approved at 66-08 Task 2); reproduced first through record_decisions for defer and dismiss (older critical cover kept the finding current and Close out wrote when its hash sorted first); the 2.14.1 parity side now runs carry_state.py materialized from dd8e4ab — tests: TestShape2CoveringOrder.test_shape2_two_covers_producible_covering_order, test_shape2_newest_cover_decides_covering_order, test_shape2_tie_and_uncounted_at_pass_covering_order, control test_shape2_single_cover_control_covering_order.
+
+Shape 3 outcome (Phase 66, 2026-11-18): reproduced on 2.15.0 (Close out wrote on a deferred or dismissed decision over an untracked file, for both kinds); the candidate refuses with cause untracked, `git add -N` alone does not clear it, and the D-13 step (`git add -N`, then review again) clears it with no loop — tests: TestShape3Untracked.test_old_helper_writes_on_untracked_decided_file, test_candidate_refuses_untracked, test_git_add_n_then_review_clears, test_mutant_skip_absent_check_writes; clearing proved through the real fences by TestClearable.test_clearable_untracked.
 
 ### 999.45: Pre-submission scope gate — narrowed all-mode and colliding keys
 
