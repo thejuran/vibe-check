@@ -1228,6 +1228,27 @@ class TestHelperWalk(_CandidateTree):
         self.assertEqual(walk.real_blobs, {ARCH_FILE: proc.stdout.strip()})
         self.assertNotEqual(proc.stdout.strip(), fc.ARCH_BLOB)
 
+    def test_every_walk_runs_on_a_reviewed_tree(self):
+        for key, walk in self.walks.items():
+            work = self.work[key]
+            self.assertTrue(walk.git_dir and os.path.isdir(walk.git_dir), key)
+            want = fc.finding_files(self.vc_root,
+                                    fc.situation_inputs(key[0], key[1]))
+            self.assertTrue(want, key)
+            proc = subprocess.run(["git", "-C", work, "ls-tree", "-r",
+                                   "--name-only", "HEAD"],
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertLessEqual(set(want), set(proc.stdout.split()), key)
+
+    def test_mutant_without_the_reviewed_tree_stamp_refuses(self):
+        with mock.patch.object(fc, "stamp_reviewed_tree",
+                               lambda *args: None):
+            with self.assertRaises(fc.CaptureError) as caught:
+                fc.HelperWalk().run("clean-close", self.vc_root,
+                                    self._work())
+        self.assertIn("stale", str(caught.exception))
+
     def test_restart_card_route_across_fresh_shells(self):
         key = ("fresh-shell-restart", None)
         out, walk = self.outputs[key], self.walks[key]
