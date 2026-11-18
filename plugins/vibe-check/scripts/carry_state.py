@@ -893,14 +893,19 @@ def _covering(record, state):
     what a decision recorded. The covering decision may itself be stale for
     its own row: the record's own unchanged code is the evidence here. An
     absorbed member record (`absorbed_into`) never inherits: closing the row
-    that absorbed it closes nothing for it. First match in sorted-hash order;
-    `entry` is the first matching `covers` entry of that decision."""
+    that absorbed it closes nothing for it. When several decisions' `covers`
+    name this record (a later decision on another row it joined covers it
+    too), the newest wins: the highest `at_pass`, a decision without a
+    count `at_pass` ranking below every one with it, and the lowest hash on
+    a tie. `entry` is the first matching `covers` entry of that
+    decision."""
     if record.get("absorbed_into") is not None:
         return None
     decisions = state.get("decisions")
     if not isinstance(decisions, dict):
         return None
     own = record.get("stable_hash")
+    best, best_at = None, None
     for dh in sorted(k for k in decisions if isinstance(k, str)):
         decision = decisions[dh]
         if dh == own or not isinstance(decision, dict):
@@ -910,8 +915,12 @@ def _covering(record, state):
             continue
         for e in covers:
             if isinstance(e, dict) and _covers_entry_matches(e, record):
-                return dh, decision, e
-    return None
+                at = decision.get("at_pass")
+                at = at if _is_count(at) else -1
+                if best is None or at > best_at:
+                    best, best_at = (dh, decision, e), at
+                break
+    return best
 
 
 def covering_decision(record, state):
