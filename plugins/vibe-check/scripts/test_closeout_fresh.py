@@ -525,13 +525,136 @@ class TestUnverifiable(DecidedCase):
                 self.assertEqual(self.stale(state),
                                  self.one(h, "defer", "unverifiable"))
 
-    def test_unverifiable_path_failing_PATH_RE(self):
-        for bad in ("src/a b.py", "src/a.py;rm", "src/$(x).py", "", 5):
+    def test_unverifiable_path_git_would_quote_or_not_a_repo_path(self):
+        # Names git still C-quotes in a diff header with core.quotePath=false
+        # (`"`, `\\`, control characters) cannot be keyed in the parsed
+        # diff, and a name that is not a repo-relative path (absolute, a
+        # `..` segment, a decode replacement character, empty, not a
+        # string) names nothing the diff can prove unchanged: fail closed.
+        for bad in ('src/a"b.py', "src/a\\b.py", "src/a\nb.py",
+                    "src/a\tb.py", "src/a\x7fb.py", "src/a\x01b.py",
+                    "/etc/a.py", "../a.py", "src/../../a.py",
+                    "src/\ufffd.py", "", 5, None):
             with self.subTest(file=bad):
                 state, h = self.decided("defer")
                 state["passes"][-1]["findings"][0]["file"] = bad
                 self.assertEqual(self.stale(state),
                                  self.one(h, "defer", "unverifiable"))
+
+    def test_unverifiable_quoted_name_present_and_unchanged(self):
+        # The file really exists in the reviewed tree and on disk, unchanged:
+        # still unverifiable, because an edit to it would come out of the
+        # diff under a quoted header that no record can match.
+        for name in ('src/a"b.py', "src/a\\b.py", "src/a\tb.py",
+                     "src/a\nb.py"):
+            with self.subTest(file=name):
+                state, h = self.decided_at(name, "defer")
+                self.assertEqual(self.stale(state),
+                                 self.one(h, "defer", "unverifiable"))
+
+
+# Names common in real projects (SvelteKit routes, Next.js app router,
+# spaces, non-ASCII) that git prints raw in a diff header once
+# core.quotePath=false. A decision on one must be checked like any other.
+SPECIAL_NAMES = ("src/routes/+page.svelte", "app/blog/[slug]/page.tsx",
+                 "app/(group)/x.ts", "src/@scope/a.py", "my file.py",
+                 "src/caf\u00e9.py", "src/\u6587\u4ef6.py")
+
+
+def _decided_at(case, name, kind="defer"):
+    """`DecidedCase.decided` with the decided file at `name` instead of
+    src/a.py -> (state dict, hash)."""
+    case._n += 1
+    case_dir = os.path.join(case.tmp, "case%d" % case._n)
+    os.makedirs(case_dir)
+    case.repo = gitfixture.make_repo(case_dir)
+    case.lines = list(tdc.base_file())
+    case.decided_file = name
+    write(case.repo, name, "\n".join(case.lines) + "\n")
+    git(case.repo, "add", "-A")
+    git(case.repo, "commit", "-qm", "x")
+    with mock.patch.object(tdc, "F", name):
+        state, h = tdc.pass1(case.lines, conf=95, kind=kind)
+    case.assertEqual(state["passes"][-1]["findings"][0]["file"], name)
+    return case.bind(state), h
+
+
+DecidedCase.decided_at = _decided_at
+
+
+class TestSpecialNames(DecidedCase):
+    """CR-01 (D-16): a decision on a file whose name has `+`, `[`, `(`, `@`,
+    a space or non-ASCII characters is checked against the code, so an
+    unchanged file keeps it and an edit refuses with the real cause. A
+    name-based refusal could never clear: a fresh review keeps the name."""
+
+    def edit_at(self, n):
+        edited = list(self.lines)
+        edited[n - 1] = "line_%02d = danger()" % n
+        write(self.repo, self.decided_file, "\n".join(edited) + "\n")
+
+    def test_special_names_unchanged_keep(self):
+        for kind in KINDS:
+            for name in SPECIAL_NAMES:
+                with self.subTest(kind=kind, file=name):
+                    state, _ = self.decided_at(name, kind)
+                    self.assertEqual(self.stale(state), [])
+
+    def test_special_names_line_edit_is_line(self):
+        for kind in KINDS:
+            for name in SPECIAL_NAMES:
+                with self.subTest(kind=kind, file=name):
+                    state, h = self.decided_at(name, kind)
+                    self.edit_at(10)
+                    self.assertEqual(self.stale(state),
+                                     self.one(h, kind, "line"))
+
+    def test_special_names_nearby_edit_is_nearby(self):
+        for name in SPECIAL_NAMES:
+            with self.subTest(file=name):
+                state, h = self.decided_at(name, "dismiss")
+                self.edit_at(14)
+                self.assertEqual(self.stale(state),
+                                 self.one(h, "dismiss", "nearby"))
+
+    def test_space_name_header_tab_is_stripped(self):
+        # git ends a `+++` header with a tab when the name has a space; the
+        # range must still be keyed under the bare name.
+        state, _ = self.decided_at("my file.py", "defer")
+        self.edit_at(10)
+        top = closeout_fresh._toplevel(self.repo)
+        ranges = closeout_fresh.changed_ranges(
+            top, state["passes"][-1]["reviewed_tree"])
+        self.assertEqual(ranges, {"my file.py": [[10, 10]]})
+
+    def test_non_ascii_name_comes_out_raw(self):
+        state, _ = self.decided_at("src/caf\u00e9.py", "defer")
+        self.edit_at(10)
+        top = closeout_fresh._toplevel(self.repo)
+        ranges = closeout_fresh.changed_ranges(
+            top, state["passes"][-1]["reviewed_tree"])
+        self.assertEqual(ranges, {"src/caf\u00e9.py": [[10, 10]]})
+
+    def test_helper_end_to_end_special_name(self):
+        # Through finalize_inputs: unchanged -> write; edited -> refuse.
+        for edit, action in ((None, "write"), (10, "refuse")):
+            with self.subTest(edit=edit):
+                state, h = self.decided_at("src/routes/+page.svelte", "defer")
+                state_file = os.path.join(os.path.dirname(self.repo),
+                                          "state.json")
+                with open(state_file, "w", encoding="utf-8") as fh:
+                    json.dump(state, fh)
+                if edit is not None:
+                    self.edit_at(edit)
+                self.blob_out = os.path.join(os.path.dirname(self.repo),
+                                             "blobs.json")
+                code, out = run_new(self.argv(state_file), self.repo)
+                self.assertEqual(code, 0, out)
+                result = json.loads(out)
+                self.assertEqual(result["action"], action, result)
+                if edit is not None:
+                    self.assertEqual(result["stale"],
+                                     self.one(h, "defer", "line"))
 
 
 class TestNoDecisionNoGit(DecidedCase):
