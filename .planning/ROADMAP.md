@@ -73,8 +73,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 66-03-PLAN.md — TDD: closeout_fresh.stale_decisions (reverse diff, window, delete/rename, untracked, fail closed) + mutation checks 2-7
-- [ ] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record (conditional owner checkpoint on BOUND-EXCEEDED)
+- [x] 66-03-PLAN.md — TDD: closeout_fresh.stale_decisions (reverse diff, window, delete/rename, untracked, fail closed) + mutation checks 2-7
+- [x] 66-07-PLAN.md — 999.44 shape 1 deleted-original relocation vs D-21: repro, bounded re-ask or D-10 record (conditional owner checkpoint on BOUND-EXCEEDED)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -367,6 +367,8 @@ Smallest scope: inventory the actual helper and hook invocations; ignore ambient
 Fresh evidence: the real scorer/state chain driven by `test_decision_continuity`'s **simulated relocation** kept a dismiss current and returned `write` after deleting the decided line 10 when identical text remained at line 49. This proves the helper chain given that relocation, not live orchestrator behavior. A separate **synthetic legacy-state** probe showed `_covering`'s sorted-first choice returning `current` with an older critical cover plus a newer medium cover, versus `stale` with the newer cover alone. Real writer producibility of that overlap remains unverified. `worktree_snap.py` explicitly excludes untracked files; no fresh end-to-end wrong-keep probe was run for R7.
 
 Bound the work to these three shapes: reproduce through current documented collection/persistence and both decision kinds; distinguish deleted-original relocation from the owner-accepted D-21 addition of an identical copy. Repair a real wrong keep or require a fresh review/refuse that unsupported decision. If a shape is not producible, record the counterexample/control and remove it from the gate. Preserve ordinary line shifts, scoring, genuine nearby-edit reopening and 999.28 unchanged-worktree behavior. No general matching redesign or scorer retune.
+
+Shape 1 outcome (Phase 66, 2026-11-18): owner-accepted known limit — reproduced through the real flow for defer and dismiss (decided line deleted while an identical line already existed elsewhere: decision kept current at the other line, Close out writes); a correct re-ask needs old-side "removed since review" lines from worktree_snap.py, beyond the D-14 bound, and the Close out code-changed refusal does not bound it (the next review relocates again) — tests: TestShape1DeletedOriginal.test_shape1_deleted_original_is_reasked_at_pass2_known_limit, test_shape1_closeout_does_not_write_on_deleted_original_known_limit (expectedFailure), control test_shape1_copy_written_by_the_same_change_reasks_control; D-21 distinguished by test_d21_identical_copy_added_while_original_remains_keeps.
 
 ### 999.45: Pre-submission scope gate — narrowed all-mode and colliding keys
 

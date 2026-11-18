@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: executing
-stopped_at: "Phase 66 wave 1 complete (66-01, 66-02, 66-05); wave 2 next"
-last_updated: "2026-11-17T21:05:00.000Z"
-last_activity: 2026-11-17 -- Phase 66 wave 1 complete (3/9 plans)
+stopped_at: "Phase 66 wave 2 complete (66-03, 66-07; shape 1 = owner-accepted known limit); wave 3 next"
+last_updated: "2026-11-18T00:30:00.000Z"
+last_activity: 2026-11-18 -- Phase 66 wave 2 complete (5/9 plans)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 9
-  completed_plans: 3
-  percent: 33
+  completed_plans: 5
+  percent: 56
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 66 (close-out-freshness) — EXECUTING
-Plan: 3 of 9 complete (wave 1 done: 66-01, 66-02, 66-05; waves 2-5 remain)
+Plan: 5 of 9 complete (waves 1-2 done: 66-01, 66-02, 66-05, 66-03, 66-07; waves 3-5 remain)
 Status: Executing Phase 66
-Last activity: 2026-11-17 -- Phase 66 wave 1 complete (3/9 plans)
+Last activity: 2026-11-18 -- Phase 66 wave 2 complete (5/9 plans); 999.44 shape 1 owner-accepted known limit
 
 ## Operator Next Steps
 
