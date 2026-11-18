@@ -852,6 +852,25 @@ def fix_obsolete_state(blob, repo=None):
     return _bound(s, repo)
 
 
+STALE_FILE = "src/decided.py"
+
+
+def stale_refusal_state(repo, edit=True):
+    """The medium row moved to STALE_FILE and dismissed, on a reviewed tree in
+    `repo`; with `edit`, the decided line is then changed on disk without a
+    commit, so the dismissal is stale (cause `line`)."""
+    s = load_fixture()
+    rec = row(s, BUGS_HASH)
+    rec["file"] = STALE_FILE
+    s = bind_reviewed_tree(repo, dismiss(s, [BUGS_HASH]))
+    if edit:
+        line = row(s, BUGS_HASH)["line"]
+        lines = synthetic_text(lines_needed(s, STALE_FILE)).splitlines(True)
+        lines[line - 1] = "edited after the review\n"
+        write(repo, STALE_FILE, "".join(lines))
+    return s
+
+
 def oracle(state, blobs, switches):
     """What the three 2.14.1 helpers give, called in-process."""
     if state is None:
@@ -901,11 +920,11 @@ class ResultCase(InputsCase):
 
 class TestNextAction(unittest.TestCase):
 
-    def test_next_actions_are_the_seven_values_in_order(self):
+    def test_next_actions_are_the_eight_values_in_order(self):
         self.assertEqual(finalize_inputs.NEXT_ACTIONS, (
             "write-review-md", "finalize-card", "stop-fallback-cw",
             "stop-fallback-nv", "stop-fallback-medium", "stop-no-state",
-            "stop-refused"))
+            "stop-refused", "stop-review-again"))
 
     def test_exit_codes(self):
         f = finalize_inputs
@@ -1314,6 +1333,35 @@ class TestCliResult(CliCase):
                         self.assertEqual(got["report"], json.loads(r_out))
                     else:
                         self.assertIsNone(got["report"])
+
+    def test_stale_refusal_shape(self):
+        state = stale_refusal_state(self.repo)
+        sp = self.new_path(state)
+        code, out, err = self.cli(argv_for(sp, self.empty()))
+        self.assertEqual((code, err), (0, b""))
+        got = json.loads(out)
+        self.assertEqual(set(got), RESULT_KEYS | {"stale"})
+        self.assertEqual(got["action"], "refuse")
+        self.assertIn(got["action"], finalize_gate.ACTIONS)
+        self.assertEqual(got["reason"], finalize_inputs.REASON_STALE_DECISIONS)
+        self.assertEqual(got["next"], "stop-review-again")
+        self.assertEqual(tuple(got["counts"]), COUNT_KEYS_EXPECTED)
+        self.assertIsNone(got["report"])
+        self.assertEqual(got["stale"], [
+            {"hash": BUGS_HASH, "kind": "dismissed", "cause": "line"}])
+        # The gate's outstanding counts are still reported.
+        self.assertEqual(got["counts"]["outstanding_cw_hashes"], [ARCH_HASH])
+        # The fixed reason names no path, title or hash.
+        for text in (STALE_FILE, BUGS_HASH, row(state, BUGS_HASH)["title"]):
+            self.assertNotIn(text, got["reason"])
+
+    def test_unchanged_result_has_no_stale_key(self):
+        state = stale_refusal_state(self.repo, edit=False)
+        code, out, _ = self.cli(argv_for(self.new_path(state), self.empty()))
+        self.assertEqual(code, 0)
+        got = json.loads(out)
+        self.assertEqual(set(got), RESULT_KEYS)
+        self.assertNotEqual(got["next"], "stop-review-again")
 
     def test_parity_fix_obsolete_writes_through_the_cli(self):
         state = fix_obsolete_state(self.blob(ARCH_FILE), self.repo)
@@ -2183,6 +2231,7 @@ class TestCliWritesOnlyTheFingerprintFile(CliCase):
             "card": (load_six_row(), True),
             "state refused": ("not json", False),
             "no state file": (None, False),
+            "stale refusal": (stale_refusal_state(self.repo), True),
         }
 
     def run_route(self, state, module=None):
@@ -2388,8 +2437,8 @@ class TestImportSet(unittest.TestCase):
                 names.update(a.name for a in node.names)
             elif isinstance(node, ast.ImportFrom):
                 names.add(node.module)
-        siblings = {"batch_card", "carry_state", "finalize_gate", "fixcommit",
-                    "guard"}
+        siblings = {"batch_card", "carry_state", "closeout_fresh",
+                    "finalize_gate", "fixcommit", "guard"}
         self.assertEqual(names - siblings,
                          {"io", "json", "os", "subprocess", "sys"})
         self.assertEqual(names & siblings, siblings)

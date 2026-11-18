@@ -266,9 +266,13 @@ def _git(root, args, env=None):
 
 
 def _toplevel(cwd):
-    """The repo top as `git rev-parse --show-toplevel` prints it (only the
-    trailing line break dropped); Unverifiable when git gives nothing."""
-    top = _git(cwd, ["rev-parse", "--show-toplevel"]).rstrip("\n")
+    """The repo top as the session's git prints it with
+    `git rev-parse --show-toplevel`, minus exactly the one line break git
+    adds: a folder whose own name ends in a line break keeps it, so the
+    diff runs in that folder and not in a sibling. Unverifiable when git
+    gives nothing."""
+    out = _git(cwd, ["rev-parse", "--show-toplevel"])
+    top = out[:-1] if out.endswith("\n") else out
     if not top:
         raise Unverifiable("no repository top")
     return top

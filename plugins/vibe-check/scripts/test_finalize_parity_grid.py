@@ -26,6 +26,16 @@ Differences are handled narrowly, never by skipping:
   the name relative to the subfolder, match nothing and pass, so 2.14.1
   fingerprints the edited file; the helper must not. Only that exact shape of
   difference is allowed, and both sides' outcomes are asserted.
+- FRESHNESS_REFUSALS (owner decision D-09, fail closed): Close out refuses a
+  dismissal whose reviewed code it cannot compare with the code on disk.
+  Where the session's git cannot see the reviewed work tree (session
+  outside the repo, inside `.git`, git not on PATH, `core.worktree` or
+  `GIT_DIR` pointing elsewhere, a ceiling hiding the repo), the helper
+  refuses with `next: stop-review-again` while 2.14.1 wrote or opened the
+  card. Each such scenario is listed with its 2.14.1 outcome and the stale
+  cause; the helper's fingerprints and counts must equal 2.14.1's, only the
+  action differs. Exhaustive both ways: an unlisted refusal is unexpected,
+  and a listed one that no longer refuses fails.
 - KNOWN_DIFFERENCES: a shrink-only list of further differences awaiting an
   owner decision, each with both outcomes asserted. The test fails when an
   entry disappears or changes, so the list cannot rot.
@@ -397,6 +407,147 @@ D19_ROWS = (
       "obsolete-head"),
 )
 
+# D-09 (owner decision): when no reviewed content can be compared with the
+# code on disk, the decision is stale and Close out refuses (fail closed).
+# These scenarios put the session where its git cannot see the reviewed work
+# tree, so the dismissal (BUGS_HASH) cannot be checked: the helper refuses
+# where 2.14.1 wrote or opened the card. Each entry is (scenario, stale
+# cause); `freshness_refusal` holds every other part of the result to
+# 2.14.1's. Which of write or open 2.14.1 gives is not pinned here: for a
+# name like `-1.ts` it follows the Python version's argparse (as on both
+# sides of every other row), and the regression rows pin it where it matters.
+FRESHNESS_REFUSALS = (
+    (S("cr", "none", "sub", "worktree-folder", "dir/y.ts",
+       "edit", "obsolete-old"), "unverifiable"),
+    (S("cr", "repo-same", "outside", "git-dir", "-1.ts",
+       "staged-restored", "applied"), "deleted"),
+    (S("space", "repo-same", "sub", "ceiling-repo", "-x.ts",
+       "deleted", "obsolete-head"), "unverifiable"),
+    (S("tab", "repo-same", "inside-git", "none", "dir/y.ts",
+       "untracked", "earlier-pass"), "unverifiable"),
+    (S("space", "repo-diff", "root", "no-git", "dir",
+       "edit", "applied"), "unverifiable"),
+    (S("lf", "repo-diff", "outside", "none", "dir/../x.ts",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "folder", "outside", "git-dir-relative", "dir/",
+       "edit", "earlier-pass"), "unverifiable"),
+    (S("space-lf", "folder", "inside-git", "dotdot-path", "dir",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "repo-diff", "inside-git", "worktree-folder", ".git/config",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("space", "none", "inside-git", "literal-pathspecs", "out.ts",
+       "staged", "earlier-pass"), "unverifiable"),
+    (S("space-lf", "none", "outside", "noglob-pathspecs", "x.ts",
+       "staged", "applied"), "unverifiable"),
+    (S("cr", "repo-diff", "inside-git", "ceiling-repo", "link.ts",
+       "untracked", "applied"), "unverifiable"),
+    (S("plain", "none", "sub", "no-git", "./x.ts",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("lf", "folder", "inside-git", "icase-pathspecs", "a b.ts",
+       "staged", "obsolete-old"), "unverifiable"),
+    (S("space", "repo-same", "outside", "worktree-folder", "nl.ts\n",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("tab", "folder", "deeper", "no-git", ".git/config",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "folder", "outside", "linked-worktree", "-x.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("lf", "repo-diff", "deeper", "git-dir", "nl.ts\n",
+       "edit", "obsolete-old"), "deleted"),
+    (S("space", "repo-same", "inside-git", "git-dir-relative", "./x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "ceiling-repo", ".git/config",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("cr", "repo-same", "inside-git", "no-git", "dir/../x.ts",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("cr", "repo-diff", "sub", "git-dir-relative", "missing.ts",
+       "staged", "obsolete-old"), "unverifiable"),
+    (S("nbsp", "repo-diff", "outside", "ceiling-parent", "dir/y.ts",
+       "staged", "applied"), "unverifiable"),
+    (S("tab", "folder", "outside", "git-prefix", "link.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("space", "folder", "sub", "git-dir", ".git/config",
+       "untracked", "obsolete-head"), "deleted"),
+    (S("space-lf", "repo-same", "outside", "symlink-path", "out.ts",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("space", "repo-diff", "inside-git", "linked-worktree", "missing.ts",
+       "untracked", "applied"), "unverifiable"),
+    (S("space", "repo-diff", "inside-git", "noglob-pathspecs", "dir/../x.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "dotdot-path", "a b.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "deeper", "ceiling-repo", "dir",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("space-lf", "none", "outside", "no-git", "-x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("space", "none", "inside-git", "symlink-path", "dir/",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("cr", "none", "outside", "icase-pathspecs", "out.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "literal-pathspecs", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("tab", "none", "inside-git", "quotepath", "./x.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("lflf", "none", "inside-git", "git-dir", "dir/y.ts",
+       "clean", "obsolete-head"), "deleted"),
+    (S("lf", "none", "root", "worktree-folder", "./x.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("lf", "none", "root", "no-git", "dir/",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("space-lf", "none", "root", "worktree-folder", "dir/../x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "root", "worktree-folder", "link.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("lflf", "none", "root", "no-git", "nl.ts\n",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "-x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "root", "no-git", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("tab", "none", "root", "worktree-folder", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "-1.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "a b.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "link.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "missing.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "out.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "-1.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "a b.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "dir",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "dir/",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "missing.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "nl.ts\n",
+       "clean", "obsolete-head"), "unverifiable"),
+)
+
+
+def freshness_refusal(sc, old, new, cause):
+    """True only for the D-09 shape: 2.14.1 wrote or opened the card, the
+    helper wrote the same fingerprints and counts but refused with
+    `next: stop-review-again`, naming exactly the grid's dismissal as stale
+    with `cause`."""
+    if old is None or new is None or "stop" in old or "stop" in new:
+        return False
+    if outcome(old) not in (WRITE, OPEN) or "stale" in old:
+        return False
+    return (new["blobs"] == old["blobs"] and new["counts"] == old["counts"]
+            and new["action"] == "refuse"
+            and new.get("next") == "stop-review-again"
+            and new.get("stale") == [{"hash": BUGS_HASH, "kind": "dismissed",
+                                      "cause": cause}])
+
+
 # Differences with a mechanism not yet ruled on by the owner. Shrink-only:
 # each entry is (scenario, 2.14.1 outcome, helper outcome) and must still be
 # found, exactly, by the grid.
@@ -408,6 +559,8 @@ def all_scenarios():
     for sc, _ in REGRESSION_ROWS:
         rows.append(sc)
     rows.extend(D19_ROWS)
+    for sc, _ in FRESHNESS_REFUSALS:
+        rows.append(sc)
     for sc, _, _ in KNOWN_DIFFERENCES:
         rows.append(sc)
     seen, out = set(), []
@@ -736,10 +889,14 @@ def side_helper(state_path, files_dir, session, env, helper=None):
     with open(bp, "r", encoding="utf-8") as fh:
         blobs = json.load(fh)
     c = got["counts"]
-    return {"blobs": blobs,
-            "counts": [c["outstanding_cw"], c["unacknowledged_medium"],
-                       c["undecided_nv"]],
-            "action": got["action"]}
+    out = {"blobs": blobs,
+           "counts": [c["outstanding_cw"], c["unacknowledged_medium"],
+                      c["undecided_nv"]],
+           "action": got["action"]}
+    if "stale" in got:  # a freshness refusal; never present otherwise
+        out["next"] = got["next"]
+        out["stale"] = got["stale"]
+    return out
 
 
 def make_shim(top):
@@ -820,9 +977,11 @@ def d19_difference(sc, old, new, blob):
 
 
 def classify(results):
-    """-> dict of lists: agree, d19, known, unexpected, not_creatable."""
+    """-> dict of lists: agree, d19, fresh, known, unexpected,
+    not_creatable."""
     known = {sc: (o, n) for sc, o, n in KNOWN_DIFFERENCES}
-    out = {"agree": [], "d19": [], "known": [], "unexpected": [],
+    fresh = dict(FRESHNESS_REFUSALS)
+    out = {"agree": [], "d19": [], "fresh": [], "known": [], "unexpected": [],
            "not_creatable": []}
     for sc, old, new, blob, why in results:
         if why is not None:
@@ -831,6 +990,8 @@ def classify(results):
             out["agree"].append(sc)
         elif d19_difference(sc, old, new, blob):
             out["d19"].append((sc, old, new))
+        elif sc in fresh and freshness_refusal(sc, old, new, fresh[sc]):
+            out["fresh"].append(sc)
         elif sc in known and known[sc] == (old, new):
             out["known"].append(sc)
         else:
@@ -840,10 +1001,11 @@ def classify(results):
 
 def report(results, seconds):
     c = classify(results)
-    lines = ["%d scenarios in %.1f s: %d agree, %d D-19, %d known differences, "
-             "%d unexpected, %d not creatable here"
+    lines = ["%d scenarios in %.1f s: %d agree, %d D-19, %d D-09 refusals, "
+             "%d known differences, %d unexpected, %d not creatable here"
              % (len(results), seconds, len(c["agree"]), len(c["d19"]),
-                len(c["known"]), len(c["unexpected"]), len(c["not_creatable"]))]
+                len(c["fresh"]), len(c["known"]), len(c["unexpected"]),
+                len(c["not_creatable"]))]
     for sc, why in c["not_creatable"]:
         lines.append("  not creatable here: %s (%s)" % (key_of(sc), why))
     for sc, old, new in c["unexpected"]:
@@ -1349,12 +1511,18 @@ class TestParityGrid(unittest.TestCase):
                          report(self.results, self.seconds))
 
     def test_regression_rows_give_the_2141_decision(self):
+        fresh = dict(FRESHNESS_REFUSALS)
         for sc, expected in REGRESSION_ROWS:
             with self.subTest(scenario=key_of(sc)):
                 _, old, new, _, why = self.by_scenario[sc]
                 self.assertIsNone(why)
                 self.assertEqual(outcome(old), expected)
-                self.assertEqual(new, old)
+                if sc in fresh:
+                    # D-09: the helper refuses here, everything else equal.
+                    self.assertTrue(freshness_refusal(sc, old, new,
+                                                      fresh[sc]), new)
+                else:
+                    self.assertEqual(new, old)
 
     def test_d19_rows_differ_exactly_as_decided(self):
         for sc in D19_ROWS:
@@ -1367,6 +1535,44 @@ class TestParityGrid(unittest.TestCase):
                 self.assertEqual(new["blobs"], {})
                 self.assertEqual(outcome(new), OPEN)
         self.assertGreaterEqual(len(self.classes["d19"]), len(D19_ROWS))
+
+    def test_freshness_refusals_are_found_exactly(self):
+        listed = [sc for sc, _ in FRESHNESS_REFUSALS]
+        self.assertEqual(len(set(listed)), len(listed))
+        for sc, cause in FRESHNESS_REFUSALS:
+            with self.subTest(scenario=key_of(sc)):
+                _, old, new, _, why = self.by_scenario[sc]
+                self.assertIsNone(why)
+                self.assertIn(cause, ("unverifiable", "deleted"))
+                self.assertTrue(freshness_refusal(sc, old, new, cause),
+                                (old, new))
+        self.assertEqual(sorted(map(key_of, self.classes["fresh"])),
+                         sorted(map(key_of, listed)))
+        # Nothing outside the list refuses for freshness.
+        for sc, _, new, _, why in self.results:
+            if why is None and new and "stale" in new:
+                self.assertIn(sc, set(listed), key_of(sc))
+
+    def test_mutant_freshness_refusal_rejects_other_shapes(self):
+        sc, cause = FRESHNESS_REFUSALS[0]
+        _, old, new, _, _ = self.by_scenario[sc]
+        self.assertTrue(freshness_refusal(sc, old, new, cause))
+        other = "deleted" if cause == "unverifiable" else "unverifiable"
+        bad = (
+            dict(new, counts=[9, 9, 9]),
+            dict(new, blobs={"x.ts": "f" * 40}),
+            dict(new, action="write"),
+            dict(new, next="stop-refused"),
+            dict(new, stale=new["stale"] * 2),
+            dict(new, stale=[dict(new["stale"][0], cause=other)]),
+        )
+        for mutant in bad:
+            with self.subTest(mutant=mutant):
+                self.assertFalse(freshness_refusal(sc, old, mutant, cause))
+        # 2.14.1 itself stopping, or refusing, is never a D-09 difference.
+        self.assertFalse(freshness_refusal(sc, {"stop": "gate"}, new, cause))
+        self.assertFalse(freshness_refusal(sc, dict(old, action="refuse"),
+                                           new, cause))
 
     def test_known_differences_are_still_found_exactly(self):
         for sc, old, new in KNOWN_DIFFERENCES:

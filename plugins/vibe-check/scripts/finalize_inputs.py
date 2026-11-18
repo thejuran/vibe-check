@@ -14,6 +14,15 @@ stdout (exit 0), one JSON object:
     {"action": <gate action>, "reason": <gate reason>, "next": <NEXT_ACTIONS>,
      "counts": {the 8 finalize-counts keys}, "report": {"entries": [...]} | null}
 
+    or, when a deferred or dismissed decision is stale (its reviewed code
+    changed since the review; `closeout_fresh.stale_decisions`), the whole
+    Close out is refused before the gate, still with exit 0:
+    {"action": "refuse", "reason": REASON_STALE_DECISIONS,
+     "next": "stop-review-again", "counts": {...}, "report": null,
+     "stale": [{"hash", "kind", "cause"}, ...]}
+    The `stale` key appears only on that refusal; every other result has
+    exactly the keys above.
+
     exit 0  result printed
          2  usage error, or a bad --blob-out
          3  state file unreadable or malformed
@@ -64,6 +73,8 @@ or timed out is left out of the map; the call as a whole is never refused.
 Omission is how the map tells `carry_state.py finalize-counts` "unbound", and
 that helper fails closed for an absent file. A wrongly shaped state gives `{}`.
 With no last-pass fix verdicts no git command runs at all.
+With no decision-closed record the freshness check runs no git command
+either.
 
 WORKING DIRECTORY. Every git call runs in the caller's `cwd` (None = this
 process's cwd, the session's working directory), as at 2.14.1, so git finds
@@ -114,9 +125,9 @@ WHAT IT DOES NOT DO. It prints no owner sentence and renders nothing: this
 module decides, the prose renders.
 
 I/O: stdlib imports exactly {io, json, os, subprocess, sys}, plus the
-siblings `batch_card`, `carry_state` and `finalize_gate` (called in-process),
-`guard` (the containment command, `main`) and `fixcommit` (the PATH_RE constant only; never
-validate_paths). Every `subprocess.run` is an argv list with
+siblings `batch_card`, `carry_state`, `closeout_fresh` and `finalize_gate`
+(called in-process), `guard` (the containment command, `main`) and
+`fixcommit` (the PATH_RE constant only; never validate_paths). Every `subprocess.run` is an argv list with
 `timeout=GIT_TIMEOUT` and no shell. git's stderr is captured and discarded,
 never returned or printed.
 """
@@ -131,6 +142,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import batch_card  # noqa: E402  (the report data, decisions_report)
 import carry_state  # noqa: E402  (the counts, finalize_counts)
+import closeout_fresh  # noqa: E402  (the freshness decision, stale_decisions)
 import finalize_gate  # noqa: E402  (the gate decision)
 import guard  # noqa: E402  (the ONE containment source, as a command)
 from fixcommit import PATH_RE  # noqa: E402  (pre-filter constant only)
@@ -146,7 +158,15 @@ EXIT_REPORT = 5
 # What the model does next, one value per Finalize branch.
 NEXT_ACTIONS = ("write-review-md", "finalize-card", "stop-fallback-cw",
                 "stop-fallback-nv", "stop-fallback-medium", "stop-no-state",
-                "stop-refused")
+                "stop-refused", closeout_fresh.NEXT_REVIEW_AGAIN)
+
+# The fixed refusal reason when a deferred or dismissed decision went stale,
+# worded like the gate's own reasons (finalize_gate.REASONS: no "refused:"
+# stderr prefix, no line break). It names no title, path or hash: the
+# `stale` list carries hash, kind and cause tokens only, and the
+# instructions render the rows.
+REASON_STALE_DECISIONS = ("a deferred or dismissed decision is stale; its"
+                          " reviewed code changed since the review")
 
 # The eight `carry_state.py finalize-counts` keys, in the order
 # `phases/shared/90-finalize.md` lists them.
@@ -442,6 +462,14 @@ def _run(state_file, blob_out, switches, cwd):
             fh.write(json.dumps(blobs, sort_keys=True))
     except OSError:
         return _refuse(EXIT_USAGE, carry_state.REASON_HEAD_BLOBS)
+    stale = closeout_fresh.stale_decisions(state, blobs, cwd)
+    if stale:
+        counts = carry_state.finalize_counts(state, blobs)
+        return EXIT_OK, json.dumps(
+            {"action": "refuse", "reason": REASON_STALE_DECISIONS,
+             "next": closeout_fresh.NEXT_REVIEW_AGAIN,
+             "counts": {k: counts[k] for k in COUNT_KEYS},
+             "report": None, "stale": stale}, allow_nan=False)
     report_line = []
 
     def reread():
