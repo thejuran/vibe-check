@@ -689,6 +689,44 @@ class TestNoDecisionNoGit(DecidedCase):
                 self.assertEqual(rec.calls, [])
 
 
+class TestCandidateFailureFailsClosed(DecidedCase):
+    """WR-02: a defect while the decided records are worked out (a valid
+    state, so finalize_inputs accepted it) must never read as "nothing
+    stale". It propagates, and the helper turns it into its gate stop
+    (EXIT_GATE, nothing printed), which Finalize's prose never writes on."""
+
+    BOOM = RuntimeError("defect while finding decided records")
+
+    def test_stale_decisions_propagates_candidate_failure(self):
+        state, _ = self.decided("defer")
+        with mock.patch.object(closeout_fresh, "_spots",
+                               side_effect=self.BOOM):
+            with self.assertRaises(RuntimeError):
+                self.stale(state)
+
+    def test_helper_refuses_not_writes_on_candidate_failure(self):
+        for target in ("_spots", "decided_records"):
+            for kind in KINDS:
+                with self.subTest(patched=target, kind=kind):
+                    state, _ = self.decided(kind)
+                    state_file = os.path.join(os.path.dirname(self.repo),
+                                              "state.json")
+                    with open(state_file, "w", encoding="utf-8") as fh:
+                        json.dump(state, fh)
+                    self.blob_out = os.path.join(os.path.dirname(self.repo),
+                                                 "blobs.json")
+                    # Unpatched, this unchanged state writes.
+                    code, out = run_new(self.argv(state_file), self.repo)
+                    self.assertEqual((code, json.loads(out)["action"]),
+                                     (0, "write"))
+                    with mock.patch.object(closeout_fresh, target,
+                                           side_effect=self.BOOM):
+                        code, out = run_new(self.argv(state_file),
+                                            self.repo)
+                    self.assertEqual((code, out),
+                                     (finalize_inputs.EXIT_GATE, ""))
+
+
 class TestFixPrecedence(DecidedCase):
     """A fresh fix-obsolete verdict on the current blob is newer evidence
     than the decision (2.15.0 precedence): that record is not a candidate."""
