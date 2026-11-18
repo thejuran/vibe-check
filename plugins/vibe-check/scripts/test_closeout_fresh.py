@@ -853,5 +853,209 @@ class TestModuleMutants(DecidedCase):
         self.assertEqual(mutated, [])
 
 
+# --------------------------------------------------------------------------- #
+# The wiring: finalize_inputs._run asks closeout_fresh, and nothing else
+# changes. Mutation checks 1, 8 and 9 at the CLI boundary.
+# --------------------------------------------------------------------------- #
+FINALIZE_INPUTS_PATH = os.path.join(SCRIPTS_DIR, "finalize_inputs.py")
+WIRING_CALL = "    stale = closeout_fresh.stale_decisions(state, blobs, cwd)\n"
+FIX_CLOSES_SKIP = ("        if carry_state._fix_closes(rec, state, last, blobs):\n"
+                   "            continue\n")
+NO_CANDIDATES = "    if not candidates:\n        return []\n"
+RESULT_DUMP = ("        return code, \"\"\n"
+               "    return code, json.dumps(result, allow_nan=False)\n")
+
+
+def _load_mutant(path, name, pairs):
+    """A copy of the module at `path` with each `(old, new)` replaced once;
+    every `old` must occur exactly once in the real source."""
+    with open(path, "r", encoding="utf-8") as fh:
+        src = fh.read()
+    for old, new in pairs:
+        if src.count(old) != 1:
+            raise AssertionError("mutant text must occur once: %r" % old)
+        src = src.replace(old, new, 1)
+    spec = importlib.util.spec_from_loader(name, loader=None)
+    mod = importlib.util.module_from_spec(spec)
+    mod.__file__ = path
+    exec(compile(src, path, "exec"), mod.__dict__)
+    return mod
+
+
+def no_decision_states():
+    """(label, state or None) for 66-02's decision-free fixtures plus the
+    missing state file (None)."""
+    import test_finalize_inputs as tfi
+    return (("phase45 fixture", tfi.load_fixture()),
+            ("six-row", tfi.load_six_row()),
+            ("no state file", None))
+
+
+class TestWiringMutants(FreshCase):
+    """Removing the wiring, ignoring fix precedence, or touching git / the
+    result bytes when nothing is decision-closed each makes a named
+    behaviour go wrong."""
+
+    def inputs_mutant(self, *pairs):
+        return _load_mutant(FINALIZE_INPUTS_PATH, "finalize_inputs_mutant",
+                            pairs)
+
+    def fresh_mutant(self, *pairs):
+        return _load_mutant(CLOSEOUT_PATH, "closeout_fresh_mutant", pairs)
+
+    def run_in(self, mod, state_file):
+        """`mod.run` in-process on the case's Close out argv ->
+        (code, stdout text), stderr dropped; state and repo unchanged (a
+        missing state file stays missing)."""
+        def call():
+            with mock.patch("sys.stderr", new=_Sink()):
+                return mod.run(self.argv(state_file), cwd=self.repo)
+        return self.unchanged_or_absent(state_file, call)
+
+    def unchanged_or_absent(self, state_file, fn):
+        if os.path.exists(state_file):
+            return self.unchanged(state_file, fn)
+        listing = tree_listing(self.repo)
+        out = fn()
+        self.assertFalse(os.path.exists(state_file), "state file created")
+        self.assertEqual(tree_listing(self.repo), listing)
+        return out
+
+    def result(self, mod, state_file):
+        code, out = self.run_in(mod, state_file)
+        self.assertEqual(code, 0, out)
+        return json.loads(out)
+
+    def fix_obsolete_after_edit(self, kind):
+        """The decided line was rewritten and committed, and a last-pass
+        fix-obsolete verdict on the new blob closes the record: 2.15.0
+        precedence says the fix, not the decision, closes it."""
+        state_file, h = self.repro_state(kind, edit=10)
+        git(self.repo, "commit", "-qam", "fix")
+        blob = git(self.repo, "rev-parse", "HEAD:" + tdc.F).stdout.strip()
+        with open(state_file, "r", encoding="utf-8") as fh:
+            state = json.load(fh)
+        last = state["passes"][-1]
+        state["fix_verdicts"] = {h: {
+            "verdict": "obsolete", "agent": "fix",
+            "head_sha": last["head_sha"], "at_pass": last["pass_number"],
+            "reason": "line rewritten", "verified_blob": blob}}
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        return state_file, h
+
+    def decision_free(self, state):
+        """A repo from the 999.40 scenario with `state` (None: no state
+        file) written beside it -> the state file path."""
+        decided_file, _ = self.repro_state("defer")
+        path = os.path.join(os.path.dirname(decided_file), "free.json")
+        if state is not None:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(state, fh)
+            self.assertEqual(closeout_fresh.decided_records(state, {}), [])
+        return path
+
+    # M1: the wiring call removed -> the 999.40 wrong keep comes back.
+    def test_mutant_no_wiring_call_writes_stale_decision(self):
+        mod = self.inputs_mutant((WIRING_CALL, "    stale = []\n"))
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, h = self.repro_state(kind, edit=10)
+                real = self.result(finalize_inputs, state_file)
+                self.assertEqual((real["action"], real["next"]),
+                                 ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN))
+                self.assertEqual(real["stale"], [
+                    {"hash": h, "kind": KIND_WORD[kind], "cause": "line"}])
+                wrong = self.result(mod, state_file)
+                self.assertEqual((wrong["action"], wrong["next"]),
+                                 ("write", "write-review-md"))
+                self.assertNotIn("stale", wrong)
+
+    # M8: decided_records ignores fix precedence -> a fixed record refuses.
+    def test_mutant_ignoring_fix_precedence_refuses_fixed_record(self):
+        mod = self.fresh_mutant((FIX_CLOSES_SKIP, ""))
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, h = self.fix_obsolete_after_edit(kind)
+                old = json.loads(self.run_old_case(state_file)[1])
+                self.assertEqual(old["action"], "write")
+                self.assertEqual(old["counts"]["verified_obsolete_hashes"], [h])
+                real = self.result(finalize_inputs, state_file)
+                self.assertEqual(real["action"], "write")
+                self.assertNotIn("stale", real)
+                with mock.patch.object(finalize_inputs, "closeout_fresh", mod):
+                    wrong = self.result(finalize_inputs, state_file)
+                self.assertEqual(wrong["action"], "refuse")
+                self.assertEqual(wrong["stale"], [
+                    {"hash": h, "kind": KIND_WORD[kind], "cause": "line"}])
+
+    # M9a: git runs with no decision-closed record -> the no-git rule breaks.
+    def test_mutant_git_without_candidates_is_seen(self):
+        mod = self.fresh_mutant((NO_CANDIDATES,
+                                 "    if not candidates:\n"
+                                 "        _toplevel(cwd)\n"
+                                 "        return []\n"))
+        for label, state in no_decision_states()[:2]:
+            with self.subTest(state=label):
+                path = self.decision_free(state)
+                rec = Recorder(closeout_fresh._git)
+                with mock.patch.object(closeout_fresh, "_git", rec):
+                    self.result(finalize_inputs, path)
+                self.assertEqual(rec.calls, [])
+                bad = Recorder(mod._git)
+                with mock.patch.object(mod, "_git", bad), \
+                        mock.patch.object(finalize_inputs, "closeout_fresh",
+                                          mod):
+                    self.result(finalize_inputs, path)
+                self.assertEqual(bad.calls, [["rev-parse", "--show-toplevel"]])
+
+    # M9b: a `stale` key on every result -> 2.15.0 bytes differ.
+    def test_mutant_empty_stale_key_breaks_byte_identity(self):
+        mod = self.inputs_mutant((RESULT_DUMP,
+                                  "        return code, \"\"\n"
+                                  "    result[\"stale\"] = stale\n"
+                                  "    return code, json.dumps(result, "
+                                  "allow_nan=False)\n"))
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                state_file, _ = self.repro_state(kind)
+                old = self.run_old_case(state_file)
+                self.assertEqual(old[0], 0, old[1])
+                code, out = self.run_in(finalize_inputs, state_file)
+                self.assertEqual((code, out.encode("utf-8")), old)
+                code, out = self.run_in(mod, state_file)
+                self.assertEqual(code, 0)
+                self.assertNotEqual(out.encode("utf-8"), old[1])
+                self.assertEqual(json.loads(out)["stale"], [])
+
+    def test_differential_no_git_when_no_decision_closed(self):
+        for label, state in no_decision_states():
+            with self.subTest(state=label):
+                path = self.decision_free(state)
+                rec = Recorder(closeout_fresh._git)
+                with mock.patch.object(closeout_fresh, "_git", rec):
+                    code, out = self.run_in(finalize_inputs, path)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(rec.calls, [])
+                self.assertNotIn("stale", json.loads(out))
+                old = self.unchanged_or_absent(path, lambda: run_old(
+                    self.v215, self.argv(path), self.repo))
+                new = self.unchanged_or_absent(path, lambda: run_new_cli(
+                    self.argv(path), self.repo))
+                self.assertEqual(old[0], 0, old[1])
+                self.assertEqual(new, old)
+                self.assertEqual(out.encode("utf-8"), old[1])
+
+
+class _Sink:
+    """A stderr stand-in that keeps nothing."""
+
+    def write(self, text):
+        return len(text)
+
+    def flush(self):
+        pass
+
+
 if __name__ == "__main__":
     unittest.main()
