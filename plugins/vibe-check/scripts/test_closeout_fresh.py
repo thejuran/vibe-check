@@ -1427,6 +1427,39 @@ class TestClearable(_ClearChain):
                 self.assert_writes(self.redecide_persist_close(s2))
 
 
+class TestClearableSpecialName(_ClearChain):
+    """CR-01 loop freedom (D-16): a decision on `src/routes/+page.svelte`
+    refuses on an edit, and the requested fresh review clears it, through
+    the same real fences as TestClearable. Unchanged, it never refuses."""
+
+    NAME = "src/routes/+page.svelte"
+
+    def setUp(self):
+        super().setUp()
+        for mod in (tdc, tws):
+            patcher = mock.patch.object(mod, "F", self.NAME)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_special_name_unchanged_writes(self):
+        self.decided_pass1("defer")
+        self.assertEqual(
+            self.s1["passes"][-1]["findings"][0]["file"], self.NAME)
+        self.assert_writes(self.close_out(self.state_path))
+
+    def test_special_name_refuse_review_write(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                L2 = list(self.L1)
+                L2[39] = "uncommitted_40 = safe_query(user_input)"
+                self.repo.write(L2)
+                self.assert_refused(self.close_out(self.state_path), "line")
+                s2, _, _, _ = self.pass2(L2)
+                self.reasked_or_gone(s2)
+                self.assert_writes(self.redecide_persist_close(s2))
+
+
 class TestAllRouteClearable(_ClearChain):
     """`--all` (D-12): a decision and an edit refuse; a fresh `--all` review
     clears. An edit to the decided line is re-asked. An edit only near it is

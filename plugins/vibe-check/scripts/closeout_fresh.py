@@ -43,23 +43,33 @@ obligation of its own): the same spot set the review stamps from
 (`score._nearby_spots`), so a refusal here is one the next review re-asks.
 
 CAUSE ORDER, per record: a decision value other than defer/dismiss, a `file`
-failing `fixcommit.PATH_RE` or a `line` that is not a positive int ->
-`unverifiable`; the file absent from the reviewed tree -> `untracked`; the
-own line hit -> `line`, else any spot's window hit -> `nearby`; then, when
-the file is gone from disk, a hit becomes `deleted` and no hit becomes
-`unverifiable` (the diff and the disk disagree, so nothing is proven).
+the parsed diff cannot key (see WHICH NAMES) or a `line` that is not a
+positive int -> `unverifiable`; the file absent from the reviewed tree ->
+`untracked`; the own line hit -> `line`, else any spot's window hit ->
+`nearby`; then, when the file is gone from disk, a hit becomes `deleted` and
+no hit becomes `unverifiable` (the diff and the disk disagree, so nothing is
+proven).
+
+WHICH NAMES. Every git call runs with `core.quotePath=false`, so a name
+with `+`, `[`, `(`, `@`, a space or non-ASCII characters comes out of the
+diff raw and is checked like any other (a space name's trailing header tab
+is stripped by `diff_ranges`). git still C-quotes a name holding `"`, `\\`
+or a control character, and `diff_ranges` cannot key a quoted header, so a
+record naming one is `unverifiable`; so is a name that is not a
+repo-relative path (empty, absolute, a `..` segment, or carrying the U+FFFD
+a failed decode leaves). The name is only ever a lookup key, never an
+argument, so no other character needs refusing.
 
 WHAT IT NEVER DOES. It prints nothing and writes nothing (no state file, no
 index refresh, no store directory). It never puts a finding path on a git
-argv: the whole tree is diffed and paths are looked up in the parsed map; a
-path failing `fixcommit.PATH_RE` is stale with cause `unverifiable`. It never
-imports `score` (the window constant is mirrored here and pinned by a lock
-test). With no decision-closed record it runs no git command at all.
+argv: the whole tree is diffed and paths are looked up in the parsed map. It
+never imports `score` (the window constant is mirrored here and pinned by a
+lock test). With no decision-closed record it runs no git command at all.
 
 I/O: stdlib imports exactly {os, subprocess, sys}, plus siblings
 `carry_state` (read-only: open_findings, decision_state, covering_decision,
 _fix_closes), `diff_ranges` (ranges_from_diff, RangeError), `worktree_snap`
-(OBJECT_ID_RE, STORE_REL), `fixcommit` (PATH_RE constant only).
+(OBJECT_ID_RE, STORE_REL).
 Every `subprocess.run` is an argv list with `timeout=GIT_TIMEOUT` and no
 shell; git's stderr is captured and discarded, never returned or printed.
 """
@@ -73,7 +83,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import carry_state  # noqa: E402  (which records are decision-closed, read-only)
 import diff_ranges  # noqa: E402  (diff text -> change ranges)
 import worktree_snap  # noqa: E402  (object-id rule, store location)
-from fixcommit import PATH_RE  # noqa: E402  (path pre-filter constant only)
 
 GIT_TIMEOUT = 60
 
@@ -112,7 +121,17 @@ def _line_ok(line):
 
 
 def _path_ok(path):
-    return isinstance(path, str) and PATH_RE.match(path) is not None
+    """A repo-relative name the parsed diff can key: git prints it raw in a
+    `+++` header under core.quotePath=false (no `"`, `\\` or control
+    character), and it is not empty, absolute, `..`-escaping or carrying a
+    decode replacement character."""
+    if not isinstance(path, str) or not path or path.startswith("/"):
+        return False
+    if '"' in path or "\\" in path or "\ufffd" in path:
+        return False
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in path):
+        return False
+    return ".." not in path.split("/")
 
 
 def _spots(record, last):
@@ -249,10 +268,12 @@ def _all_unverifiable(candidates):
 def _git(root, args, env=None):
     """`git <args>` in `root` -> stdout text; Unverifiable on any failure.
     `--no-optional-locks` and `core.fsmonitor=false` keep git from refreshing
-    the index or starting a monitor: Close out writes nothing."""
+    the index or starting a monitor: Close out writes nothing.
+    `core.quotePath=false` prints non-ASCII names raw (WHICH NAMES)."""
     try:
         proc = subprocess.run(
-            ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", *args],
+            ["git", "--no-optional-locks", "-c", "core.fsmonitor=false",
+             "-c", "core.quotePath=false", *args],
             cwd=root, env=env, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=GIT_TIMEOUT)
