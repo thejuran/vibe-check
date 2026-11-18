@@ -4403,6 +4403,26 @@ class TestShape2CoveringOrder(_Base):
                         sc["hX2"])
                     self.assertNotEqual(e2e_gate(sc["s"], {}), "write")
 
+    def test_shape2_tie_and_uncounted_at_pass_covering_order(self):
+        """Edge rules on a copy of the real two-cover state: equal `at_pass`
+        falls back to the lowest hash (the old order); a cover whose
+        decision has no count `at_pass` ranks below one that has it."""
+        for order in SHAPE2_OLDER_TITLE:
+            with self.subTest(order=order):
+                sc = self._scenario("dismiss", order)
+                hX1, hX2 = sc["hX1"], sc["hX2"]
+                tie = json.loads(json.dumps(sc["s"]))
+                tie["decisions"][hX2]["at_pass"] = 2
+                self.assertEqual(
+                    carry_state.covering_decision(sc["rec"], tie)[0],
+                    min(hX1, hX2))
+                for bad in (None, True, -1, "3"):
+                    legacy = json.loads(json.dumps(sc["s"]))
+                    legacy["decisions"][hX2]["at_pass"] = bad
+                    self.assertEqual(
+                        carry_state.covering_decision(sc["rec"], legacy)[0],
+                        hX1, "at_pass %r" % (bad,))
+
     def test_shape2_single_cover_control_covering_order(self):
         for kind in SHAPE2_KINDS:
             for order in SHAPE2_OLDER_TITLE:
