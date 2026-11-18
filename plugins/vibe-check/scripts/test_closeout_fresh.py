@@ -35,12 +35,21 @@ stripping or normalisation on either side. The in-process `run_new` is used
 only for parsed-JSON shape assertions and is never byte-compared against the
 old side.
 
+WHOLE DIFFERENTIAL. `TestOnlyIntendedDifferences` runs every fixture state
+these tests build (the 999.40 repo, the Finalize result fixtures, the shape 2
+and shape 3 fixtures and every main parity-grid scenario) through both
+helpers, in each disk variant that applies. Every run is byte-identical
+(exit code, stdout and fingerprint file) unless it is named: INTENDED lists
+the freshness refusals, REPAIRED the owner-approved covering-order repair.
+A named entry that no longer differs fails too.
+
 MUTANT STRATEGY. Guards in `closeout_fresh.py` are checked by loading a
 source-substituted copy of the module (house style: assert the replaced text
 is present, replace once, exec under a non-main name) and showing the guarded
 fixture goes through; each mutant must make a named test here fail.
 """
 
+import concurrent.futures
 import importlib.util
 import json
 import os
@@ -62,6 +71,8 @@ import score  # noqa: E402  (oracle for the mirrored window, D-05)
 import test_decision_continuity as tdc  # noqa: E402  (pass1, base_file, F)
 import test_worktree_snap as tws  # noqa: E402  (_Chain: a reviewed tree in the store)
 import test_diff_ranges as tdr  # noqa: E402  (prose range placeholders)
+import test_finalize_inputs as tfi  # noqa: E402  (the 66-02 fixture builders)
+import test_finalize_parity_grid as tpg  # noqa: E402  (the grid Builder)
 import worktree_snap  # noqa: E402  (STORE_REL)
 from gitfixture import git, write  # noqa: E402
 from test_finalize_inputs import argv_for, sha256_of, tree_listing  # noqa: E402
@@ -1515,6 +1526,387 @@ class TestPrRangeDisk(DecidedCase):
             # Fail closed: never fetched, never read as unchanged.
             self.assert_refuses(self.close_out(state_file, switches),
                                 h, kind, "unverifiable")
+
+
+# --------------------------------------------------------------------------- #
+# The whole Finalize differential against 2.15.0: every fixture state the
+# Close out tests build, in each disk variant, run through the literal
+# d5acc19 helper and the working-tree helper. Each run is byte-identical, or
+# it is a named difference: a freshness refusal in INTENDED, or the covering
+# order repair in REPAIRED. Both lists are exhaustive both ways.
+# --------------------------------------------------------------------------- #
+VARIANTS = ("unchanged", "exact", "nearby", "outside", "untracked")
+NEARBY_STEP = 3  # inside the +/- 5 window
+OUTSIDE_STEP = 6  # just outside it
+OLD_CLOSES = ("write", "outstanding-to-phase-5", "medium-ack-loop")
+
+# (fixture, variant, kind) -> the stale cause every refused row must carry.
+# The 2.15.0 helper wrote REVIEW.md or opened the card; the candidate
+# refuses with `next: stop-review-again` because a deferred or dismissed
+# decision rests on code it cannot prove unchanged (FRESH-01, D-09).
+INTENDED = {
+    ("999.40", "exact", "defer"): "line",
+    ("999.40", "exact", "dismiss"): "line",
+    ("999.40", "nearby", "defer"): "nearby",
+    ("999.40", "nearby", "dismiss"): "nearby",
+    ("999.40", "untracked", "defer"): "untracked",
+    ("999.40", "untracked", "dismiss"): "untracked",
+    ("shape3", "unchanged", "defer"): "untracked",
+    ("shape3", "unchanged", "dismiss"): "untracked",
+}
+for _name in ("dismissed-all", "nv-open", "medium-only", "fix-obsolete"):
+    INTENDED[("result:" + _name, "exact", "dismiss")] = "line"
+    INTENDED[("result:" + _name, "nearby", "dismiss")] = "nearby"
+    INTENDED[("result:" + _name, "untracked", "dismiss")] = "untracked"
+# The parity grid's named D-09 refusals (66-04): the session's git cannot
+# see the reviewed work tree. Reused by name, never re-derived here.
+for _sc, _cause in tpg.FRESHNESS_REFUSALS:
+    INTENDED[("grid:" + tpg.key_of(_sc), "unchanged", "dismiss")] = _cause
+
+# (fixture, variant, kind) -> (commit, what changed). The 999.44 shape 2
+# repair (owner-approved): when two decisions cover one finding, the newest
+# decides it. 2.15.0 kept the finding closed by the older cover and wrote;
+# the candidate counts it as outstanding and opens the card.
+SHAPE2_REPAIR = ("75e4a1da", "newest covering decision wins (999.44 shape 2)")
+REPAIRED = {("shape2:older_first:both", "unchanged", kind): SHAPE2_REPAIR
+            for kind in KINDS}
+
+# Commits that changed score.py since 2.15.0; empty while it is unchanged.
+SCORER_CHANGES = ()
+
+
+class _ClassCleanup:
+    """`materialize_v215` registers its temp dir with `addCleanup`; this
+    routes that to the class cleanup."""
+
+    def __init__(self, cls):
+        self.addCleanup = cls.addClassCleanup
+
+
+def _run_pair(v215, argv, cwd, env, blob_out):
+    """[old, new], each (returncode, stdout bytes, fingerprint-file bytes),
+    the two helpers run by one recipe."""
+    out = []
+    for script in (os.path.join(v215, "finalize_inputs.py"), NEW_HELPER):
+        with open(blob_out, "wb"):
+            pass
+        proc = subprocess.run([sys.executable, script, *argv], cwd=cwd,
+                              env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=CALL_TIMEOUT)
+        with open(blob_out, "rb") as fh:
+            out.append((proc.returncode, proc.stdout, fh.read()))
+    return out
+
+
+def _target(state, repo):
+    """(file, line) of the first record a current decision closes in the
+    candidate's reading, or None when nothing is decision-closed."""
+    blobs = finalize_inputs.head_blobs(state, cwd=repo)
+    found = closeout_fresh.decided_records(state, blobs)
+    return (found[0][0]["file"], found[0][0]["line"]) if found else None
+
+
+def _rewrite(repo, rel, n):
+    path = os.path.join(repo, rel)
+    with open(path, "r", encoding="utf-8") as fh:
+        lines = fh.read().splitlines(True)
+    if n > len(lines):
+        raise AssertionError("%s has no line %d" % (rel, n))
+    lines[n - 1] = "edited after the review %d\n" % n
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("".join(lines))
+
+
+def _apply_variant(repo, state, target, variant):
+    """Change the disk (and for `untracked` the reviewed tree) after the
+    review, without telling the state."""
+    rel, line = target
+    if variant == "exact":
+        _rewrite(repo, rel, line)
+    elif variant == "nearby":
+        _rewrite(repo, rel, line + NEARBY_STEP)
+    elif variant == "outside":
+        _rewrite(repo, rel, line + OUTSIDE_STEP)
+    elif variant == "untracked":
+        git(repo, "rm", "-q", "--cached", "--", rel)
+        git(repo, "commit", "-q", "-m", "untrack")  # only the removal is staged
+        last = state["passes"][-1]
+        last["head_sha"] = git(repo, "rev-parse", "HEAD").stdout.strip()
+        last["reviewed_tree"] = git(repo, "rev-parse",
+                                    "HEAD^{tree}").stdout.strip()
+
+
+class TestOnlyIntendedDifferences(FreshCase):
+    """The 2.15.0 Finalize differential over every fixture, computed once."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._ctmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._ctmp.cleanup)
+        cls.top = os.path.realpath(cls._ctmp.name)
+        env = gitfixture.helper_env()
+        env["GIT_CEILING_DIRECTORIES"] = cls.top
+        patch = mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        try:
+            cls.old_dir = materialize_v215(_ClassCleanup(cls))
+            cls.n = 0
+            cls.observed = {}
+            cls.not_creatable = []
+            cls._local_fixtures()
+        finally:
+            patch.stop()
+        cls._grid()
+
+    # -- recording ---------------------------------------------------------- #
+    @classmethod
+    def _case_dir(cls):
+        cls.n += 1
+        path = os.path.join(cls.top, "case%04d" % cls.n)
+        os.makedirs(path)
+        return path
+
+    @classmethod
+    def _observe(cls, key, state, repo, cwd=None, env=None):
+        case_dir = os.path.dirname(repo)
+        state_file = os.path.join(case_dir, "state.json")
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        blob_out = os.path.join(case_dir, "blobs.json")
+        before = sha256_of(state_file)
+        old, new = _run_pair(cls.old_dir, argv_for(state_file, blob_out),
+                             cwd or repo, env or gitfixture.helper_env(),
+                             blob_out)
+        if sha256_of(state_file) != before:
+            raise AssertionError("%r: state file written" % (key,))
+        if key in cls.observed:
+            raise AssertionError("fixture key %r built twice" % (key,))
+        cls.observed[key] = (old, new)
+
+    @classmethod
+    def _with_variants(cls, name, kind, build):
+        """`build()` -> (state, repo), a fresh repo per call, the state
+        bound to an unchanged reviewed tree."""
+        for variant in VARIANTS:
+            state, repo = build()
+            target = _target(state, repo)
+            if target is None and variant != "unchanged":
+                continue  # nothing decision-closed: no disk variant applies
+            if variant != "unchanged":
+                _apply_variant(repo, state, target, variant)
+            cls._observe((name, variant, kind), state, repo)
+
+    # -- fixture builders --------------------------------------------------- #
+    @classmethod
+    def _repro(cls, kind):
+        """The 66-01 999.40 fixture: src/a.py reviewed on HEAD, a finding
+        at line 10 decided."""
+        repo = gitfixture.make_repo(cls._case_dir())
+        lines = tdc.base_file()
+        write(repo, tdc.F, "\n".join(lines) + "\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "x")
+        state, _ = tdc.pass1(lines, conf=95, kind=kind)
+        return tfi.bind_reviewed_tree(repo, state), repo
+
+    @classmethod
+    def _result_repo(cls):
+        """The ResultCase repo (66-02): three source files and ARCH_FILE."""
+        repo = gitfixture.make_repo(cls._case_dir())
+        for rel, text in (("src/a.ts", "a1\n"), ("src/b.ts", "b1\n"),
+                          ("sub/c.ts", "c1\n")):
+            write(repo, rel, text)
+        write(repo, tfi.ARCH_FILE, tfi.synthetic_text(
+            tfi.lines_needed(tfi.load_fixture(), tfi.ARCH_FILE)))
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "init")
+        return repo
+
+    @classmethod
+    def _result(cls, name):
+        repo = cls._result_repo()
+        if name == "six-row":
+            return tfi.load_six_row(), repo
+        if name == "loop":
+            return tfi.load_fixture(), repo
+        if name == "fix-obsolete":
+            blob = git(repo, "rev-parse",
+                       "HEAD:" + tfi.ARCH_FILE).stdout.strip()
+            return tfi.fix_obsolete_state(blob, repo), repo
+        builder = {"dismissed-all": tfi.dismissed_all_state,
+                   "nv-open": tfi.nv_open_state,
+                   "medium-only": tfi.medium_only_state}[name]
+        return builder(repo), repo
+
+    @classmethod
+    def _shape3(cls, kind):
+        """The 66-06 shape 3 fixture: the decided file was written after
+        the reviewed commit and never added."""
+        state, repo = cls._repro(kind)
+        state = json.loads(json.dumps(state).replace(tdc.F, NEW_FILE))
+        write(repo, NEW_FILE, "\n".join(tdc.base_file()) + "\n")
+        return state, repo
+
+    @classmethod
+    def _shape2(cls, kind, order, decide):
+        """The 66-08 shape 2 fixture (two covers, or one) on a repo holding
+        the reviewed src/a.py."""
+        sc = tdc.covering_order_scenario(kind, order, decide)
+        lines = tdc.base_file()
+        lines[11] = "line_12 = 'fixed'"
+        repo = gitfixture.make_repo(cls._case_dir())
+        state = tfi.bind_reviewed_tree(
+            repo, sc["s"], {tdc.F: "\n".join(lines) + "\n"})
+        return state, repo
+
+    @classmethod
+    def _local_fixtures(cls):
+        for kind in KINDS:
+            cls._with_variants("999.40", kind, lambda: cls._repro(kind))
+            state, repo = cls._shape3(kind)
+            cls._observe(("shape3", "unchanged", kind), state, repo)
+            for order in tdc.SHAPE2_OLDER_TITLE:
+                for label, decide in (("both", ("older", "newer")),
+                                      ("older", ("older",)),
+                                      ("newer", ("newer",))):
+                    state, repo = cls._shape2(kind, order, decide)
+                    cls._observe(("shape2:%s:%s" % (order, label),
+                                  "unchanged", kind), state, repo)
+        for name in ("six-row", "loop", "dismissed-all", "nv-open",
+                     "medium-only", "fix-obsolete"):
+            cls._with_variants("result:" + name, "dismiss",
+                               lambda: cls._result(name))
+
+    @classmethod
+    def _grid(cls):
+        """Every main parity-grid scenario (66-02/66-04 Builder), unchanged
+        on disk, in the scenario's own session folder and environment."""
+        top = os.path.realpath(tempfile.mkdtemp(prefix="vc-v215-grid-"))
+        cls.addClassCleanup(shutil.rmtree, top, ignore_errors=True)
+        shim = tpg.make_shim(top)
+
+        def one(index, sc):
+            base = os.path.join(top, "s%04d" % index)
+            files = os.path.join(top, "f%04d" % index)
+            os.makedirs(files)
+            try:
+                session, env, state, _ = tpg.build(sc, base, top, shim)
+            except tpg.NotCreatable as exc:
+                return sc, None, str(exc)
+            state_file = os.path.join(files, "state.json")
+            with open(state_file, "w", encoding="utf-8") as fh:
+                json.dump(state, fh)
+            blob_out = os.path.join(files, "blobs.json")
+            return sc, _run_pair(cls.old_dir, argv_for(state_file, blob_out),
+                                 session, env, blob_out), None
+
+        workers = min(8, os.cpu_count() or 2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            done = [f.result() for f in
+                    [pool.submit(one, i, sc)
+                     for i, sc in enumerate(tpg.all_scenarios())]]
+        for sc, pair, why in done:
+            key = ("grid:" + tpg.key_of(sc), "unchanged", "dismiss")
+            if why is not None:
+                cls.not_creatable.append((sc, why))
+            else:
+                cls.observed[key] = tuple(pair)
+
+    # -- the rules ---------------------------------------------------------- #
+    def explain(self, key, old, new):
+        return "%r\n  2.15.0    rc=%d stdout=%r blobs=%r\n  candidate rc=%d " \
+            "stdout=%r blobs=%r" % ((key,) + old + new)
+
+    def check_refusal(self, key, old, new, cause):
+        """2.15.0 closed out (wrote, or opened the card); the candidate
+        refuses with the same counts and fingerprints, every stale row
+        carrying `cause`."""
+        msg = self.explain(key, old, new)
+        self.assertEqual((old[0], new[0]), (0, 0), msg)
+        self.assertEqual(new[2], old[2], msg)
+        before, after = json.loads(old[1]), json.loads(new[1])
+        self.assertIn(before["action"], OLD_CLOSES, msg)
+        self.assertNotIn("stale", before, msg)
+        self.assertEqual((after["action"], after["next"], after["report"]),
+                         ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN, None),
+                         msg)
+        self.assertEqual(after["counts"], before["counts"], msg)
+        self.assertTrue(after["stale"], msg)
+        self.assertEqual({row["cause"] for row in after["stale"]}, {cause},
+                         msg)
+        self.assertIn(cause, closeout_fresh.CAUSES)
+
+    def check_repair(self, key, old, new):
+        """2.15.0 wrote with the shape 2 finding closed; the candidate
+        counts it outstanding and opens the card, with the same
+        fingerprints."""
+        msg = self.explain(key, old, new)
+        self.assertEqual((old[0], new[0]), (0, 0), msg)
+        self.assertEqual(new[2], old[2], msg)
+        before, after = json.loads(old[1]), json.loads(new[1])
+        self.assertEqual(before["action"], "write", msg)
+        self.assertEqual(after["action"], "outstanding-to-phase-5", msg)
+        self.assertNotIn("stale", after, msg)
+        self.assertEqual(after["counts"]["outstanding_cw"],
+                         before["counts"]["outstanding_cw"] + 1, msg)
+
+    def test_only_intended_differences(self):
+        for key, (old, new) in sorted(self.observed.items()):
+            with self.subTest(fixture=key):
+                if key in INTENDED:
+                    self.check_refusal(key, old, new, INTENDED[key])
+                elif key in REPAIRED:
+                    self.check_repair(key, old, new)
+                else:
+                    self.assertEqual(new, old, self.explain(key, old, new))
+
+    def test_only_intended_list_is_exhaustive(self):
+        """No stale entry: every named difference was built here and does
+        differ (a not-creatable grid scenario is excused only where the
+        parity grid excuses it)."""
+        skipped = {("grid:" + tpg.key_of(sc), "unchanged", "dismiss")
+                   for sc, _ in self.not_creatable}
+        for sc, why in self.not_creatable:
+            self.assertTrue(("ending", sc.ending) in tpg.MAY_BE_UNCREATABLE
+                            or ("name", sc.name) in tpg.MAY_BE_UNCREATABLE,
+                            "%s not creatable: %s" % (tpg.key_of(sc), why))
+        for key in list(INTENDED) + list(REPAIRED):
+            with self.subTest(fixture=key):
+                if key in skipped:
+                    continue
+                self.assertIn(key, self.observed, "named but never built")
+                old, new = self.observed[key]
+                self.assertNotEqual(new, old, "named but identical")
+        for key, cause in INTENDED.items():
+            self.assertNotIn(key, REPAIRED)
+            self.assertIn(cause, closeout_fresh.CAUSES, key)
+        self.assertGreaterEqual(len(self.observed), 250)
+
+    def test_only_intended_scorer_byte_identical_to_d5acc19_or_listed(self):
+        env = clean_env()
+        old = subprocess.run(
+            ["git", "rev-parse", V215_COMMIT + ":" + V215_REL + "score.py"],
+            cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(old.returncode, 0, old.stderr)
+        now = subprocess.run(
+            ["git", "hash-object", "--no-filters",
+             os.path.join(SCRIPTS_DIR, "score.py")],
+            cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(now.returncode, 0, now.stderr)
+        if now.stdout.strip() != old.stdout.strip():
+            self.assertTrue(SCORER_CHANGES,
+                            "score.py differs from d5acc19 and no commit "
+                            "is listed in SCORER_CHANGES")
+            for commit in SCORER_CHANGES:
+                found = subprocess.run(
+                    ["git", "cat-file", "-e", commit + "^{commit}"],
+                    cwd=SCRIPTS_DIR, env=env, stdin=subprocess.DEVNULL,
+                    capture_output=True, timeout=60)
+                self.assertEqual(found.returncode, 0, commit)
+        else:
+            self.assertEqual(SCORER_CHANGES, ())
 
 
 if __name__ == "__main__":
