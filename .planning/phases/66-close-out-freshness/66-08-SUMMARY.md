@@ -115,7 +115,7 @@ None.
 
 ## Deferred Issues
 
-None. The full `plugins/vibe-check/scripts` suite run is reported in the final message. The known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` failure is expected there.
+None. Full `plugins/vibe-check/scripts` suite: 4211 passed, 5 failed, 1 skipped, 2 xfailed, 6465 subtests passed. All 5 failures are the known worktree-only `test_replay.py::TestPhase53SameLineRegressionCases` artifact; `test_replay.py` run alone shows the same 5.
 
 ## ROADMAP note to apply
 
