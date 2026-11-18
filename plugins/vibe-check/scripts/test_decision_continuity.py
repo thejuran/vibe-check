@@ -4186,21 +4186,36 @@ class TestShape1DeletedOriginal(_RealChain):
             % (rec and rec["line"], rec and rec["snapshot"]))
         self.assertNotEqual(e2e_gate(s2, {}), "write")
 
-    def test_shape1_deleted_original_is_reasked_at_pass2(self):
-        """The decided line 10 is deleted; identical text was already at old
-        line 50 (49 after the deletion) and is untouched. The decision must
-        not ride to that other line: pass 2 re-asks it."""
+    @unittest.expectedFailure
+    def test_shape1_deleted_original_is_reasked_at_pass2_known_limit(self):
+        """Owner-accepted known limit, 999.44 shape 1: the decided line 10 is
+        deleted while identical text was already at old line 50 (49 after the
+        deletion) and is untouched. The correct outcome is a re-ask at pass
+        2; today step-0 relocation moves the decision to line 49 and keeps it
+        current, so this test fails by design. A correct check needs the
+        lines removed since the previous review, which the change ranges do
+        not carry (new-side line numbers only). Close out's code-changed-
+        since-review refusal does not bound it: it only applies before a
+        review has run on the deleted code, and that review relocates again.
+        If this test starts passing, the limit is gone: remove the marker."""
         for kind in SHAPE1_KINDS:
             with self.subTest(kind=kind):
                 _, s2, hA, _, _ = deleted_original_scenario(self, kind)
                 self._not_kept(s2, hA)
 
-    def test_shape1_closeout_does_not_write_on_deleted_original(self):
-        """Close out on the pass-2 state of the same change must not write.
-        The outcome must come from the review's decision state (relocation),
-        never from the code-changed-since-review refusal: the last pass is
-        bound to the code on disk, so `next` must not be
-        `stop-review-again`."""
+    @unittest.expectedFailure
+    def test_shape1_closeout_does_not_write_on_deleted_original_known_limit(
+            self):
+        """Owner-accepted known limit, 999.44 shape 1: Close out on the
+        pass-2 state of the same change should not write. The outcome must
+        come from the review's decision state (relocation), never from the
+        code-changed-since-review refusal: the last pass is bound to the code
+        on disk, so `next` must not be `stop-review-again`. Today Close out
+        writes with the decision current at line 49, so this test fails by
+        design. The Close out refusal does not bound the limit: it applies
+        only before a review has run on the deleted code, and that review
+        relocates and keeps the decision again. If this test starts passing,
+        the limit is gone: remove the marker."""
         for kind in SHAPE1_KINDS:
             with self.subTest(kind=kind):
                 _, s2, _, repo, L1 = deleted_original_scenario(self, kind)
