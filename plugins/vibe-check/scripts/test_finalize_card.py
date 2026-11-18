@@ -2119,12 +2119,14 @@ REVIEW_AGAIN_FORBIDDEN = ("dispatch", "phase 1", "run the reviewers")
 
 
 def review_again_bullet(text):
-    """The `stop-review-again` bullet with its sub-bullets, or ""."""
+    """The `stop-review-again` bullet with its sub-bullets (up to the next
+    top-level bullet or the blank line ending the list), or ""."""
     i = text.find(REVIEW_AGAIN_HEADER)
     if i < 0:
         return ""
-    end = text.find("\n- ", i)
-    return text[i:end if end >= 0 else len(text)]
+    ends = [e for e in (text.find("\n- ", i), text.find("\n\n", i))
+            if e >= 0]
+    return text[i:min(ends) if ends else len(text)]
 
 
 def review_again_bullet_holds(text):
