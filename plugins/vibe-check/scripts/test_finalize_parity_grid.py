@@ -10,9 +10,15 @@ with the same interpreter and environment. A scenario agrees only when the
 fingerprint map, the three counts and the gate action are all equal.
 
 `TestStep1ScriptIsPinned` holds the script to the dd8e4ab text (each command
-line must appear there verbatim, in order) and asserts that the modules both
-sides share (`guard.py`, `carry_state.py`, `finalize_gate.py`, `fixcommit.py`)
-are byte-identical to dd8e4ab, so the 2.14.1 side really is 2.14.1.
+line must appear there verbatim, in order). The 2.14.1 side never runs the
+working-tree modules: `materialize_dd8e4ab` writes `guard.py`,
+`carry_state.py`, `finalize_gate.py` and `fixcommit.py` as committed at
+dd8e4ab into a temp folder, and the step-1 script, the counting command and
+the gate run from there, so the 2.14.1 side really is 2.14.1. `guard.py`,
+`finalize_gate.py` and `fixcommit.py` are also still pinned byte-identical
+to dd8e4ab in the working tree. `carry_state.py` is not: Phase 66 (999.44
+shape 2) edited `_covering`; the 2.14.1 side is now materialized from
+dd8e4ab.
 
 `TestParityGrid` builds temp-repo scenarios over a covering grid (every pair
 of axis values at least once, plus named regression rows) and compares the
@@ -113,12 +119,15 @@ SOURCE_DOC = "plugins/vibe-check/phases/shared/90-finalize.md"
 SOURCE_LINES = (13, 22)  # the step 1 text the script transcribes (1-based)
 STEP1_SH = os.path.join(SCRIPTS_DIR, "fixtures", "finalize_step1_2141.sh")
 HELPER_PY = os.path.join(SCRIPTS_DIR, "finalize_inputs.py")
-GUARD_PY = os.path.join(SCRIPTS_DIR, "guard.py")
-CARRY_STATE_PY = os.path.join(SCRIPTS_DIR, "carry_state.py")
-FINALIZE_GATE_PY = os.path.join(SCRIPTS_DIR, "finalize_gate.py")
 FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "phase45-loop-state.json")
 SHARED_WITH_2141 = ("guard.py", "carry_state.py", "finalize_gate.py",
                     "fixcommit.py")
+# The shared modules still pinned byte-identical to dd8e4ab in the working
+# tree. carry_state.py left the pin when Phase 66 (999.44 shape 2) edited
+# `_covering`; the 2.14.1 side is now materialized from dd8e4ab
+# (`materialize_dd8e4ab`), so the differential stays literal.
+PINNED_TO_2141 = ("guard.py", "finalize_gate.py", "fixcommit.py")
+SCRIPTS_REL = "plugins/vibe-check/scripts/"
 
 ARCH_HASH = "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67"
 BUGS_HASH = "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644"
@@ -152,6 +161,43 @@ def source_text():
                              % (SOURCE_DOC, SOURCE_COMMIT,
                                 proc.stderr.decode(errors="replace")))
     return proc.stdout.decode("utf-8")
+
+
+def _git_blob(spec):
+    """The bytes of `git show <spec>` in this repo (needs full history)."""
+    proc = subprocess.run(
+        ["git", "show", spec], cwd=SCRIPTS_DIR, env=clean_env(),
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError("cannot read %s (needs full history): %s"
+                             % (spec, proc.stderr.decode(errors="replace")))
+    return proc.stdout
+
+
+def materialize_dd8e4ab(case):
+    """Write every SHARED_WITH_2141 module as committed at dd8e4ab into a
+    fresh temp folder -> the folder. The folder is removed when `case` ends
+    (a TestCase instance) or when its class is torn down (a TestCase class),
+    on every path. The 2.14.1 side runs these files, never the working
+    tree's."""
+    tmp = os.path.realpath(tempfile.mkdtemp(prefix="vc-2141-"))
+    if isinstance(case, type):
+        case.addClassCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    else:
+        case.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    for name in SHARED_WITH_2141:
+        data = _git_blob(SOURCE_COMMIT + ":" + SCRIPTS_REL + name)
+        with open(os.path.join(tmp, name), "wb") as fh:
+            fh.write(data)
+    return tmp
+
+
+def old_side_paths(old_dir):
+    """{"guard", "carry_state", "finalize_gate"} -> the module files the
+    2.14.1 side runs, all in `old_dir` (a `materialize_dd8e4ab` folder)."""
+    return {"guard": os.path.join(old_dir, "guard.py"),
+            "carry_state": os.path.join(old_dir, "carry_state.py"),
+            "finalize_gate": os.path.join(old_dir, "finalize_gate.py")}
 
 
 def script_command_lines():
@@ -211,8 +257,13 @@ class TestStep1ScriptIsPinned(unittest.TestCase):
             at = where
 
     def test_shared_modules_are_byte_identical_to_dd8e4ab(self):
+        """guard.py, finalize_gate.py and fixcommit.py are pinned. Phase 66
+        (999.44 shape 2) edited _covering; the 2.14.1 side is now
+        materialized from dd8e4ab, so carry_state.py is not pinned here."""
+        self.assertEqual(set(SHARED_WITH_2141) - set(PINNED_TO_2141),
+                         {"carry_state.py"})
         env = clean_env()
-        for name in SHARED_WITH_2141:
+        for name in PINNED_TO_2141:
             with self.subTest(module=name):
                 rel = "plugins/vibe-check/scripts/" + name
                 old = subprocess.run(
@@ -223,6 +274,34 @@ class TestStep1ScriptIsPinned(unittest.TestCase):
                 now = subprocess.run(
                     ["git", "hash-object", "--no-filters",
                      os.path.join(SCRIPTS_DIR, name)],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    timeout=60)
+                self.assertEqual(now.returncode, 0, now.stderr)
+                self.assertEqual(now.stdout.strip(), old.stdout.strip())
+
+    def test_2141_side_runs_modules_materialized_from_dd8e4ab(self):
+        """Every module the 2.14.1 side runs is the dd8e4ab blob, in a
+        folder that is not the working tree's scripts folder."""
+        env = clean_env()
+        old_dir = materialize_dd8e4ab(self)
+        self.assertNotEqual(old_dir, os.path.realpath(SCRIPTS_DIR))
+        paths = old_side_paths(old_dir)
+        self.assertEqual(sorted(paths),
+                         ["carry_state", "finalize_gate", "guard"])
+        for key, path in paths.items():
+            with self.subTest(path=key):
+                self.assertEqual(os.path.dirname(path), old_dir)
+        for name in SHARED_WITH_2141:
+            with self.subTest(module=name):
+                old = subprocess.run(
+                    ["git", "rev-parse",
+                     SOURCE_COMMIT + ":" + SCRIPTS_REL + name],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    timeout=60)
+                self.assertEqual(old.returncode, 0, old.stderr)
+                now = subprocess.run(
+                    ["git", "hash-object", "--no-filters",
+                     os.path.join(old_dir, name)],
                     cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
                     timeout=60)
                 self.assertEqual(now.returncode, 0, now.stderr)
@@ -815,12 +894,15 @@ def run(argv, cwd, env, stdin_bytes=b""):
                           capture_output=True, timeout=CALL_TIMEOUT)
 
 
-def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
+def side_2141(state, state_path, files_dir, session, env, shell, old_dir,
+              memo=None):
     """Step 1 through the 2.14.1 script for each last-pass fix verdict, then
-    the 2.14.1 counting command and gate. With a `memo` dict, the counting
+    the 2.14.1 counting command and gate, every module run from `old_dir`
+    (the dd8e4ab files `materialize_dd8e4ab` wrote). With a `memo` dict, the counting
     command and the gate (pure functions of the state bytes and the
     fingerprint map) are run once per distinct input and their output
     reused; step 1 always runs."""
+    paths = old_side_paths(old_dir)
     blobs = {}
     last = state["passes"][-1]
     for h, v in state["fix_verdicts"].items():
@@ -833,7 +915,7 @@ def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
         out = os.path.join(files_dir, "blob-2141.txt")
         if os.path.exists(out):
             os.remove(out)
-        proc = run([shell, STEP1_SH, f, out], session, dict(env, GUARD_PY=GUARD_PY))
+        proc = run([shell, STEP1_SH, f, out], session, dict(env, GUARD_PY=paths["guard"]))
         if proc.returncode == 0:
             with open(out, "rb") as fh:
                 blobs[f] = fh.read().decode("utf-8")
@@ -845,14 +927,14 @@ def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
     key = (state_bytes, json.dumps(blobs, sort_keys=True))
     if memo is not None and key in memo:
         return dict(memo[key], blobs=blobs)
-    got = _counts_and_gate_2141(state_bytes, bp, session, env)
+    got = _counts_and_gate_2141(state_bytes, bp, session, env, paths)
     if memo is not None:
         memo[key] = got
     return dict(got, blobs=blobs) if "stop" not in got else got
 
 
-def _counts_and_gate_2141(state_bytes, bp, session, env):
-    c = run([sys.executable, CARRY_STATE_PY, "finalize-counts", "--head-blobs",
+def _counts_and_gate_2141(state_bytes, bp, session, env, paths):
+    c = run([sys.executable, paths["carry_state"], "finalize-counts", "--head-blobs",
              bp], session, env, state_bytes)
     if c.returncode != 0:
         return {"stop": "state"}
@@ -862,7 +944,7 @@ def _counts_and_gate_2141(state_bytes, bp, session, env):
              "unacknowledged_medium": counts["unacknowledged_medium"],
              "undecided_nv": counts["undecided_nv"],
              "noninteractive": False, "pr_mode": False, "range_mode": False}
-    g = run([sys.executable, FINALIZE_GATE_PY], session, env,
+    g = run([sys.executable, paths["finalize_gate"]], session, env,
             json.dumps({"flags": flags}).encode())
     if g.returncode != 0:
         return {"stop": "gate"}
@@ -912,7 +994,7 @@ def make_shim(top):
     return shim
 
 
-def run_one(index, sc, top, shim, shell="/bin/sh", helper=None):
+def run_one(index, sc, top, shim, old_dir, shell="/bin/sh", helper=None):
     base = os.path.join(top, "s%04d" % index)
     files_dir = os.path.join(top, "f%04d" % index)
     os.makedirs(files_dir)
@@ -923,20 +1005,23 @@ def run_one(index, sc, top, shim, shell="/bin/sh", helper=None):
     state_path = os.path.join(files_dir, "state.json")
     with open(state_path, "w", encoding="utf-8") as fh:
         json.dump(state, fh)
-    old = side_2141(state, state_path, files_dir, session, env, shell)
+    old = side_2141(state, state_path, files_dir, session, env, shell,
+                    old_dir)
     new = side_helper(state_path, files_dir, session, env, helper)
     return sc, old, new, blob, None
 
 
-def run_grid(scenarios, shell="/bin/sh", helper=None, workers=None):
+def run_grid(scenarios, old_dir, shell="/bin/sh", helper=None, workers=None):
     """[(scenario, 2.14.1 outcome, helper outcome, HEAD blob, not-creatable
-    reason)] in scenario order; every temp folder is removed afterwards."""
+    reason)] in scenario order; every temp folder is removed afterwards.
+    `old_dir` holds the dd8e4ab modules (`materialize_dd8e4ab`)."""
     top = os.path.realpath(tempfile.mkdtemp(prefix="vc-grid-"))
     try:
         shim = make_shim(top)
         workers = workers or min(8, os.cpu_count() or 2)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(run_one, i, sc, top, shim, shell, helper)
+            futures = [pool.submit(run_one, i, sc, top, shim, old_dir,
+                                   shell, helper)
                        for i, sc in enumerate(scenarios)]
             return [f.result() for f in futures]
     finally:
@@ -1205,10 +1290,11 @@ def nf_state(form, blob, reviewed=None):
     return fixture_state(form, "obsolete-head", blob, reviewed)
 
 
-def nf_run(scenarios, helper=None, workers=None):
+def nf_run(scenarios, old_dir, helper=None, workers=None):
     """[(scenario, 2.14.1 outcome, helper outcome, prediction)] in order.
     One repo per (root name, layout, content); every temp folder is removed
-    afterwards."""
+    afterwards. `old_dir` holds the dd8e4ab modules
+    (`materialize_dd8e4ab`)."""
     top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfgrid-"))
     try:
         shim = make_shim(top)
@@ -1244,7 +1330,7 @@ def nf_run(scenarios, helper=None, workers=None):
                 with open(state_path, "w", encoding="utf-8") as fh:
                     json.dump(state, fh)
                 old = side_2141(state, state_path, files_dir, session, env,
-                                "/bin/sh", memo)
+                                "/bin/sh", old_dir, memo)
                 new = side_helper(state_path, files_dir, session, env, helper)
                 return sc, old, new, (fizz, d19, b, d, blob)
 
@@ -1358,7 +1444,7 @@ class TestNameFormGrid(unittest.TestCase):
     def setUpClass(cls):
         cls.scenarios = nf_scenarios()
         start = time.time()
-        cls.results = nf_run(cls.scenarios)
+        cls.results = nf_run(cls.scenarios, materialize_dd8e4ab(cls))
         cls.seconds = time.time() - start
         cls.by_scenario = {r[0]: r for r in cls.results}
         cls.classes = nf_classify(cls.results)
@@ -1471,7 +1557,7 @@ class TestParityGrid(unittest.TestCase):
     def setUpClass(cls):
         cls.scenarios = all_scenarios()
         start = time.time()
-        cls.results = run_grid(cls.scenarios)
+        cls.results = run_grid(cls.scenarios, materialize_dd8e4ab(cls))
         cls.seconds = time.time() - start
         cls.by_scenario = {r[0]: r for r in cls.results}
         cls.classes = classify(cls.results)
@@ -1650,8 +1736,9 @@ class TestScriptUnderBash(unittest.TestCase):
         bash = "/bin/bash"
         self.assertTrue(os.path.exists(bash))
         rows = [sc for sc, _ in REGRESSION_ROWS] + list(D19_ROWS)
-        a = run_grid(rows, shell="/bin/sh")
-        b = run_grid(rows, shell=bash)
+        old_dir = materialize_dd8e4ab(self)
+        a = run_grid(rows, old_dir, shell="/bin/sh")
+        b = run_grid(rows, old_dir, shell=bash)
         for (sc, old_sh, _, _, _), (_, old_bash, _, _, _) in zip(a, b):
             with self.subTest(scenario=key_of(sc)):
                 self.assertEqual(old_bash, old_sh)
