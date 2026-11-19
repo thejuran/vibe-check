@@ -1726,5 +1726,85 @@ def _load_module(path, name, pairs=()):
     return mod
 
 
+SNAP_PY = os.path.join(SCRIPTS_DIR, "worktree_snap.py")
+# One text replacement per mutant of the removed-lines guards.
+M1_PLUS_LINES = (('        if tag == "-" and path is not None:\n',
+                  '        if tag == "+" and path is not None:\n'),)
+M2_NEW_SIDE_START = (("    old_line = int(match.group(1))\n",
+                      "    old_line = int(match.group(3))\n"),)
+M3_NEW_SIDE_PATH = (('        if line.startswith("--- "):\n'
+                     '            path = _old_path(line)\n',
+                     '        if line.startswith("+++ "):\n'
+                     '            path = _old_path(line)\n'),)
+M4_BODY_HEADER = (('        tag = body[:1] if body else " "\n',
+                   '        if body.startswith("--- "):\n'
+                   '            path = _old_path(body)\n'
+                   '            continue\n'
+                   '        tag = body[:1] if body else " "\n'),)
+M5_UNKNOWN_AS_EMPTY = (('        nearby, removed = "", ""\n',
+                        '        nearby, removed = "", "{}"\n'),)
+
+
+def _removed_or_raised(mod, text):
+    try:
+        return mod.removed_from_diff(text)
+    except Exception as exc:  # noqa: BLE001  (a raise is a differing result)
+        return ("raised", type(exc).__name__, str(exc))
+
+
+class TestRemovedMutants(unittest.TestCase):
+    """Each guard of the removed-lines output is load-bearing: the mutant
+    differs from the expected value on the named case while the real
+    module returns it."""
+
+    def check(self, pairs, name, text, want):
+        mutant = _load_module(SNAP_PY, name, pairs)
+        self.assertEqual(worktree_snap.removed_from_diff(text), want)
+        self.assertNotEqual(_removed_or_raised(mutant, text), want)
+
+    def test_mutant_m1_plus_lines_fails_line_deleted(self):
+        L = tdc.base_file()
+        text = _since_review_diff(self, L, _lines_deleted(L, 10))
+        self.check(M1_PLUS_LINES, "snap_m1", text, {F: [[10, 10]]})
+
+    def test_mutant_m2_new_side_start_fails_insert_above_and_delete(self):
+        L = tdc.base_file()
+        new = ["top_%d = 0" % i for i in range(20)] + _lines_deleted(L, 30)
+        text = _since_review_diff(self, L, new)
+        self.check(M2_NEW_SIDE_START, "snap_m2", text, {F: [[30, 30]]})
+
+    def test_mutant_m3_new_side_path_fails_file_deleted(self):
+        text = _since_review_diff(self, tdc.base_file(), None, delete=True)
+        self.check(M3_NEW_SIDE_PATH, "snap_m3", text, {F: [[1, 60]]})
+
+    def test_mutant_m4_body_line_as_header_fails_look_alike(self):
+        old, new = _look_alike_pair()
+        text = _since_review_diff(self, old, new)
+        self.check(M4_BODY_HEADER, "snap_m4", text, {F: [[10, 10]]})
+
+    def test_mutant_m5_unknown_as_empty_object_fails_iff(self):
+        """`test_removed_empty_iff_nearby_empty`'s property on the
+        state-without-`reviewed_tree` state, run in-process."""
+        mutant = _load_module(SNAP_PY, "snap_m5", M5_UNKNOWN_AS_EMPTY)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = gitfixture.make_repo(tmp.name)
+        gitfixture.write(root, F, "\n".join(tdc.base_file()) + "\n")
+        gitfixture.git(root, "add", F)
+        gitfixture.git(root, "commit", "-q", "-m", "base")
+        gitfixture.write(root, F, "\n".join(_uncommitted(tdc.base_file())) + "\n")
+        state = os.path.join(tmp.name, "state.json")
+        with open(state, "w", encoding="utf-8") as fh:
+            json.dump({"passes": [{"pass_number": 1, "head_sha": "x"}]}, fh)
+        results = []
+        for mod in (worktree_snap, mutant):
+            nonce, _ = mod.take_before(root)
+            tree, nearby, removed, _ = mod.collect(root, state, nonce=nonce)
+            self.assertRegex(tree, r"^[0-9a-f]{40}$")
+            self.assertEqual(nearby, "")
+            results.append(removed == "")
+        self.assertEqual(results, [True, False])
+
+
 if __name__ == "__main__":
     unittest.main()
