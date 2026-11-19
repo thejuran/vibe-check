@@ -727,6 +727,87 @@ class TestCandidateFailureFailsClosed(DecidedCase):
                                      (finalize_inputs.EXIT_GATE, ""))
 
 
+# `git update-index` flag per variant; None leaves the file unflagged.
+FLAGS = (("skip-worktree", "--skip-worktree"),
+         ("assume-unchanged", "--assume-unchanged"), ("none", None))
+
+
+class TestFlaggedFiles(DecidedCase):
+    """WR-01 (owner ruling: refuse with clear advice). git does not look at
+    the disk for a file flagged skip-worktree or assume-unchanged, so the
+    diff cannot see its edits. A decision on such a file is stale with cause
+    `flagged`, edited or not (nothing is proven unchanged)."""
+
+    def flag(self, option, rel=tdc.F):
+        if option is not None:
+            git(self.repo, "update-index", option, rel)
+
+    def test_same_edit_on_line_10_flagged_and_unflagged(self):
+        for kind in KINDS:
+            for name, option in FLAGS:
+                with self.subTest(kind=kind, flag=name):
+                    state, h = self.decided(kind)
+                    self.flag(option)
+                    self.edit(10)
+                    cause = "line" if option is None else "flagged"
+                    self.assertEqual(self.stale(state),
+                                     self.one(h, kind, cause))
+
+    def test_unchanged_flagged_file_is_still_flagged(self):
+        for name, option in FLAGS[:2]:
+            with self.subTest(flag=name):
+                state, h = self.decided("defer")
+                self.flag(option)
+                self.assertEqual(self.stale(state),
+                                 self.one(h, "defer", "flagged"))
+
+    def test_both_flags_at_once_is_flagged(self):
+        state, h = self.decided("dismiss")
+        self.flag("--skip-worktree")
+        self.flag("--assume-unchanged")
+        self.edit(10)
+        self.assertEqual(self.stale(state), self.one(h, "dismiss", "flagged"))
+
+    def test_flag_on_another_file_does_not_matter(self):
+        state, _ = self.decided("defer")
+        write(self.repo, "other.py", "x = 1\n")
+        git(self.repo, "add", "other.py")
+        git(self.repo, "commit", "-qm", "other")
+        self.flag("--skip-worktree", "other.py")
+        self.assertEqual(self.stale(state), [])
+
+    def test_flags_read_without_any_path_on_argv(self):
+        state, _ = self.decided("defer")
+        self.flag("--skip-worktree")
+        _, rec = self.recorded(state)
+        self.assertIn(["ls-files", "-v", "-z"], rec.calls)
+        for arg in rec.argv_text():
+            self.assertNotIn(tdc.F, arg)
+
+    def test_flag_read_failure_is_unverifiable(self):
+        state, h = self.decided("defer")
+        out, _ = self.recorded(state, fail=lambda a: a[0] == "ls-files")
+        self.assertEqual(out, self.one(h, "defer", "unverifiable"))
+
+    def test_helper_refuses_flagged(self):
+        state, h = self.decided("defer")
+        state_file = os.path.join(os.path.dirname(self.repo), "state.json")
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        self.blob_out = os.path.join(os.path.dirname(self.repo), "blobs.json")
+        self.flag("--skip-worktree")
+        self.edit(10)
+        code, out = run_new(self.argv(state_file), self.repo)
+        self.assertEqual(code, 0, out)
+        result = json.loads(out)
+        self.assertEqual((result["action"], result["next"]),
+                         ("refuse", closeout_fresh.NEXT_REVIEW_AGAIN))
+        self.assertEqual(result["stale"], self.one(h, "defer", "flagged"))
+
+    def test_flagged_is_a_cause(self):
+        self.assertIn("flagged", closeout_fresh.CAUSES)
+
+
 class TestFixPrecedence(DecidedCase):
     """A fresh fix-obsolete verdict on the current blob is newer evidence
     than the decision (2.15.0 precedence): that record is not a candidate."""
@@ -1496,6 +1577,30 @@ class TestClearableSpecialName(_ClearChain):
                 s2, _, _, _ = self.pass2(L2)
                 self.reasked_or_gone(s2)
                 self.assert_writes(self.redecide_persist_close(s2))
+
+
+class TestClearableFlagged(_ClearChain):
+    """WR-01 loop freedom (D-16): a flagged decided file refuses with
+    `flagged`; clearing the flag as the refusal says and reviewing again
+    clears it."""
+
+    def test_clear_flag_review_write(self):
+        for name, option in FLAGS[:2]:
+            for kind in KINDS:
+                with self.subTest(flag=name, kind=kind):
+                    self.decided_pass1(kind)
+                    self.repo.git("update-index", option, tdc.F)
+                    L2 = list(self.L1)
+                    L2[39] = "uncommitted_40 = safe_query(user_input)"
+                    self.repo.write(L2)
+                    self.assert_refused(self.close_out(self.state_path),
+                                        "flagged")
+                    self.repo.git("update-index", "--no-" + option[2:],
+                                  tdc.F)
+                    s2, _, _, _ = self.pass2(L2)
+                    self.reasked_or_gone(s2)
+                    self.assertTrue(self.undecided(s2), "nothing re-asked")
+                    self.assert_writes(self.redecide_persist_close(s2))
 
 
 class TestAllRouteClearable(_ClearChain):

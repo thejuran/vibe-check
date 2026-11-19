@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (sibling module: KNOWN_FLAGS, build_rows)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import carry_state  # noqa: E402  (sibling module: KNOWN_FLAGS)
+import closeout_fresh  # noqa: E402  (sibling module: the refusal CAUSES)
 import finalize_gate  # noqa: E402  (sibling module: FLAGS, the REVIEW.md stamp)
 import footprint  # noqa: E402  (sibling module: MODE_PATHS)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
@@ -2089,12 +2090,14 @@ REVIEW_AGAIN_NEEDLES = (
     "`{{file}}:{{line}} — {{title}} ({{kind}}; {{cause sentence}})`",
     "by the join rule above",
     "`deferred` or `dismissed`",
-    # The five cause sentences, one per token (D-01, D-06, D-09).
+    # The six cause sentences, one per token (D-01, D-06, D-09, WR-01).
     "`line` → that line changed",
     "`nearby` → code near it changed",
     "`deleted` → the file was deleted or renamed",
     "`untracked` → the file is not tracked by git",
     "`unverifiable` → it could not be checked against the reviewed code",
+    "`flagged` → git is set to ignore edits to the file (skip-worktree or "
+    "assume-unchanged)",
     # D-01: the cap.
     "at most 10 rows",
     "+{{N}} more",
@@ -2110,6 +2113,10 @@ REVIEW_AGAIN_NEEDLES = (
     "again.",
     "Commit or revert the edits near these lines, or check out the reviewed "
     "commit, then review again.",
+    # WR-01: the next step that clears a `flagged` refusal.
+    "When any entry's cause is `flagged`, add: \"Clear the flag "
+    "(`git update-index --no-skip-worktree <file>` or "
+    "`git update-index --no-assume-unchanged <file>`), then review again.\"",
     # D-03: nothing written, and stop.
     "Do NOT write REVIEW.md or archive state.",
     "No asks, no writes, and stop.",
@@ -2198,6 +2205,20 @@ class TestReviewAgainProse(LockCase):
     def test_mutant_untracked_next_step(self):
         self._trips_without("First add the file to git (`git add` or "
                             "`git add -N`), then review again.")
+
+    def test_mutant_flagged_next_step(self):
+        self._trips_without(
+            "`flagged` → git is set to ignore edits to the file "
+            "(skip-worktree or assume-unchanged)",
+            "`git update-index --no-skip-worktree <file>`",
+            "`git update-index --no-assume-unchanged <file>`")
+
+    def test_flagged_sentence_names_every_cause(self):
+        # One cause sentence per closeout_fresh cause token.
+        bullet = review_again_bullet(self.text)
+        for cause in closeout_fresh.CAUSES:
+            with self.subTest(cause=cause):
+                self.assertIn("`%s` → " % cause, bullet)
 
     def test_mutant_pr_range_next_step(self):
         self._trips_without("Commit or revert the edits near these lines, or "
