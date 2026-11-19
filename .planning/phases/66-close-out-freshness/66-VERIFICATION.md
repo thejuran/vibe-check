@@ -213,3 +213,7 @@ The 2026-11-19 rulings reached me through the orchestrator and the committed rec
 
 _Verified: 2026-11-19T11:45:00Z_
 _Verifier: Claude (bm-verifier)_
+
+## Addendum — post-verification fix before merge (2026-11-19, `07df668d`)
+
+The first Linux CI run of PR #13 found the Close out freshness check refusing every decision when the repo folder name is not valid UTF-8 (macOS cannot create such a folder, so the check never ran locally). This broke D-16 (clearable) in that environment. Fixed by decoding git output with `os.fsdecode`, and locked by `TestClearableNonUtf8Folder` (Linux). Seven further Linux-only grid rows were adjudicated as the same D-09 refusal as their siblings and added to `FRESHNESS_REFUSALS`. Details and suite counts are in 66-REPLAY.md section 7. This addendum was written by the orchestrator, not by a re-run of the verifier. The verdict stands provided CI on the pushed commit passes.
