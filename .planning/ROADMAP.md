@@ -62,7 +62,7 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
   3. Each of the three 999.44 shapes (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has a recorded outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample or control. The D-21 identical-copy addition is distinguished from deleted-original relocation. No decision-identity redesign.
   4. Replay against 2.15.0 differs only by the intended refusals; every other run is unchanged.
 
-**Plans:** 9 plans
+**Plans:** 12 plans (9 executed; 3 gap-closure plans for the 999.44 shape 1 repair, planned 2026-11-18)
 
 Plans:
 **Wave 1**
@@ -88,6 +88,12 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 66-09-PLAN.md — Replay vs 2.15.0, only_intended differential, full suite + stdlib, backlog/validation records
+
+**Gap closure** *(SC3 / FRESH-03, 999.44 shape 1: owner chose the wider repair on 2026-11-18; runs with `/bm:execute-phase 66 --gaps-only`, one plan per wave in this order)*
+
+- [ ] 66-10-PLAN.md — `worktree_snap.py collect` also reports reviewed-side lines removed since the review; two-sided differential vs 2.15.0 and mutation checks
+- [ ] 66-11-PLAN.md — Review step 0/2 prose and simulator re-ask a decision moved off a removed line; shape 1 tests pass without expectedFailure; differential vs literal 2.15.0 and mutation checks
+- [ ] 66-12-PLAN.md — Shape 1 end to end through the real fences and Close out; full suite, stdlib, replay vs 2.15.0; 999.44 / validation / replay records
 
 ### Phase 67: Trusted incremental scope
 

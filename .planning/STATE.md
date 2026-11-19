@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: executing
-stopped_at: "Phase 66 verified gaps_found (8/9): 999.44 shape 1 — owner chose the wider repair; next /bm:plan-phase 66 --gaps"
-last_updated: "2026-11-18T09:00:00.000Z"
-last_activity: 2026-11-18 -- Phase 66 code review fixed CR-01/WR-01/WR-02 (suite 4729 green); verification gaps_found on SC3/FRESH-03 shape 1
+stopped_at: "Phase 66 gap plans 66-10..66-12 checker-passed; next /bm:execute-phase 66 --gaps-only"
+last_updated: "2026-11-19T01:04:53.648Z"
+last_activity: "2026-11-18 -- Phase 66 gap plans 66-10..66-12 created and checker-passed (999.44 shape 1 wider repair; owner chose re-ask on missing evidence)"
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 9
+  total_plans: 12
   completed_plans: 9
-  percent: 100
+  percent: 75
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 66 (close-out-freshness) — EXECUTING
-Plan: 9 of 9 complete; gap closure pending (999.44 shape 1 wider repair, owner decision 2026-11-18)
-Status: Phase 66 gaps_found — gap planning next (/bm:plan-phase 66 --gaps)
-Last activity: 2026-11-18 -- 999.44: shape 1 owner-accepted known limit, shape 2 repaired (owner-approved), shape 3 safe refusal; loop-freedom proven
+Plan: 9 of 12 complete; gap plans 66-10..66-12 ready (999.44 shape 1 wider repair, owner decisions 2026-11-18)
+Status: Phase 66 gap plans ready — execute next (/bm:execute-phase 66 --gaps-only)
+Last activity: 2026-11-18 -- gap plans 66-10..66-12 created and checker-passed (2 checker passes)
 
 ## Operator Next Steps
 
-- `/bm:plan-phase 66 --gaps` (999.44 shape 1 wider repair; see 66-VERIFICATION.md owner decision) on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
+- `/bm:execute-phase 66 --gaps-only` (plans 66-10..66-12, 999.44 shape 1 wider repair; see 66-VERIFICATION.md owner decisions) on `feat/v2.16-phase-66`, then re-verify; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Paid checks and portal submission require separate approval
 

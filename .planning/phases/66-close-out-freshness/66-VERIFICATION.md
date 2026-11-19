@@ -171,3 +171,7 @@ _Verifier: Claude (bm-verifier)_
 ## Owner decision on the gap (2026-11-18)
 
 The owner chose **(b) the wider repair** (answered live in the execute-phase orchestrator session), replacing the 66-07 known-limit choice. Scope as found by 66-07: `worktree_snap.py collect` also reports the reviewed-side lines removed since the review; the review step-0 prose and the test simulator then re-ask a decision whose original line was removed instead of relocating it to identical text elsewhere (as when a decided line is deleted with no copy). Keep the D-21 identical-copy-added control, the 20-line insertion control and the same-edit control passing; turn the two `_known_limit` xfail tests into passing tests; include a 2.15.0 (d5acc19) differential for the change and mutation checks. No override applied. Next: `/bm:plan-phase 66 --gaps`.
+
+## Owner decision on the no-evidence fallback (2026-11-18, during gap planning)
+
+Asked at `/bm:plan-phase 66 --gaps`: when removal evidence is missing (the code changed during the fresh review, or the prior state has no reviewed tree), should a decision that step 0 moved be re-asked, or kept as on 2.15.0? The owner answered **"Re-ask them"**. A deferred or dismissed decision whose line only shifted is then asked again in those passes; 2.15.0 kept it. This is locked scope in 66-11 (`no_evidence_shape1`, `no_evidence_shift` intended differences) and is recorded in ROADMAP 999.44 and 66-VALIDATION.md by 66-12.
