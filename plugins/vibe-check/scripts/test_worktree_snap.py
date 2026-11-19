@@ -2168,5 +2168,215 @@ class TestQuotedNamesDifferentialV215(unittest.TestCase):
                          {F: [[3, 3]], NON_ASCII: [[10, 10]]})
 
 
+# --------------------------------------------------------------------------- #
+# 66 review WR-02: the removed-lines parser's risky inputs, each through the
+# production since-review call on real git output.
+# --------------------------------------------------------------------------- #
+SPACE_NAME = "has space.py"
+OLD_NAME = "src/old.py"
+NEW_NAME = "src/new.py"
+B = "src/b.py"
+
+
+class TestRemovedRiskyInputs(_NamedRepo, unittest.TestCase):
+
+    def test_space_name_strips_the_trailing_tab(self):
+        self.base({SPACE_NAME: _numbered()})
+        _, removed = self.since(
+            lambda: self.files({SPACE_NAME: _drop_line(_numbered(), 10)}))
+        self.assertEqual(removed, {SPACE_NAME: [[10, 10]]})
+
+    def _no_newline_change(self):
+        """Old: 12 lines, the last without a newline. New: line 10 deleted
+        and the last line replaced, still without a newline. The hunk
+        prints a `\\ No newline at end of file` marker between `-line_12`
+        and `+line_12 = ...`, inside the hunk's budgets."""
+        self.base({F: _numbered(last_newline=False)})
+        new = _drop_line(_numbered(last_newline=False), 10)
+        new = new.rsplit("\n", 1)[0] + "\nline_12 = 'replaced'"
+        return lambda: self.files({F: new})
+
+    def test_no_newline_marker_inside_a_deleting_hunk(self):
+        after = self._no_newline_change()
+        _, removed = self.since(after)
+        self.assertEqual(removed, {F: [[10, 10], [12, 12]]})
+
+    def test_no_newline_last_line_deleted(self):
+        """The deleted last line is listed; the line before it lost its
+        newline, so git prints it as replaced too."""
+        self.base({F: _numbered(last_newline=False)})
+        _, removed = self.since(lambda: self.files(
+            {F: _numbered(11, last_newline=False)}))
+        self.assertEqual(removed, {F: [[11, 12]]})
+
+    def _rename_with_edit(self, config=()):
+        self.base({OLD_NAME: _numbered()}, config=config)
+
+        def after():
+            gitfixture.git(self.root, "mv", OLD_NAME, NEW_NAME)
+            self.files({NEW_NAME: _drop_line(_numbered(), 10)})
+        return self.since(after)
+
+    def test_rename_with_edit_keys_by_the_old_path(self):
+        """`diff.renames` unset: git's default detects the rename, and the
+        deleted line is listed under the reviewed-side (old) path."""
+        nearby, removed = self._rename_with_edit()
+        self.assertEqual(removed, {OLD_NAME: [[10, 10]]})
+        self.assertEqual(nearby, {NEW_NAME: [[9, 10]]})
+
+    def test_rename_with_edit_renames_off_lists_the_whole_old_file(self):
+        nearby, removed = self._rename_with_edit(
+            config=(("diff.renames", "false"),))
+        self.assertEqual(removed, {OLD_NAME: [[1, 12]]})
+        self.assertEqual(nearby, {NEW_NAME: [[1, 11]]})
+
+    def test_binary_change_removes_nothing(self):
+        self.base({F: _numbered(), "img.bin": b"\x00\x01\x02" * 50})
+        nearby, removed = self.since(
+            lambda: self.files({"img.bin": b"\x00\x03\x02" * 50}))
+        self.assertEqual((nearby, removed), ({}, {}))
+
+    def test_mode_only_change_removes_nothing(self):
+        self.base({F: _numbered()})
+
+        def after():
+            os.chmod(os.path.join(self.root, F), 0o755)
+            gitfixture.git(self.root, "add", F)
+        nearby, removed = self.since(after)
+        self.assertEqual((nearby, removed), ({}, {}))
+
+    def test_new_file_removes_nothing(self):
+        self.base({F: _numbered()})
+
+        def after():
+            self.files({B: _numbered()})
+            gitfixture.git(self.root, "add", B)
+        nearby, removed = self.since(after)
+        self.assertEqual(removed, {})
+        self.assertEqual(nearby, {B: [[1, 12]]})
+
+    def test_deleted_file_lists_every_line(self):
+        self.base({F: _numbered(), B: _numbered()})
+        _, removed = self.since(lambda: self.files({B: None}))
+        self.assertEqual(removed, {B: [[1, 12]]})
+
+    def _mktree(self, name_bytes, text):
+        blob = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=self.root,
+            input=text.encode(), capture_output=True, check=True,
+            env=gitfixture.helper_env()).stdout.strip()
+        entry = b"100644 blob " + blob + b"\t" + name_bytes + b"\n"
+        return subprocess.run(
+            ["git", "mktree"], cwd=self.root, input=entry,
+            capture_output=True, check=True,
+            env=gitfixture.helper_env()).stdout.decode().strip()
+
+    def test_name_not_valid_utf8_makes_removed_unknown(self):
+        """A latin-1 `café.py` (byte 0xE9, not UTF-8) in real trees built
+        with `git mktree`: core.quotePath=false prints the byte raw, it
+        decodes to U+FFFD, and that name could match no finding's file."""
+        name = b"caf\xe9.py"
+        self.base({F: _numbered()})
+        prior = self._mktree(name, _numbered())
+        current = self._mktree(name, _drop_line(_numbered(), 10))
+        nearby, removed = worktree_snap.since_both(self.root, prior, current)
+        self.assertIsNone(removed)
+
+
+def _since_or_raised(case, mod, after):
+    try:
+        return case.since(after, mod=mod)[1]
+    except Exception as exc:  # noqa: BLE001  (a raise is a differing result)
+        return ("raised", type(exc).__name__, str(exc))
+
+
+# One text replacement per mutant of the CR-01 / WR-02 guards.
+M6_QUOTED_SKIPPED = (("    if path.startswith('\"') or \"\\ufffd\" in path:\n"
+                      "        raise UndecodablePath()\n",
+                      "    if path.startswith('\"') or \"\\ufffd\" in path:\n"
+                      "        return None\n"),)
+M7_NO_QUOTEPATH = (('    text = _git(root, ["-c", "core.quotePath=false", '
+                    '"diff", *DIFF_FLAGS,\n',
+                    '    text = _git(root, ["diff", *DIFF_FLAGS,\n'),)
+M8_TAB_KEPT = (('    if path.endswith("\\t"):\n        path = path[:-1]\n'
+                '    if path == "/dev/null":\n',
+                '    if path == "/dev/null":\n'),)
+M9_NO_NEWLINE_READ = (('        if tag == "\\\\":\n            continue\n'
+                       '        if tag not in (" ", "-", "+"):\n',
+                       '        if tag not in (" ", "-", "+"):\n'),)
+M10_FFFD_ACCEPTED = (("    if path.startswith('\"') or \"\\ufffd\" in path:\n",
+                      "    if path.startswith('\"'):\n"),)
+
+
+class TestQuoteAndBodyMutants(_NamedRepo, unittest.TestCase):
+    """Each CR-01 / WR-02 guard is load-bearing: the mutant gives another
+    result on the named case while the real module gives the expected one
+    (the same input `TestQuotedNamesCR01` / `TestRemovedRiskyInputs` use)."""
+
+    # Each test runs the mutant on base -> change, puts the base back, and
+    # runs the real module on the same pair of trees.
+
+    def test_mutant_m6_quoted_name_skipped_fails_unknown(self):
+        """test_still_quoted_name_makes_removed_unknown"""
+        base = {QUOTED: _numbered(), F: _numbered()}
+        change = {QUOTED: _drop_line(_numbered(), 10),
+                  F: _drop_line(_numbered(), 3)}
+        self.base(base)
+        mutant = _load_module(SNAP_PY, "snap_m6", M6_QUOTED_SKIPPED)
+        got = _since_or_raised(self, mutant, lambda: self.files(change))
+        self.assertEqual(got, {F: [[3, 3]]})
+        self.files(base)
+        self.assertIsNone(self.since(lambda: self.files(change))[1])
+
+    def test_mutant_m7_no_quotepath_fails_non_ascii(self):
+        """test_non_ascii_name_lists_the_removed_line. Without the flag the
+        name prints quoted, so the fail-safe makes the value unknown (None:
+        re-ask every move) instead of listing the line."""
+        self.base({NON_ASCII: _numbered()})
+        change = {NON_ASCII: _drop_line(_numbered(), 10)}
+        mutant = _load_module(SNAP_PY, "snap_m7", M7_NO_QUOTEPATH)
+        self.assertIsNone(
+            _since_or_raised(self, mutant, lambda: self.files(change)))
+        self.files({NON_ASCII: _numbered()})
+        self.assertEqual(self.since(lambda: self.files(change))[1],
+                         {NON_ASCII: [[10, 10]]})
+
+    def test_mutant_m8_tab_kept_fails_space_name(self):
+        """test_space_name_strips_the_trailing_tab"""
+        self.base({SPACE_NAME: _numbered()})
+        change = {SPACE_NAME: _drop_line(_numbered(), 10)}
+        mutant = _load_module(SNAP_PY, "snap_m8", M8_TAB_KEPT)
+        self.assertEqual(
+            _since_or_raised(self, mutant, lambda: self.files(change)),
+            {SPACE_NAME + "\t": [[10, 10]]})
+        self.files({SPACE_NAME: _numbered()})
+        self.assertEqual(self.since(lambda: self.files(change))[1],
+                         {SPACE_NAME: [[10, 10]]})
+
+    def test_mutant_m9_no_newline_marker_read_fails(self):
+        """test_no_newline_marker_inside_a_deleting_hunk"""
+        self.base({F: _numbered(last_newline=False)})
+        new = _drop_line(_numbered(last_newline=False), 10)
+        new = new.rsplit("\n", 1)[0] + "\nline_12 = 'replaced'"
+        mutant = _load_module(SNAP_PY, "snap_m9", M9_NO_NEWLINE_READ)
+        got = _since_or_raised(self, mutant, lambda: self.files({F: new}))
+        self.assertEqual(got[:2], ("raised", "SnapUnavailable"))
+        self.files({F: _numbered(last_newline=False)})
+        self.assertEqual(self.since(lambda: self.files({F: new}))[1],
+                         {F: [[10, 10], [12, 12]]})
+
+    def test_mutant_m10_fffd_accepted_fails_not_utf8(self):
+        """test_name_not_valid_utf8_makes_removed_unknown"""
+        self.base({F: _numbered()})
+        mk = TestRemovedRiskyInputs._mktree
+        prior = mk(self, b"caf\xe9.py", _numbered())
+        current = mk(self, b"caf\xe9.py", _drop_line(_numbered(), 10))
+        mutant = _load_module(SNAP_PY, "snap_m10", M10_FFFD_ACCEPTED)
+        self.assertEqual(mutant.since_both(self.root, prior, current)[1],
+                         {"caf\ufffd.py": [[10, 10]]})
+        self.assertIsNone(
+            worktree_snap.since_both(self.root, prior, current)[1])
+
+
 if __name__ == "__main__":
     unittest.main()
