@@ -1302,6 +1302,39 @@ def two_decisions_scenario(test, kind, evidence="real"):
     return s2, hA, hB, repo
 
 
+TITLE_C = "Unchecked return at C"
+NEIGHBOUR_NEAR_LINE = 53  # old line; 52 after the deletion, 3 from line 49
+NEIGHBOUR_FAR_LINE = 30   # old line; 29 after the deletion, 20 from line 49
+
+
+def neighbour_scenario(test, kind):
+    """A forced re-ask beside other decisions (review item WR-01). Pass 1:
+    `bugs` A at line 10 (identical text already at old line 50), `bugs` B
+    (TITLE_B) at old line 53 and `bugs` C (TITLE_C) at old line 30, all
+    decided `kind`. Between the passes only line 10 is deleted: A moves to
+    49 off a removed line (the forced re-ask), while B and C only shift up
+    one line (to 52, 3 lines from 49, and to 29, 20 lines from 49). No
+    pass-2 finding, real evidence. -> (s2, hA, hB, hC, repo)."""
+    L0 = base_file()
+    L0[SHAPE1_COPY_LINE - 1] = L0[9]
+    s1, r1 = run_pass(
+        empty_state(), L0,
+        [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
+         fresh("bugs", NEIGHBOUR_NEAR_LINE, L0, TITLE_B, conf=STABLE_CONF),
+         fresh("bugs", NEIGHBOUR_FAR_LINE, L0, TITLE_C, conf=STABLE_CONF)],
+        1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 3, r1
+    by_line = {f["line"]: f["stable_hash"] for f in r1["findings"]}
+    hA, hB, hC = (by_line[10], by_line[NEIGHBOUR_NEAR_LINE],
+                  by_line[NEIGHBOUR_FAR_LINE])
+    for h in (hA, hB, hC):
+        s1 = decide_on(s1, h, kind=kind)
+    L1 = list(L0)
+    del L1[9]
+    s2, repo = real_pass2(test, s1, L0, L1, lambda lines: [])
+    return s2, hA, hB, hC, repo
+
+
 def member_move_scenario(test, kind):
     """A decided obligation MEMBER moved off a removed line. Pass 1: `bugs` A
     at line 10 (identical text already at old line 50) decided `kind`. Pass
@@ -4528,6 +4561,24 @@ class _Shape1Bodies(_RealChain):
         self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
         self.assert_reopens(s2, hB, 29)
 
+    def _body_neighbour(self, kind):
+        """WR-01, owner-accepted known behaviour (2026-11-19): the forced
+        pair is a one-line range that the scorer reads with its usual
+        5-line window, so a second decision 3 lines from the relocated line
+        is re-asked too, although its code only shifted; one 20 lines away
+        is kept."""
+        s2, hA, hB, hC, repo = neighbour_scenario(self, kind)
+        self.assertEqual(repo.removed, {F: [[10, 10]]})
+        self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
+        near = NEIGHBOUR_NEAR_LINE - 1
+        self.assertEqual(near - (SHAPE1_COPY_LINE - 1), 3)
+        self.assert_reopens(s2, hB, near)
+        far = self._current(s2, hC)
+        self.assertEqual(far["line"], NEIGHBOUR_FAR_LINE - 1)
+        self.assertEqual((SHAPE1_COPY_LINE - 1) - far["line"], 20)
+        self.assertEqual(carry_state.decision_state(far, s2), "current")
+        self.assertNotIn("nearby_at", row_of(s2, hC)["snapshot"])
+
     def _body_member(self, kind):
         s3, hA, _, moves = member_move_scenario(self, kind)
         rec = record_of(s3, hA)
@@ -4620,6 +4671,19 @@ class TestShape1DeletedOriginal(_Shape1Bodies):
         for kind in SHAPE1_KINDS:
             with self.subTest(kind=kind):
                 self._body_two_decisions(kind)
+
+    def test_wr01_neighbour_of_forced_reask_is_reasked_owner_accepted(self):
+        """Owner-accepted known behaviour (owner ruling 2026-11-19, review
+        item WR-01): when a moved decision is force-re-asked, another
+        deferred or dismissed decision within 5 lines of the relocated line
+        is re-asked as well (stale, cause nearby), even though its own code
+        only shifted. This only over-asks; it never keeps a decision
+        silently, and score.py is not changed to narrow it. A decision 20
+        lines away keeps. Locked so a change to this behaviour is a
+        deliberate one."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_neighbour(kind)
 
     def test_shape1_member_move_is_reasked(self):
         """A decided obligation member moved off a removed line is recorded
@@ -4888,6 +4952,54 @@ class TestForcedReaskMutants(_Shape1Bodies, _Differential):
     def test_mutant_a_never_forces(self):
         self._trips(sys.modules[__name__], "forced_reask_pairs",
                     lambda moves, removed: {}, self._body_reasked)
+
+    def test_mutant_a_never_forces_trips_the_neighbour_lock(self):
+        self._trips(sys.modules[__name__], "forced_reask_pairs",
+                    lambda moves, removed: {}, self._body_neighbour)
+
+    def test_mutant_moved_record_only_trips_the_neighbour_lock(self):
+        """The rejected WR-01 alternative, stamp only the moved record,
+        simulated without editing score.py: the forced one-line ranges count
+        for a record only at their exact line (no 5-line window), while
+        every other range keeps the scorer's window. The moved decision is
+        still re-asked, the neighbour comes back current, and the lock
+        fails."""
+        real_pairs = forced_reask_pairs
+        real_near = score._nearby_changed
+        forced = {}
+
+        def pairs(moves, removed):
+            out = real_pairs(moves, removed)
+            forced.clear()
+            forced.update(out)
+            return out
+
+        def near(record, ranges):
+            if not forced or not isinstance(ranges, dict):
+                return real_near(record, ranges)
+            spans = {f: [s for s in v if s not in forced.get(f, [])]
+                     for f, v in ranges.items()}
+            line = score._as_line(record.get("line"))
+            exact = [line, line] in forced.get(record.get("file"), [])
+            return exact or real_near(record, spans)
+
+        def body(kind):
+            forced.clear()
+            self._body_neighbour(kind)
+
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                body(kind)
+                with mock.patch.object(sys.modules[__name__],
+                                       "forced_reask_pairs", pairs), \
+                        mock.patch.object(score, "_nearby_changed", near):
+                    s2, hA, hB, _, _ = neighbour_scenario(self, kind)
+                    with self.assertRaises(AssertionError):
+                        body(kind)
+                self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
+                rec = self._current(s2, hB)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "current")
 
     def test_mutant_b_no_evidence_read_as_nothing_removed(self):
         real = forced_reask_pairs
