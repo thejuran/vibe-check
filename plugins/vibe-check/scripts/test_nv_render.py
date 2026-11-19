@@ -165,6 +165,7 @@ DECIDED_RELOCATION_PHRASES = (
     "a null canonical stays `fixed-since-last` for an ordinary record",
     "`snapshot.nearby_at`",
     "general relocation stays out of scope",
+    "`$MOVED_DECIDED`",
 )
 
 # Whole-file phrases the decided rule depends on: the NV heading (Phase 53

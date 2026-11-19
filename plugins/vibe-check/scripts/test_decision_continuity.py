@@ -233,6 +233,49 @@ def fresh(agent, line, lines, title, conf=70, severity="warning",
             "canonical_line_content": code}
 
 
+def forced_reask_pairs(moves, removed):
+    """The forced re-ask of a moved decided record (999.44 shape 1),
+    simulating the rule in 30-collect-score.md step 2 for the moves step 0
+    remembered in `$MOVED_DECIDED`.
+
+    A move is re-asked when the evidence is empty (`removed` is None: the
+    printed `REMOVED_LINE_RANGES=` value is empty, so removal cannot be ruled
+    out) or when `removed` lists a range for the move's `file` that contains
+    the move's `stored_line` (the owner's own decided line is gone, so the
+    identical text found elsewhere is other code). -> {file: [[line, line],
+    ...]} of the relocated lines, in move order; `{}` when nothing is
+    forced."""
+    pairs = {}
+    for mv in moves:
+        spans = None if removed is None else removed.get(mv["file"]) or []
+        if spans is None or any(a <= mv["stored_line"] <= b
+                                for a, b in spans):
+            pairs.setdefault(mv["file"], []).append([mv["line"], mv["line"]])
+    return pairs
+
+
+def stamp_map_with_pairs(env, pairs):
+    """Merge forced `pairs` into the map the decision stamp reads, in place
+    on `env`: the caller's `nearby_line_ranges`, or `changed_line_ranges`
+    when it sent none. A pair whose line already lies inside a range of that
+    map is dropped (the move is re-asked already). When a pair remains,
+    `nearby_line_ranges` becomes a deep copy of the map with every range it
+    held kept and the pairs appended; otherwise `env` is left untouched.
+    `changed_line_ranges` is never changed (it feeds the score)."""
+    base = (env["nearby_line_ranges"] if "nearby_line_ranges" in env
+            else env["changed_line_ranges"])
+    merged = json.loads(json.dumps(base))
+    added = False
+    for file, spans in pairs.items():
+        for line, _ in spans:
+            if any(a <= line <= b for a, b in merged.get(file, [])):
+                continue
+            merged.setdefault(file, []).append([line, line])
+            added = True
+    if added:
+        env["nearby_line_ranges"] = merged
+
+
 def run_pass(state, lines, findings, n, ranges, decided=frozenset(),
              removed=NOTHING_REMOVED, **over):
     """(new state, score result) for pass `n` through the real scorer.
@@ -255,6 +298,7 @@ def run_pass(state, lines, findings, n, ranges, decided=frozenset(),
     # An override of None removes the key (an envelope written before it).
     for k in [k for k, v in over.items() if v is None]:
         del env[k]
+    stamp_map_with_pairs(env, forced_reask_pairs(moves, removed))
     result = score.run(env)
     return append_pass(state, result, n, "h%d" % n), result
 
@@ -3148,6 +3192,13 @@ class TestCrossModuleGuards(_Base):
                 self.assertIn(test_nv_render.norm(phrase),
                               test_nv_render.norm(section))
         self.assertTrue(test_nv_render.decided_relocation_holds(collect))
+        forced = " ".join(forced_reask_pairs.__doc__.split())
+        for phrase in ("30-collect-score.md", "`$MOVED_DECIDED`",
+                       "`stored_line`", "the evidence is empty",
+                       "contains the move's `stored_line`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, forced)
+        self.assertTrue(test_nv_render.forced_reask_holds(collect))
 
     def _assert_decided_matches(self, state):
         recs = carry_state.open_findings(state)
