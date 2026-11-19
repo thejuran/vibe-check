@@ -93,7 +93,7 @@ Plans:
 
 - [x] 66-10-PLAN.md — `worktree_snap.py collect` also reports reviewed-side lines removed since the review; two-sided differential vs 2.15.0 and mutation checks
 - [x] 66-11-PLAN.md — Review step 0/2 prose and simulator re-ask a decision moved off a removed line; shape 1 tests pass without expectedFailure; differential vs literal 2.15.0 and mutation checks
-- [ ] 66-12-PLAN.md — Shape 1 end to end through the real fences and Close out; full suite, stdlib, replay vs 2.15.0; 999.44 / validation / replay records
+- [x] 66-12-PLAN.md — Shape 1 end to end through the real fences and Close out; full suite, stdlib, replay vs 2.15.0; 999.44 / validation / replay records
 
 ### Phase 67: Trusted incremental scope
 
