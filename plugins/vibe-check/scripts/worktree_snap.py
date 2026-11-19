@@ -20,15 +20,34 @@ Two calls per pass:
   leftover). Nothing is written under `.turingmind/` (Phase 0.7's first-run
   check keys on it) or `.git` at this point.
 - `collect`, at Phase 3, consumes that snapshot (its objects move into the
-  store) and prints exactly two lines:
+  store) and prints exactly three lines:
 
     REVIEWED_TREE=<object id>      what this pass reviewed, or empty
     NEARBY_LINE_RANGES=<json>      lines changed since what the last pass
                                    reviewed, or empty when that is unknown
+    REMOVED_LINE_RANGES=<json>     reviewed-side lines removed or replaced
+                                   since what the last pass reviewed, or
+                                   empty when that is unknown
 
-  Both are the snapshot's, and only while the code is still the same at
+  `REMOVED_LINE_RANGES=` holds the OLD-side numbers (the last pass's
+  reviewed code) of the lines the since-review diff deletes or replaces,
+  keyed by the reviewed-side path. An insertion next to a line does not list
+  that line, so a deleted line and a line that only shifted can be told
+  apart. `{}` means the evidence is known and nothing was removed; empty
+  means unknown. It is empty whenever `NEARBY_LINE_RANGES=` is, and also
+  when the diff names a reviewed-side file git still quotes under
+  core.quotePath=false (a `"`, `\\` or control character in the name) or
+  whose name is not valid UTF-8: such a file cannot be keyed by the name a
+  finding carries (66 review CR-01). `NEARBY_LINE_RANGES=` is left as it
+  was for that diff, so its first two lines stay those of 2.15.0. The diff
+  runs with core.quotePath=false, so a non-ASCII name is listed under its
+  real name in both values. It is parsed from the same single since-review
+  diff text (no extra git call), is used only by the review's decided-record
+  relocation, and is never sent to score.py.
+
+  All three are the snapshot's, and only while the code is still the same at
   collect time. If the working tree, range end or PR head moved after the
-  snapshot, or there is none, BOTH are empty: recording the newer state would
+  snapshot, or there is none, ALL are empty: recording the newer state would
   tell the next pass "nothing changed" about code the reviewers never read,
   and ranges against the newer state are not in the line numbers the
   reviewers' findings use. Empty values make this pass and the next one stamp
@@ -112,6 +131,11 @@ USAGE = ("usage: worktree_snap.py take --root <repo top> "
 
 class SnapUnavailable(Exception):
     """This half cannot be produced; print the key with an empty value."""
+
+
+class UndecodablePath(Exception):
+    """A reviewed-side file name in the diff cannot be read as the name a
+    finding carries, so the removed lines of the whole diff are unknown."""
 
 
 def _git(root, args, env=None, stdin=None):
@@ -220,25 +244,120 @@ def _treeish(root, env, oid):
         raise SnapUnavailable("not a tree or commit")
 
 
-def since(root, prior, current=None):
-    """Exact changed-line ranges of `current` (a tree or commit id; None =
-    the live working tree, which `collect` never uses) against `prior`. An unchanged id is `{}` with no git call,
-    so an unchanged PR head needs no local objects."""
+def _old_path(line):
+    """The old-side path of a `--- ` header, or None for `/dev/null` (an
+    added file has no reviewed side). git appends a tab to a name holding a
+    space; it is stripped. Raises UndecodablePath for a name git still
+    C-quotes under core.quotePath=false (one holding `"`, `\\` or a control
+    character) or one that is not valid UTF-8 (decoded with U+FFFD): its
+    removed lines cannot be keyed by the name a finding carries, and
+    skipping it would print "known, nothing removed" (66 review CR-01)."""
+    path = line[4:]
+    if path.endswith("\t"):
+        path = path[:-1]
+    if path == "/dev/null":
+        return None
+    if path.startswith('"') or "\ufffd" in path:
+        raise UndecodablePath()
+    return path[2:] if path.startswith("a/") else path
+
+
+def _walk_removed(lines, i, match, path, out):
+    """Consume one hunk body starting at lines[i] against the header's
+    old/new budgets, recording the old-side number of every `-` line under
+    `path`; return the next index."""
+    old_line = int(match.group(1))
+    old_left = diff_ranges._count(match.group(2))
+    new_left = diff_ranges._count(match.group(4))
+    while old_left > 0 or new_left > 0:
+        if i >= len(lines):
+            raise diff_ranges.RangeError(diff_ranges.REASON_SHORT_BODY)
+        body = lines[i]
+        i += 1
+        tag = body[:1] if body else " "
+        if tag == "\\":
+            continue
+        if tag not in (" ", "-", "+"):
+            raise diff_ranges.RangeError(diff_ranges.REASON_BAD_BODY_LINE)
+        if tag == "-" and path is not None:
+            out.setdefault(path, []).append([old_line, old_line])
+        if tag != "+":
+            old_line += 1
+            old_left -= 1
+        if tag != "-":
+            new_left -= 1
+        if old_left < 0 or new_left < 0:
+            raise diff_ranges.RangeError(diff_ranges.REASON_LONG_BODY)
+    return i
+
+
+def removed_from_diff(text):
+    """{path: [[start, end], ...]} of the OLD-side lines a unified diff
+    removes or replaces (its `-` lines), keyed by the old-side path. Hunk
+    bodies are consumed against their header's budgets, so a content line
+    that prints as `--- x` is never read as a file header. An added file
+    contributes nothing; a deleted file lists all its lines. Raises
+    diff_ranges.RangeError on a body shorter or longer than its header or
+    with an unknown line tag, and UndecodablePath when a reviewed-side name
+    cannot be decoded (the whole value is then unknown)."""
+    out = {}
+    path = None
+    lines = diff_ranges._split_lines(text)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if line.startswith("diff --"):
+            path = None
+            continue
+        if line.startswith("--- "):
+            path = _old_path(line)
+            continue
+        match = diff_ranges._HUNK.match(line)
+        if match is not None:
+            i = _walk_removed(lines, i, match, path, out)
+    return {p: diff_ranges._merge(out[p]) for p in sorted(out)}
+
+
+def since_both(root, prior, current=None):
+    """(changed ranges, removed lines) of `current` (a tree or commit id;
+    None = the live working tree, which `collect` never uses) against
+    `prior`, both parsed from ONE `git diff`: the new-side changed-line
+    ranges (`diff_ranges.ranges_from_diff`) and the old-side removed lines
+    (`removed_from_diff`). An unchanged id is `({}, {})` with no git call,
+    so an unchanged PR head needs no local objects.
+
+    The diff runs with core.quotePath=false, so a non-ASCII name prints raw
+    and is keyed by its real name (as closeout_fresh.py does). The removed
+    lines are None (unknown) when a reviewed-side name is still quoted or
+    not valid UTF-8; the changed ranges are unaffected by that."""
     if not OBJECT_ID_RE.match(prior or ""):
         raise SnapUnavailable("not an object id")
     if current is not None and current == prior:
-        return {}
+        return {}, {}
     env = _store_env(root)
     _treeish(root, env, prior)
     ends = [prior]
     if current is not None:
         _treeish(root, env, current)
         ends.append(current)
-    text = _git(root, ["diff", *DIFF_FLAGS, *ends, "--"], env=env)
+    text = _git(root, ["-c", "core.quotePath=false", "diff", *DIFF_FLAGS,
+                       *ends, "--"], env=env)
     try:
-        return diff_ranges.ranges_from_diff(text)
+        ranges = diff_ranges.ranges_from_diff(text)
+        try:
+            removed = removed_from_diff(text)
+        except UndecodablePath:
+            removed = None
     except diff_ranges.RangeError as exc:
         raise SnapUnavailable(str(exc))
+    return ranges, removed
+
+
+def since(root, prior, current=None):
+    """Exact changed-line ranges of `current` against `prior` (the first
+    half of `since_both`; same arguments and results as before)."""
+    return since_both(root, prior, current)[0]
 
 
 def _current(root, rng=None, pr_head=None):
@@ -351,18 +470,22 @@ def _consume_before(root, nonce, route):
 
 
 def collect(root, state_path, rng=None, pr_head=None, nonce=None):
-    """Phase 3 half -> (reviewed id or "", nearby ranges JSON or "", notes).
+    """Phase 3 half -> (reviewed id or "", nearby ranges JSON or "",
+    removed lines JSON or "", notes).
 
     The reviewed id is the one `take` recorded before the reviewed diff was
     collected, and only while what is there now is still the same: the same
     working tree, range end or PR head. If it moved during the pass (an edit,
-    a commit, a push), or this pass's snapshot is missing, BOTH values are
+    a commit, a push), or this pass's snapshot is missing, ALL values are
     empty. Recording the newer id would let the next pass see "nothing
     changed" for code the reviewers never read, and ranges computed against
     the newer state are not in the line numbers the reviewers' findings use;
     with both empty, this pass and the next stamp from changed_line_ranges,
     which can only re-ask. Otherwise the nearby ranges compare the PRIOR
-    pass's id with what is there now (the same state the reviewers read)."""
+    pass's id with what is there now (the same state the reviewers read),
+    and the removed lines come from the same diff. The removed value is
+    empty whenever the nearby value is, and also when a reviewed-side file
+    name in the diff cannot be decoded: unknown is never `{}`."""
     notes = []
     route = _route(rng, pr_head)
     before = _consume_before(root, nonce, route)
@@ -373,21 +496,28 @@ def collect(root, state_path, rng=None, pr_head=None, nonce=None):
         notes.append("current tree unknown: %s" % exc)
     if before is None:
         notes.append("nothing recorded: no snapshot taken for this pass")
-        return "", "", notes
+        return "", "", "", notes
     if before != current:
         notes.append("nothing recorded: the code changed during this pass")
-        return "", "", notes
+        return "", "", "", notes
     try:
-        nearby = json.dumps(
-            # Tree to tree, on every route: `current` is the id just matched
-            # against the snapshot. Diffing the live working tree instead
-            # would read whatever lands on disk after that match.
-            since(root, prior_tree(state_path), current),
-            separators=(",", ":"), sort_keys=True)
+        # Tree to tree, on every route: `current` is the id just matched
+        # against the snapshot. Diffing the live working tree instead
+        # would read whatever lands on disk after that match.
+        ranges, removed_lines = since_both(root, prior_tree(state_path),
+                                           current)
+        nearby = json.dumps(ranges, separators=(",", ":"), sort_keys=True)
+        if removed_lines is None:
+            removed = ""
+            notes.append("removed lines unknown: a reviewed-side file name "
+                         "git had to quote")
+        else:
+            removed = json.dumps(removed_lines, separators=(",", ":"),
+                                 sort_keys=True)
     except (SnapUnavailable, OSError) as exc:
-        nearby = ""
+        nearby, removed = "", ""
         notes.append("nearby ranges unavailable: %s" % exc)
-    return before, nearby, notes
+    return before, nearby, removed, notes
 
 
 def run(argv):
@@ -420,11 +550,13 @@ def run(argv):
     state_path = opts.get("--state")
     if state_path and not os.path.isfile(state_path):
         state_path = None  # pass 1: no state file yet
-    tree, nearby, notes = collect(root, state_path, opts.get("--range"),
-                                  opts.get("--pr-head"), opts.get("--before"))
+    tree, nearby, removed, notes = collect(
+        root, state_path, opts.get("--range"), opts.get("--pr-head"),
+        opts.get("--before"))
     for note in notes:
         sys.stderr.write(note + "\n")
-    sys.stdout.write("REVIEWED_TREE=%s\nNEARBY_LINE_RANGES=%s\n" % (tree, nearby))
+    sys.stdout.write("REVIEWED_TREE=%s\nNEARBY_LINE_RANGES=%s\n"
+                     "REMOVED_LINE_RANGES=%s\n" % (tree, nearby, removed))
     return 0
 
 

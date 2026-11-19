@@ -32,6 +32,7 @@ that evidence, the fixer's check alone, or the lane's absence never closes the
 item.
 """
 
+import ast
 import json
 import os
 import sys
@@ -1510,6 +1511,59 @@ class TestOneRowApplySelected(unittest.TestCase):
         mutant = text.replace(bullet, ONE_ROW_BULLET + ' write `{"all": true}` '
                               "to `$ANSWERFILE` and go to Step B.")
         self.assertFalse(one_row_sends_pick_holds(mutant))
+
+
+# The helper's file name, built in two parts so this file's own text never
+# names it whole.
+HELPER_FILE = "finalize_inputs" + ".py"
+
+
+def helper_uses(src):
+    """[(line, what)] for each way `src` could run the Finalize-inputs helper:
+    any `finalize_inputs.<name>` other than COUNT_KEYS, any name imported from
+    finalize_inputs, or the helper's file named in a string."""
+    found = []
+    for node in ast.walk(ast.parse(src)):
+        if (isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "finalize_inputs"
+                and node.attr != "COUNT_KEYS"):
+            found.append((node.lineno, "finalize_inputs." + node.attr))
+        elif (isinstance(node, ast.ImportFrom)
+              and node.module == "finalize_inputs"):
+            found.append((node.lineno, "from finalize_inputs import"))
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
+              and HELPER_FILE in node.value):
+            found.append((node.lineno, HELPER_FILE))
+    return found
+
+
+class TestFinalizeFixturesBindReviewedTree(unittest.TestCase):
+    """A state here with a current owner decision (the dismissed
+    Needs-verification item in TestFinalizeCountsConfirmedFix) is only ever
+    counted by carry_state, which reads no repo; none reaches the
+    Finalize-inputs helper, so none needs a reviewed tree. A test that starts
+    running the helper on such a state must first put it on a reviewed tree
+    (test_finalize_inputs.bind_reviewed_tree); this lock makes that a
+    deliberate step."""
+
+    def test_decision_bearing_states_bind_reviewed_tree(self):
+        decided = state_with(nv_row(), fix_verdicts={NVH: applied_verdict()},
+                             decisions={NVH: {"decision": "dismiss",
+                                              "at_pass": 1,
+                                              "reason": "accepted risk"}})
+        self.assertEqual(
+            [carry_state.decision_state(r, decided)
+             for r in carry_state.open_findings(decided)], ["current"])
+        with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(helper_uses(src), [])
+        # Mutants: each way of running the helper is found.
+        for snippet in ("finalize_inputs.run([])\n",
+                        "from finalize_inputs import run\n",
+                        "HELPER = 'scripts/%s'\n" % HELPER_FILE):
+            with self.subTest(mutant=snippet.strip()):
+                self.assertEqual(len(helper_uses(src + snippet)), 1)
 
 
 if __name__ == "__main__":

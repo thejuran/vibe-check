@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (sibling module: KNOWN_FLAGS, build_rows)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import carry_state  # noqa: E402  (sibling module: KNOWN_FLAGS)
+import closeout_fresh  # noqa: E402  (sibling module: the refusal CAUSES)
 import finalize_gate  # noqa: E402  (sibling module: FLAGS, the REVIEW.md stamp)
 import footprint  # noqa: E402  (sibling module: MODE_PATHS)
 import gitfixture  # noqa: E402  (shared temp-repo helper)
@@ -43,6 +44,9 @@ from finalize_inputs import NEXT_ACTIONS  # noqa: E402  (the next-action vocabul
 from test_batch_card import HB, successor_state  # noqa: E402
 from test_carry_state import (ARCH_FILE, ARCH_HASH, load_fixture,  # noqa: E402
                               obsolete_verdict)
+from test_finalize_inputs import (bind_reviewed_tree,  # noqa: E402
+                                  check_decided_fixture, decided_files,
+                                  open_files, reviewed_files)
 from test_pause_batching import FINALIZE_MD, PINS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2072,6 +2076,186 @@ def inputs_block_holds(text):
 
 
 RETRY_HEAD = "**One automatic rebuild, then stop (D-07/D-08).**"
+# --------------------------------------------------------------------------- #
+# The freshness refusal: `stop-review-again`.
+# --------------------------------------------------------------------------- #
+REVIEW_AGAIN_HEADER = "- `stop-review-again` —"
+# Each phrase the bullet must carry (D-01, D-02, D-03, D-06, D-09, D-13,
+# D-15), with the reason it is there.
+REVIEW_AGAIN_NEEDLES = (
+    # D-01: the to-do list header and row shape, by the existing join rule.
+    'Print: "Cannot finalize — {{N}} decision(s) were made on code that has '
+    'changed since the review:"',
+    "each entry of `stale`",
+    "`{{file}}:{{line}} — {{title}} ({{kind}}; {{cause sentence}})`",
+    "by the join rule above",
+    "`deferred` or `dismissed`",
+    # The six cause sentences, one per token (D-01, D-06, D-09, WR-01).
+    "`line` → that line changed",
+    "`nearby` → code near it changed",
+    "`deleted` → the file was deleted or renamed",
+    "`untracked` → the file is not tracked by git",
+    "`unverifiable` → it could not be checked against the reviewed code",
+    "`flagged` → git is set to ignore edits to the file (skip-worktree or "
+    "assume-unchanged)",
+    # D-01: the cap.
+    "at most 10 rows",
+    "+{{N}} more",
+    # D-02: the same-scope review command, per route.
+    "`/review{{ <phase>}}`",
+    "`/review <ref>`",
+    "`/review <range>`",
+    "`/review --all{{ <narrow>}}`",
+    "`/deep-review`",
+    "A review starts the (paid) reviewers; Close out never starts them.",
+    # D-13 and D-15: the next step that clears the refusal.
+    "First add the file to git (`git add` or `git add -N`), then review "
+    "again.",
+    "Commit or revert the edits near these lines, or check out the reviewed "
+    "commit, then review again.",
+    # WR-01: the next step that clears a `flagged` refusal.
+    "When any entry's cause is `flagged`, add: \"Clear the flag "
+    "(`git update-index --no-skip-worktree <file>` or "
+    "`git update-index --no-assume-unchanged <file>`), then review again.\"",
+    # D-03: nothing written, and stop.
+    "Do NOT write REVIEW.md or archive state.",
+    "No asks, no writes, and stop.",
+)
+# Wording that would start a paid reviewer from the refusal (D-02).
+REVIEW_AGAIN_FORBIDDEN = ("dispatch", "phase 1", "run the reviewers")
+
+
+def review_again_bullet(text):
+    """The `stop-review-again` bullet with its sub-bullets (up to the next
+    top-level bullet or the blank line ending the list), or ""."""
+    i = text.find(REVIEW_AGAIN_HEADER)
+    if i < 0:
+        return ""
+    ends = [e for e in (text.find("\n- ", i), text.find("\n\n", i))
+            if e >= 0]
+    return text[i:min(ends) if ends else len(text)]
+
+
+def review_again_bullet_holds(text):
+    """Problems with the freshness refusal's prose (empty = none)."""
+    bullet = review_again_bullet(text)
+    if not bullet:
+        return ["no `stop-review-again` bullet"]
+    problems = ["stop-review-again bullet lacks: " + n
+                for n in REVIEW_AGAIN_NEEDLES if n not in bullet]
+    low = bullet.lower()
+    problems += ["stop-review-again bullet says: " + n
+                 for n in REVIEW_AGAIN_FORBIDDEN if n in low]
+    refused = text.find("- `stop-refused`")
+    if refused < 0 or text.find(REVIEW_AGAIN_HEADER) < refused:
+        problems.append("stop-review-again bullet is not after stop-refused")
+    return problems
+
+
+class TestReviewAgainProse(LockCase):
+    """The refusal Close out gives when a decision went stale: a to-do list,
+    the same-scope review command, never a reviewer started, nothing
+    written."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, review_again_bullet(self.text))
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def _trips_without(self, *phrases):
+        for phrase in phrases:
+            with self.subTest(removed=phrase[:50]):
+                self.assert_trips(review_again_bullet_holds,
+                                  self._mutant(phrase))
+
+    def test_review_again_bullet_holds(self):
+        self.assert_holds(review_again_bullet_holds, self.text)
+
+    def test_every_needle_is_required(self):
+        self._trips_without(*REVIEW_AGAIN_NEEDLES)
+
+    def test_mutant_header_removed(self):
+        self.assert_trips(review_again_bullet_holds,
+                          self.text.replace(REVIEW_AGAIN_HEADER, "- `gone` —"))
+
+    def test_mutant_row_shape(self):
+        self._trips_without(
+            "`{{file}}:{{line}} — {{title}} ({{kind}}; {{cause sentence}})`",
+            "by the join rule above", "each entry of `stale`")
+
+    def test_mutant_cause_sentences(self):
+        self._trips_without(*[n for n in REVIEW_AGAIN_NEEDLES if " → " in n])
+
+    def test_mutant_cap(self):
+        self._trips_without("at most 10 rows", "+{{N}} more")
+
+    def test_mutant_route_commands(self):
+        self._trips_without("`/review{{ <phase>}}`", "`/review <ref>`",
+                            "`/review <range>`", "`/review --all{{ <narrow>}}`",
+                            "`/deep-review`")
+
+    def test_mutant_paid_reviewer_sentence(self):
+        self._trips_without(
+            "A review starts the (paid) reviewers; Close out never starts them.")
+
+    def test_mutant_untracked_next_step(self):
+        self._trips_without("First add the file to git (`git add` or "
+                            "`git add -N`), then review again.")
+
+    def test_mutant_flagged_next_step(self):
+        self._trips_without(
+            "`flagged` → git is set to ignore edits to the file "
+            "(skip-worktree or assume-unchanged)",
+            "`git update-index --no-skip-worktree <file>`",
+            "`git update-index --no-assume-unchanged <file>`")
+
+    def test_flagged_sentence_names_every_cause(self):
+        # One cause sentence per closeout_fresh cause token.
+        bullet = review_again_bullet(self.text)
+        for cause in closeout_fresh.CAUSES:
+            with self.subTest(cause=cause):
+                self.assertIn("`%s` → " % cause, bullet)
+
+    def test_mutant_pr_range_next_step(self):
+        self._trips_without("Commit or revert the edits near these lines, or "
+                            "check out the reviewed commit, then review again.")
+
+    def test_mutant_writes_nothing(self):
+        self._trips_without("Do NOT write REVIEW.md or archive state.")
+
+    def test_mutant_and_stop(self):
+        self._trips_without("No asks, no writes, and stop.")
+
+    def test_mutant_dispatch_inserted(self):
+        anchor = "No asks, no writes, and stop."
+        self.assert_trips(review_again_bullet_holds, self._mutant(
+            anchor, anchor + " Then dispatch the reviewers."))
+
+    def test_mutant_run_the_reviewers_inserted(self):
+        anchor = "No asks, no writes, and stop."
+        self.assert_trips(review_again_bullet_holds, self._mutant(
+            anchor, "Run the reviewers now (Phase 1). " + anchor))
+
+    def test_mutant_bullet_moved_before_stop_refused(self):
+        bullet = review_again_bullet(self.text)
+        refused = self.text.index("- `stop-refused`")
+        moved = self.text.replace(bullet + "\n", "", 1)
+        moved = moved[:refused] + bullet + "\n" + moved[refused:]
+        self.assertNotEqual(moved, self.text)
+        self.assert_trips(review_again_bullet_holds, moved)
+
+    def test_retry_rule_names_review_again(self):
+        needle = "A `next` of `stop-review-again` is never retried."
+        self.assertIn(needle, RETRY_NEEDLES)
+        self.assert_holds(retry_rule_holds, self.text)
+        self.assertIn(needle, self.text)
+        self.assert_trips(retry_rule_holds, self.text.replace(needle, ""))
+
+
 RETRY_NEEDLES = (
     "run the SAME fence again ONCE",
     "it mints and prints a NEW `BLOBFILE=`",
@@ -2082,6 +2266,7 @@ RETRY_NEEDLES = (
     "A second failure stops.",
     "Exit 5 stops at once",
     "A `next` of `stop-refused` is never retried.",
+    "A `next` of `stop-review-again` is never retried.",
 )
 RETRY_FORBIDDEN = ("GATEFILE", "Exit 5 is rebuilt")
 REFUSED_NEEDLES = (
@@ -2362,6 +2547,23 @@ class TestFinalizeFreshShellWalk(LockCase):
         shutil.copyfile(source, path)
         return path
 
+    def _new_repo(self):
+        """A fresh temp repo (isolated git config) under this test's folder."""
+        return gitfixture.make_repo(tempfile.mkdtemp(dir=self.tmp))
+
+    def _bound_six_row(self):
+        """(state file, repo): the six-row state with the six files the card
+        decides committed in a fresh repo and the last pass stamped with that
+        reviewed tree. The Finalize-inputs fence runs inside the repo."""
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            state = json.load(fh)
+        repo = self._new_repo()
+        bind_reviewed_tree(repo, state, reviewed_files(state,
+                                                       open_files(state)))
+        path = os.path.join(self.tmp, "state.json")
+        self._write_json(path, state)
+        return path, repo
+
     def _report(self, state_file):
         """What the 2.14.1 report fence printed for this state, run fresh."""
         rc, out, err = self._run_fresh(P7_FENCE_2141, state_file)
@@ -2422,7 +2624,9 @@ class TestFinalizeFreshShellWalk(LockCase):
     def _write_route_state(self):
         """The phase-45 loop state with every open finding dismissed through
         carry_state's own record_decisions (a state the helpers accept and
-        whose gate outcome is `write`)."""
+        whose gate outcome is `write`) -> (state file, repo). The decided
+        files are committed in a fresh repo and the last pass is stamped with
+        that reviewed tree; the Finalize-inputs fence runs inside the repo."""
         state = load_fixture()
         counts = carry_state.finalize_counts(state)
         hashes = (counts["outstanding_cw_hashes"]
@@ -2434,9 +2638,74 @@ class TestFinalizeFreshShellWalk(LockCase):
             "decisions": [{"stable_hash": h, "decision": "dismiss",
                            "reason": "walk"} for h in hashes]})
         self.assertIsNotNone(state)
+        repo = self._new_repo()
+        bind_reviewed_tree(repo, state)
         path = os.path.join(self.tmp, "write-route.json")
         self._write_json(path, state)
-        return path
+        return path, repo
+
+    def _verdict_route_state(self):
+        """(state file, repo): the phase-45 loop state in a fresh repo whose
+        ARCH_FILE is committed, with a last-pass fix-obsolete verdict on that
+        HEAD blob. The other open file (the one the card decides) is
+        committed too and the last pass is stamped with that reviewed tree;
+        ARCH_FILE, and so the verdict, is left as it is."""
+        repo = self._new_repo()
+        gitfixture.write(repo, ARCH_FILE, "fixed\n")
+        gitfixture.git(repo, "add", "-A")
+        gitfixture.git(repo, "commit", "-q", "-m", "init")
+        blob = gitfixture.git(repo, "rev-parse",
+                              "HEAD:" + ARCH_FILE).stdout.strip()
+        s = load_fixture()
+        last = s["passes"][-1]
+        s["fix_verdicts"] = {ARCH_HASH: dict(
+            obsolete_verdict(at_pass=last["pass_number"], blob=blob),
+            head_sha=last["head_sha"])}
+        bind_reviewed_tree(repo, s, reviewed_files(
+            s, [f for f in open_files(s) if f != ARCH_FILE]))
+        state = os.path.join(self.tmp, "verdict.json")
+        self._write_json(state, s)
+        return state, repo
+
+    def test_decision_bearing_states_bind_reviewed_tree(self):
+        """Every state this walk runs the Finalize-inputs fence on with a
+        current owner decision (as built, or once the card's answers are
+        recorded) is on a reviewed tree in the repo the fence runs in, with
+        the decided files unchanged (all of these are write-path routes)."""
+
+        def dismiss_open(state):
+            return carry_state.record_decisions(state, {
+                "at_pass": state["passes"][-1]["pass_number"],
+                "decisions": [{"stable_hash": r["stable_hash"],
+                               "decision": "dismiss", "reason": "walk"}
+                              for r in carry_state.open_findings(state)]})
+
+        def load(path):
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh)
+
+        path, repo = self._write_route_state()
+        cases = [("write route", repo, load(path))]
+        path, repo = self._bound_six_row()
+        cases.append(("six-row card answered", repo, dismiss_open(load(path))))
+        path, repo = self._verdict_route_state()
+        answered = load(path)
+        answered = carry_state.record_decisions(answered, {
+            "at_pass": answered["passes"][-1]["pass_number"],
+            "decisions": [{"stable_hash": h, "decision": "dismiss",
+                           "reason": "walk"}
+                          for h in carry_state.finalize_counts(answered)
+                          ["unacknowledged_medium_hashes"]]})
+        cases.append(("verdict card answered", repo, answered))
+        for label, repo, state in cases:
+            with self.subTest(fixture=label):
+                self.assertTrue(decided_files(state))
+                self.assertEqual(check_decided_fixture(repo, state), [])
+        # Mutant: the same write route without its reviewed tree is caught.
+        path, repo = self._write_route_state()
+        bare = load(path)
+        del bare["passes"][-1]["reviewed_tree"]
+        self.assertNotEqual(check_decided_fixture(repo, bare), [])
 
     @staticmethod
     def _three(counts):
@@ -2446,8 +2715,8 @@ class TestFinalizeFreshShellWalk(LockCase):
     def test_walk_reaches_counts_gate_report(self):
         """The clean route: the fence prints BLOBFILE= and a result whose
         `next` is `write-review-md`, with the report bundle."""
-        state = self._write_route_state()
-        rc, blob, result, err = self._inputs(state)
+        state, repo = self._write_route_state()
+        rc, blob, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual(err, "")
         self.assertIsNotNone(blob)
@@ -2469,14 +2738,14 @@ class TestFinalizeFreshShellWalk(LockCase):
         fences with the printed BLOBFILE= literal, record-decisions (the one
         pre-`write` state write), then the fence again prints a NEW
         BLOBFILE= and `write-review-md`."""
-        state = self._state_copy(SIX_ROW_FIXTURE)
-        rc, blob1, result, err = self._inputs(state)
+        state, repo = self._bound_six_row()
+        rc, blob1, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual((result["action"], result["next"]),
                          ("outstanding-to-phase-5", "finalize-card"))
         self.assertIsNone(result["report"])
         decided = self._answer_card(blob1, state)
-        rc, blob2, result, err = self._inputs(state)
+        rc, blob2, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(blob2, blob1)
         self.assertEqual(result["next"], "write-review-md")
@@ -2514,14 +2783,14 @@ class TestFinalizeFreshShellWalk(LockCase):
         helper reads it -> the fence exits non-zero with the counting
         sentence; the rebuild (the same fence once more) prints a NEW
         BLOBFILE= and reaches `write-review-md`."""
-        state = self._write_route_state()
+        state, repo = self._write_route_state()
         rc, path1, result, err = self._inputs(
-            state, path_dir=self._mktemp_shim())
+            state, cwd=repo, path_dir=self._mktemp_shim())
         self.assertNotEqual(rc, 0)
         self.assertIsNone(result)
         self.assertEqual(err.splitlines()[-1], COUNTS_HALT)
         self.assertFalse(os.path.exists(path1))
-        rc, path2, result, err = self._inputs(state)
+        rc, path2, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(path1, path2)
         self.assertEqual(result["next"], "write-review-md")
@@ -2560,15 +2829,17 @@ class TestFinalizeFreshShellWalk(LockCase):
         fence of `text`: exactly the helper's one carry_state line, then the
         counting sentence (D-18), no traceback, no side file."""
         if case == "fingerprint file removed":
-            state, shim = self._write_route_state(), self._mktemp_shim()
+            (state, repo), shim = (self._write_route_state(),
+                                   self._mktemp_shim())
             want = [carry_state.REASON_HEAD_BLOBS.strip(), COUNTS_HALT]
         else:
             state = os.path.join(self.tmp, "not-json.json")
             with open(state, "w", encoding="utf-8") as fh:
                 fh.write("not json")
-            shim = None
+            repo, shim = None, None
             want = [carry_state.REASON_STATE_JSON.strip(), COUNTS_HALT]
-        rc, blob, _, err = self._inputs(state, text=text, path_dir=shim)
+        rc, blob, _, err = self._inputs(state, text=text, cwd=repo,
+                                        path_dir=shim)
         problems = []
         if rc == 0:
             problems.append("exit 0")
@@ -2698,13 +2969,13 @@ class TestFinalizeFreshShellWalk(LockCase):
         read before the card still holds the pre-answer counts (5, 1, 0) and
         `finalize-card`; running the fence again recounts (0, 0, 0) and the
         gate returns `write-review-md`. Step 3 must say to do the second."""
-        state = self._state_copy(SIX_ROW_FIXTURE)
-        rc, blob1, before, err = self._inputs(state)
+        state, repo = self._bound_six_row()
+        rc, blob1, before, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertEqual(self._three(before["counts"]), (5, 1, 0))
         self.assertEqual(before["next"], "finalize-card")
         self._answer_card(blob1, state)
-        rc, blob2, after, err = self._inputs(state)
+        rc, blob2, after, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)
         self.assertNotEqual(blob2, blob1)
         self.assertEqual(self._three(after["counts"]), (0, 0, 0))
@@ -2719,19 +2990,7 @@ class TestFinalizeFreshShellWalk(LockCase):
         decides the rest. Re-run with nothing edited, the fence returns
         `write-review-md`; after an edit made while the card was open, the
         re-run (a NEW BLOBFILE=) reopens the finding and never writes."""
-        repo = gitfixture.make_repo(self.tmp)
-        gitfixture.write(repo, ARCH_FILE, "fixed\n")
-        gitfixture.git(repo, "add", "-A")
-        gitfixture.git(repo, "commit", "-q", "-m", "init")
-        blob = gitfixture.git(repo, "rev-parse",
-                              "HEAD:" + ARCH_FILE).stdout.strip()
-        s = load_fixture()
-        last = s["passes"][-1]
-        s["fix_verdicts"] = {ARCH_HASH: dict(
-            obsolete_verdict(at_pass=last["pass_number"], blob=blob),
-            head_sha=last["head_sha"])}
-        state = os.path.join(self.tmp, "verdict.json")
-        self._write_json(state, s)
+        state, repo = self._verdict_route_state()
 
         rc, blob1, result, err = self._inputs(state, cwd=repo)
         self.assertEqual(rc, 0, err)

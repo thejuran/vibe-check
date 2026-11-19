@@ -894,6 +894,56 @@ def prepare_git_folder(workdir, files):
     return git_dir, blobs
 
 
+_SAFE_REL_RE = re.compile(r"^(?!/)(?!.*(?:^|/)\.\.?(?:/|$))[^\0\n]+$")
+
+
+def finding_files(vc_root, inputs):
+    """Every repo-relative `file` a finding of the situation's pinned fixture
+    names, in any pass, sorted. These are the files a decision recorded
+    before or during the walk can rest on. Plain JSON reading: nothing from
+    the pinned tree is imported."""
+    fixture = os.path.join(vc_root, *inputs["fixture"].split("/"))
+    with open(fixture, encoding="utf-8") as fh:
+        state = json.load(fh)
+    found = set()
+    for each_pass in state.get("passes", []):
+        for finding in each_pass.get("findings", []):
+            rel = finding.get("file") if isinstance(finding, dict) else None
+            if isinstance(rel, str) and _SAFE_REL_RE.match(rel):
+                found.add(rel)
+    return sorted(found)
+
+
+def reviewed_folder(vc_root, workdir, inputs):
+    """Make `workdir` the reviewed git work tree for the situation: every
+    file a finding names, plus every `head_blobs` file, committed at HEAD
+    (`prepare_git_folder`). Returns (git directory, {head_blobs file: real
+    blob id}). Close out keeps a deferred or dismissed decision only while
+    its file is in the last pass's reviewed tree and unchanged on disk, so
+    a decision-bearing situation walked outside a reviewed tree would be
+    refused for a missing baseline, not for anything the situation is
+    about."""
+    files = sorted(set(finding_files(vc_root, inputs))
+                   | set(inputs.get("head_blobs") or {}))
+    git_dir, blobs = prepare_git_folder(workdir, files)
+    return git_dir, {rel: blobs[rel] for rel in inputs.get("head_blobs")
+                     or {}}
+
+
+def stamp_reviewed_tree(workdir, state_file, git_dir):
+    """Stamp the last pass of the state at `state_file` with `reviewed_tree`
+    = the reviewed folder's HEAD tree, as the review does after reading it.
+    Plain JSON editing; `head_sha` and every other field are left as the
+    fixture has them."""
+    env = _git_env(os.path.dirname(git_dir))
+    tree = _git(["rev-parse", "HEAD^{tree}"], workdir, env).strip()
+    with open(state_file, encoding="utf-8") as fh:
+        state = json.load(fh)
+    state["passes"][-1]["reviewed_tree"] = tree
+    with open(state_file, "w", encoding="utf-8") as fh:
+        json.dump(state, fh)
+
+
 def _bind_real_blobs(inputs, real):
     """`inputs` with every verdict bound to a placeholder blob id rebound to
     the real blob of the same file."""
@@ -978,11 +1028,12 @@ class HelperWalk(FenceWalk2141):
         inputs = situation_inputs(situation_id, leg)
         walk = self.WALK(vc_root, workdir)
         self.last_walk = walk
+        walk.git_dir, walk.real_blobs = reviewed_folder(vc_root, workdir,
+                                                        inputs)
         if inputs.get("head_blobs"):
-            walk.git_dir, walk.real_blobs = prepare_git_folder(
-                workdir, sorted(inputs["head_blobs"]))
             inputs = _bind_real_blobs(inputs, walk.real_blobs)
         prepare_state(vc_root, situation_id, walk.state_file, inputs)
+        stamp_reviewed_tree(workdir, walk.state_file, walk.git_dir)
         if inputs.get("prior_review_md") is not None:
             with open(os.path.join(workdir, *REVIEW_REL.split("/")), "w",
                       encoding="utf-8") as fh:
@@ -1161,7 +1212,9 @@ def _old_counting_screen(vc_root, workdir, fault):
 def _new_counting_screen(vc_root, workdir, fault):
     walk = _HelperSteps(vc_root, workdir)
     inputs = situation_inputs("clean-close")
+    walk.git_dir, _ = reviewed_folder(vc_root, workdir, inputs)
     prepare_state(vc_root, "clean-close", walk.state_file, inputs)
+    stamp_reviewed_tree(workdir, walk.state_file, walk.git_dir)
     _, decision, rc = walk.attempt(inputs, {"blobfile": fault})
     if decision is not None or rc == 0:
         raise CaptureError("the Finalize-inputs fence did not refuse %r"
@@ -1191,7 +1244,9 @@ def _new_report_screen(vc_root, workdir, tree_dir):
     tree = report_stand_in_root(vc_root, tree_dir)
     walk = _HelperSteps(tree, workdir)
     inputs = situation_inputs("clean-close")
+    walk.git_dir, _ = reviewed_folder(tree, workdir, inputs)
     prepare_state(tree, "clean-close", walk.state_file, inputs)
+    stamp_reviewed_tree(workdir, walk.state_file, walk.git_dir)
     _, _, rc = walk.attempt(inputs)
     if rc != 5:
         raise CaptureError("the stand-in helper exited %d, not 5" % rc)

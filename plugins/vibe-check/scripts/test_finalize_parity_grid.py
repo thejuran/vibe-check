@@ -10,9 +10,15 @@ with the same interpreter and environment. A scenario agrees only when the
 fingerprint map, the three counts and the gate action are all equal.
 
 `TestStep1ScriptIsPinned` holds the script to the dd8e4ab text (each command
-line must appear there verbatim, in order) and asserts that the modules both
-sides share (`guard.py`, `carry_state.py`, `finalize_gate.py`, `fixcommit.py`)
-are byte-identical to dd8e4ab, so the 2.14.1 side really is 2.14.1.
+line must appear there verbatim, in order). The 2.14.1 side never runs the
+working-tree modules: `materialize_dd8e4ab` writes `guard.py`,
+`carry_state.py`, `finalize_gate.py` and `fixcommit.py` as committed at
+dd8e4ab into a temp folder, and the step-1 script, the counting command and
+the gate run from there, so the 2.14.1 side really is 2.14.1. `guard.py`,
+`finalize_gate.py` and `fixcommit.py` are also still pinned byte-identical
+to dd8e4ab in the working tree. `carry_state.py` is not: Phase 66 (999.44
+shape 2) edited `_covering`; the 2.14.1 side is now materialized from
+dd8e4ab.
 
 `TestParityGrid` builds temp-repo scenarios over a covering grid (every pair
 of axis values at least once, plus named regression rows) and compares the
@@ -26,6 +32,16 @@ Differences are handled narrowly, never by skipping:
   the name relative to the subfolder, match nothing and pass, so 2.14.1
   fingerprints the edited file; the helper must not. Only that exact shape of
   difference is allowed, and both sides' outcomes are asserted.
+- FRESHNESS_REFUSALS (owner decision D-09, fail closed): Close out refuses a
+  dismissal whose reviewed code it cannot compare with the code on disk.
+  Where the session's git cannot see the reviewed work tree (session
+  outside the repo, inside `.git`, git not on PATH, `core.worktree` or
+  `GIT_DIR` pointing elsewhere, a ceiling hiding the repo), the helper
+  refuses with `next: stop-review-again` while 2.14.1 wrote or opened the
+  card. Each such scenario is listed with its 2.14.1 outcome and the stale
+  cause; the helper's fingerprints and counts must equal 2.14.1's, only the
+  action differs. Exhaustive both ways: an unlisted refusal is unexpected,
+  and a listed one that no longer refuses fails.
 - KNOWN_DIFFERENCES: a shrink-only list of further differences awaiting an
   owner decision, each with both outcomes asserted. The test fails when an
   entry disappears or changes, so the list cannot rot.
@@ -44,6 +60,12 @@ config and every inherited `GIT_*` variable removed (gitfixture.helper_env,
 then the `GIT_*` keys dropped) and `GIT_CEILING_DIRECTORIES` at the temp root.
 Names reach git and the shell only as separate arguments; nothing derived
 from a scenario is run as code.
+
+Every grid state dismisses one finding (BUGS_HASH, in DECIDED_FILE). Each
+repo commits that file and the state's last pass carries the repo's
+reviewed commit and tree (`reviewed_tree`), so the dismissal rests on real
+reviewed code that is unchanged on disk; `TestGridStatesBindReviewedTree`
+holds every scenario to that.
 
 `TestNameFormGrid` adds what the first grid lacked (verification round 4,
 gap 5): the same file name at the top, in the session subfolder and one
@@ -89,21 +111,31 @@ sys.path.insert(0, SCRIPTS_DIR)
 import carry_state  # noqa: E402  (fixture building only: record_decisions)
 import gitfixture  # noqa: E402  (helper_env isolation)
 import guard  # noqa: E402  (the dd8e4ab module; the name-form model's guard)
+from test_finalize_inputs import (check_decided_fixture,  # noqa: E402
+                                  decided_files)
 
 SOURCE_COMMIT = "dd8e4ab"
 SOURCE_DOC = "plugins/vibe-check/phases/shared/90-finalize.md"
 SOURCE_LINES = (13, 22)  # the step 1 text the script transcribes (1-based)
 STEP1_SH = os.path.join(SCRIPTS_DIR, "fixtures", "finalize_step1_2141.sh")
 HELPER_PY = os.path.join(SCRIPTS_DIR, "finalize_inputs.py")
-GUARD_PY = os.path.join(SCRIPTS_DIR, "guard.py")
-CARRY_STATE_PY = os.path.join(SCRIPTS_DIR, "carry_state.py")
-FINALIZE_GATE_PY = os.path.join(SCRIPTS_DIR, "finalize_gate.py")
 FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "phase45-loop-state.json")
 SHARED_WITH_2141 = ("guard.py", "carry_state.py", "finalize_gate.py",
                     "fixcommit.py")
+# The shared modules still pinned byte-identical to dd8e4ab in the working
+# tree. carry_state.py left the pin when Phase 66 (999.44 shape 2) edited
+# `_covering`; the 2.14.1 side is now materialized from dd8e4ab
+# (`materialize_dd8e4ab`), so the differential stays literal.
+PINNED_TO_2141 = ("guard.py", "finalize_gate.py", "fixcommit.py")
+SCRIPTS_REL = "plugins/vibe-check/scripts/"
 
 ARCH_HASH = "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67"
 BUGS_HASH = "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644"
+# The file of the finding every grid state dismisses (BUGS_HASH, line 38). It
+# is committed in each grid repo and the state's last pass carries that
+# reviewed tree, so the dismissal rests on real, unchanged reviewed code.
+DECIDED_FILE = "plugins/vibe-check/phases/deep-review/20-selection.md"
+DECIDED_TEXT = "".join("s%d\n" % i for i in range(1, 45))
 CALL_TIMEOUT = 120
 
 
@@ -129,6 +161,43 @@ def source_text():
                              % (SOURCE_DOC, SOURCE_COMMIT,
                                 proc.stderr.decode(errors="replace")))
     return proc.stdout.decode("utf-8")
+
+
+def _git_blob(spec):
+    """The bytes of `git show <spec>` in this repo (needs full history)."""
+    proc = subprocess.run(
+        ["git", "show", spec], cwd=SCRIPTS_DIR, env=clean_env(),
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError("cannot read %s (needs full history): %s"
+                             % (spec, proc.stderr.decode(errors="replace")))
+    return proc.stdout
+
+
+def materialize_dd8e4ab(case):
+    """Write every SHARED_WITH_2141 module as committed at dd8e4ab into a
+    fresh temp folder -> the folder. The folder is removed when `case` ends
+    (a TestCase instance) or when its class is torn down (a TestCase class),
+    on every path. The 2.14.1 side runs these files, never the working
+    tree's."""
+    tmp = os.path.realpath(tempfile.mkdtemp(prefix="vc-2141-"))
+    if isinstance(case, type):
+        case.addClassCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    else:
+        case.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    for name in SHARED_WITH_2141:
+        data = _git_blob(SOURCE_COMMIT + ":" + SCRIPTS_REL + name)
+        with open(os.path.join(tmp, name), "wb") as fh:
+            fh.write(data)
+    return tmp
+
+
+def old_side_paths(old_dir):
+    """{"guard", "carry_state", "finalize_gate"} -> the module files the
+    2.14.1 side runs, all in `old_dir` (a `materialize_dd8e4ab` folder)."""
+    return {"guard": os.path.join(old_dir, "guard.py"),
+            "carry_state": os.path.join(old_dir, "carry_state.py"),
+            "finalize_gate": os.path.join(old_dir, "finalize_gate.py")}
 
 
 def script_command_lines():
@@ -188,8 +257,13 @@ class TestStep1ScriptIsPinned(unittest.TestCase):
             at = where
 
     def test_shared_modules_are_byte_identical_to_dd8e4ab(self):
+        """guard.py, finalize_gate.py and fixcommit.py are pinned. Phase 66
+        (999.44 shape 2) edited _covering; the 2.14.1 side is now
+        materialized from dd8e4ab, so carry_state.py is not pinned here."""
+        self.assertEqual(set(SHARED_WITH_2141) - set(PINNED_TO_2141),
+                         {"carry_state.py"})
         env = clean_env()
-        for name in SHARED_WITH_2141:
+        for name in PINNED_TO_2141:
             with self.subTest(module=name):
                 rel = "plugins/vibe-check/scripts/" + name
                 old = subprocess.run(
@@ -200,6 +274,34 @@ class TestStep1ScriptIsPinned(unittest.TestCase):
                 now = subprocess.run(
                     ["git", "hash-object", "--no-filters",
                      os.path.join(SCRIPTS_DIR, name)],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    timeout=60)
+                self.assertEqual(now.returncode, 0, now.stderr)
+                self.assertEqual(now.stdout.strip(), old.stdout.strip())
+
+    def test_2141_side_runs_modules_materialized_from_dd8e4ab(self):
+        """Every module the 2.14.1 side runs is the dd8e4ab blob, in a
+        folder that is not the working tree's scripts folder."""
+        env = clean_env()
+        old_dir = materialize_dd8e4ab(self)
+        self.assertNotEqual(old_dir, os.path.realpath(SCRIPTS_DIR))
+        paths = old_side_paths(old_dir)
+        self.assertEqual(sorted(paths),
+                         ["carry_state", "finalize_gate", "guard"])
+        for key, path in paths.items():
+            with self.subTest(path=key):
+                self.assertEqual(os.path.dirname(path), old_dir)
+        for name in SHARED_WITH_2141:
+            with self.subTest(module=name):
+                old = subprocess.run(
+                    ["git", "rev-parse",
+                     SOURCE_COMMIT + ":" + SCRIPTS_REL + name],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    timeout=60)
+                self.assertEqual(old.returncode, 0, old.stderr)
+                now = subprocess.run(
+                    ["git", "hash-object", "--no-filters",
+                     os.path.join(old_dir, name)],
                     cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
                     timeout=60)
                 self.assertEqual(now.returncode, 0, now.stderr)
@@ -384,6 +486,169 @@ D19_ROWS = (
       "obsolete-head"),
 )
 
+# D-09 (owner decision): when no reviewed content can be compared with the
+# code on disk, the decision is stale and Close out refuses (fail closed).
+# These scenarios put the session where its git cannot see the reviewed work
+# tree, so the dismissal (BUGS_HASH) cannot be checked: the helper refuses
+# where 2.14.1 wrote or opened the card. Each entry is (scenario, stale
+# cause); `freshness_refusal` holds every other part of the result to
+# 2.14.1's. Which of write or open 2.14.1 gives is not pinned here: for a
+# name like `-1.ts` it follows the Python version's argparse (as on both
+# sides of every other row), and the regression rows pin it where it matters.
+FRESHNESS_REFUSALS = (
+    (S("cr", "none", "sub", "worktree-folder", "dir/y.ts",
+       "edit", "obsolete-old"), "unverifiable"),
+    (S("cr", "repo-same", "outside", "git-dir", "-1.ts",
+       "staged-restored", "applied"), "deleted"),
+    (S("space", "repo-same", "sub", "ceiling-repo", "-x.ts",
+       "deleted", "obsolete-head"), "unverifiable"),
+    (S("tab", "repo-same", "inside-git", "none", "dir/y.ts",
+       "untracked", "earlier-pass"), "unverifiable"),
+    (S("space", "repo-diff", "root", "no-git", "dir",
+       "edit", "applied"), "unverifiable"),
+    (S("lf", "repo-diff", "outside", "none", "dir/../x.ts",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "folder", "outside", "git-dir-relative", "dir/",
+       "edit", "earlier-pass"), "unverifiable"),
+    (S("space-lf", "folder", "inside-git", "dotdot-path", "dir",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "repo-diff", "inside-git", "worktree-folder", ".git/config",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("space", "none", "inside-git", "literal-pathspecs", "out.ts",
+       "staged", "earlier-pass"), "unverifiable"),
+    (S("space-lf", "none", "outside", "noglob-pathspecs", "x.ts",
+       "staged", "applied"), "unverifiable"),
+    (S("cr", "repo-diff", "inside-git", "ceiling-repo", "link.ts",
+       "untracked", "applied"), "unverifiable"),
+    (S("plain", "none", "sub", "no-git", "./x.ts",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("lf", "folder", "inside-git", "icase-pathspecs", "a b.ts",
+       "staged", "obsolete-old"), "unverifiable"),
+    (S("space", "repo-same", "outside", "worktree-folder", "nl.ts\n",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("tab", "folder", "deeper", "no-git", ".git/config",
+       "deleted", "obsolete-old"), "unverifiable"),
+    (S("lflf", "folder", "outside", "linked-worktree", "-x.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("lf", "repo-diff", "deeper", "git-dir", "nl.ts\n",
+       "edit", "obsolete-old"), "deleted"),
+    (S("space", "repo-same", "inside-git", "git-dir-relative", "./x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "ceiling-repo", ".git/config",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("cr", "repo-same", "inside-git", "no-git", "dir/../x.ts",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("cr", "repo-diff", "sub", "git-dir-relative", "missing.ts",
+       "staged", "obsolete-old"), "unverifiable"),
+    (S("nbsp", "repo-diff", "outside", "ceiling-parent", "dir/y.ts",
+       "staged", "applied"), "unverifiable"),
+    (S("tab", "folder", "outside", "git-prefix", "link.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("space", "folder", "sub", "git-dir", ".git/config",
+       "untracked", "obsolete-head"), "deleted"),
+    (S("space-lf", "repo-same", "outside", "symlink-path", "out.ts",
+       "clean", "earlier-pass"), "unverifiable"),
+    (S("space", "repo-diff", "inside-git", "linked-worktree", "missing.ts",
+       "untracked", "applied"), "unverifiable"),
+    (S("space", "repo-diff", "inside-git", "noglob-pathspecs", "dir/../x.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "dotdot-path", "a b.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "deeper", "ceiling-repo", "dir",
+       "staged", "obsolete-head"), "unverifiable"),
+    (S("space-lf", "none", "outside", "no-git", "-x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("space", "none", "inside-git", "symlink-path", "dir/",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("cr", "none", "outside", "icase-pathspecs", "out.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "outside", "literal-pathspecs", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("tab", "none", "inside-git", "quotepath", "./x.ts",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("lflf", "none", "inside-git", "git-dir", "dir/y.ts",
+       "clean", "obsolete-head"), "deleted"),
+    (S("lf", "none", "root", "worktree-folder", "./x.ts",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("lf", "none", "root", "no-git", "dir/",
+       "staged-restored", "obsolete-head"), "unverifiable"),
+    (S("space-lf", "none", "root", "worktree-folder", "dir/../x.ts",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "root", "worktree-folder", "link.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("lflf", "none", "root", "no-git", "nl.ts\n",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "-x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("nbsp", "none", "root", "no-git", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("tab", "none", "root", "worktree-folder", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "-1.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "a b.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "link.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "missing.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "no-git", "out.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "-1.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "a b.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "dir",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "dir/",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "missing.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "x.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("plain", "none", "root", "worktree-folder", "nl.ts\n",
+       "clean", "obsolete-head"), "unverifiable"),
+    # Linux only (the repo folder name ends in byte 0xff; macOS cannot
+    # create it, so these are "not creatable here" there). First seen in the
+    # Linux CI run of PR #13, after closeout_fresh decoded the repo top with
+    # os.fsdecode (it had refused every non-UTF-8 folder before). Each one is
+    # the same D-09 refusal as the identical scenario with every other folder
+    # ending: the session's git cannot see the reviewed work tree (session
+    # outside it or inside .git, git missing, or GIT_DIR / work-tree settings
+    # pointing elsewhere), checked ending by ending in the Linux container.
+    (S("non-utf8", "none", "outside", "quotepath", "dir",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "folder", "deeper", "worktree-folder", "out.ts",
+       "deleted", "applied"), "unverifiable"),
+    (S("non-utf8", "repo-same", "inside-git", "git-prefix", "-x.ts",
+       "clean", "obsolete-old"), "unverifiable"),
+    (S("non-utf8", "repo-same", "inside-git", "ceiling-parent", ".git/config",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "deeper", "git-dir-relative", "nl.ts\n",
+       "deleted", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "outside", "worktree-repo", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "root", "no-git", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+)
+
+
+def freshness_refusal(sc, old, new, cause):
+    """True only for the D-09 shape: 2.14.1 wrote or opened the card, the
+    helper wrote the same fingerprints and counts but refused with
+    `next: stop-review-again`, naming exactly the grid's dismissal as stale
+    with `cause`."""
+    if old is None or new is None or "stop" in old or "stop" in new:
+        return False
+    if outcome(old) not in (WRITE, OPEN) or "stale" in old:
+        return False
+    return (new["blobs"] == old["blobs"] and new["counts"] == old["counts"]
+            and new["action"] == "refuse"
+            and new.get("next") == "stop-review-again"
+            and new.get("stale") == [{"hash": BUGS_HASH, "kind": "dismissed",
+                                      "cause": cause}])
+
+
 # Differences with a mechanism not yet ruled on by the owner. Shrink-only:
 # each entry is (scenario, 2.14.1 outcome, helper outcome) and must still be
 # found, exactly, by the grid.
@@ -395,6 +660,8 @@ def all_scenarios():
     for sc, _ in REGRESSION_ROWS:
         rows.append(sc)
     rows.extend(D19_ROWS)
+    for sc, _ in FRESHNESS_REFUSALS:
+        rows.append(sc)
     for sc, _, _ in KNOWN_DIFFERENCES:
         rows.append(sc)
     seen, out = set(), []
@@ -515,7 +782,17 @@ def apply_content(b, checkout, name, content):
             write_file(path, "untracked\n")
 
 
-def fixture_state(name, verdict, blob):
+def reviewed_of(b, repo):
+    """(HEAD commit, HEAD tree) of a freshly built grid repo: the review the
+    grid state's dismissal was made on."""
+    return (b.git(repo, "rev-parse", "HEAD").decode().strip(),
+            b.git(repo, "rev-parse", "HEAD^{tree}").decode().strip())
+
+
+def fixture_state(name, verdict, blob, reviewed=None):
+    """The grid state: BUGS_HASH dismissed, ARCH_HASH's row pointed at
+    `name` with a `verdict`-shaped fix verdict on `blob`. With `reviewed`
+    ((commit, tree) from `reviewed_of`) the last pass carries that review."""
     with open(FIXTURE, "r", encoding="utf-8") as fh:
         s = json.load(fh)
     s = carry_state.record_decisions(s, {
@@ -535,6 +812,8 @@ def fixture_state(name, verdict, blob):
         "verdict": "applied" if verdict == "applied" else "obsolete",
         "agent": "fix", "head_sha": last["head_sha"], "at_pass": at,
         "reason": "grid", "verified_blob": recorded}}
+    if reviewed is not None:
+        last["head_sha"], last["reviewed_tree"] = reviewed
     return s
 
 
@@ -547,13 +826,14 @@ def build(sc, base, top, shim_path):
     write_file(os.path.join(base, "outside.txt"), "outside\n")
     folder = "repo" + ENDINGS[sc.ending]
     repo = os.path.join(base, folder)
-    extra = []
+    extra = [(DECIDED_FILE, DECIDED_TEXT)]
     if sc.name == "nl.ts\n":
         extra.append(("nl.ts\n", "newline name\n"))
     try:
         b.init_repo(repo, FILES, LINKS, extra)
     except OSError as exc:
         raise NotCreatable(str(exc))
+    reviewed = reviewed_of(b, repo)
     if sc.neighbour != "none":
         trimmed = folder.rstrip("\n")
         if trimmed == folder:
@@ -627,7 +907,8 @@ def build(sc, base, top, shim_path):
             else os.path.join(view, SUBFOLDER, "..")
     else:
         session = os.path.join(view, rel) if rel else view
-    return session, env, fixture_state(sc.name, sc.verdict, blob), blob
+    return (session, env, fixture_state(sc.name, sc.verdict, blob, reviewed),
+            blob)
 
 
 def run(argv, cwd, env, stdin_bytes=b""):
@@ -635,12 +916,15 @@ def run(argv, cwd, env, stdin_bytes=b""):
                           capture_output=True, timeout=CALL_TIMEOUT)
 
 
-def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
+def side_2141(state, state_path, files_dir, session, env, shell, old_dir,
+              memo=None):
     """Step 1 through the 2.14.1 script for each last-pass fix verdict, then
-    the 2.14.1 counting command and gate. With a `memo` dict, the counting
+    the 2.14.1 counting command and gate, every module run from `old_dir`
+    (the dd8e4ab files `materialize_dd8e4ab` wrote). With a `memo` dict, the counting
     command and the gate (pure functions of the state bytes and the
     fingerprint map) are run once per distinct input and their output
     reused; step 1 always runs."""
+    paths = old_side_paths(old_dir)
     blobs = {}
     last = state["passes"][-1]
     for h, v in state["fix_verdicts"].items():
@@ -653,7 +937,7 @@ def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
         out = os.path.join(files_dir, "blob-2141.txt")
         if os.path.exists(out):
             os.remove(out)
-        proc = run([shell, STEP1_SH, f, out], session, dict(env, GUARD_PY=GUARD_PY))
+        proc = run([shell, STEP1_SH, f, out], session, dict(env, GUARD_PY=paths["guard"]))
         if proc.returncode == 0:
             with open(out, "rb") as fh:
                 blobs[f] = fh.read().decode("utf-8")
@@ -665,14 +949,14 @@ def side_2141(state, state_path, files_dir, session, env, shell, memo=None):
     key = (state_bytes, json.dumps(blobs, sort_keys=True))
     if memo is not None and key in memo:
         return dict(memo[key], blobs=blobs)
-    got = _counts_and_gate_2141(state_bytes, bp, session, env)
+    got = _counts_and_gate_2141(state_bytes, bp, session, env, paths)
     if memo is not None:
         memo[key] = got
     return dict(got, blobs=blobs) if "stop" not in got else got
 
 
-def _counts_and_gate_2141(state_bytes, bp, session, env):
-    c = run([sys.executable, CARRY_STATE_PY, "finalize-counts", "--head-blobs",
+def _counts_and_gate_2141(state_bytes, bp, session, env, paths):
+    c = run([sys.executable, paths["carry_state"], "finalize-counts", "--head-blobs",
              bp], session, env, state_bytes)
     if c.returncode != 0:
         return {"stop": "state"}
@@ -682,7 +966,7 @@ def _counts_and_gate_2141(state_bytes, bp, session, env):
              "unacknowledged_medium": counts["unacknowledged_medium"],
              "undecided_nv": counts["undecided_nv"],
              "noninteractive": False, "pr_mode": False, "range_mode": False}
-    g = run([sys.executable, FINALIZE_GATE_PY], session, env,
+    g = run([sys.executable, paths["finalize_gate"]], session, env,
             json.dumps({"flags": flags}).encode())
     if g.returncode != 0:
         return {"stop": "gate"}
@@ -709,10 +993,14 @@ def side_helper(state_path, files_dir, session, env, helper=None):
     with open(bp, "r", encoding="utf-8") as fh:
         blobs = json.load(fh)
     c = got["counts"]
-    return {"blobs": blobs,
-            "counts": [c["outstanding_cw"], c["unacknowledged_medium"],
-                       c["undecided_nv"]],
-            "action": got["action"]}
+    out = {"blobs": blobs,
+           "counts": [c["outstanding_cw"], c["unacknowledged_medium"],
+                      c["undecided_nv"]],
+           "action": got["action"]}
+    if "stale" in got:  # a freshness refusal; never present otherwise
+        out["next"] = got["next"]
+        out["stale"] = got["stale"]
+    return out
 
 
 def make_shim(top):
@@ -728,7 +1016,7 @@ def make_shim(top):
     return shim
 
 
-def run_one(index, sc, top, shim, shell="/bin/sh", helper=None):
+def run_one(index, sc, top, shim, old_dir, shell="/bin/sh", helper=None):
     base = os.path.join(top, "s%04d" % index)
     files_dir = os.path.join(top, "f%04d" % index)
     os.makedirs(files_dir)
@@ -739,20 +1027,23 @@ def run_one(index, sc, top, shim, shell="/bin/sh", helper=None):
     state_path = os.path.join(files_dir, "state.json")
     with open(state_path, "w", encoding="utf-8") as fh:
         json.dump(state, fh)
-    old = side_2141(state, state_path, files_dir, session, env, shell)
+    old = side_2141(state, state_path, files_dir, session, env, shell,
+                    old_dir)
     new = side_helper(state_path, files_dir, session, env, helper)
     return sc, old, new, blob, None
 
 
-def run_grid(scenarios, shell="/bin/sh", helper=None, workers=None):
+def run_grid(scenarios, old_dir, shell="/bin/sh", helper=None, workers=None):
     """[(scenario, 2.14.1 outcome, helper outcome, HEAD blob, not-creatable
-    reason)] in scenario order; every temp folder is removed afterwards."""
+    reason)] in scenario order; every temp folder is removed afterwards.
+    `old_dir` holds the dd8e4ab modules (`materialize_dd8e4ab`)."""
     top = os.path.realpath(tempfile.mkdtemp(prefix="vc-grid-"))
     try:
         shim = make_shim(top)
         workers = workers or min(8, os.cpu_count() or 2)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(run_one, i, sc, top, shim, shell, helper)
+            futures = [pool.submit(run_one, i, sc, top, shim, old_dir,
+                                   shell, helper)
                        for i, sc in enumerate(scenarios)]
             return [f.result() for f in futures]
     finally:
@@ -793,9 +1084,11 @@ def d19_difference(sc, old, new, blob):
 
 
 def classify(results):
-    """-> dict of lists: agree, d19, known, unexpected, not_creatable."""
+    """-> dict of lists: agree, d19, fresh, known, unexpected,
+    not_creatable."""
     known = {sc: (o, n) for sc, o, n in KNOWN_DIFFERENCES}
-    out = {"agree": [], "d19": [], "known": [], "unexpected": [],
+    fresh = dict(FRESHNESS_REFUSALS)
+    out = {"agree": [], "d19": [], "fresh": [], "known": [], "unexpected": [],
            "not_creatable": []}
     for sc, old, new, blob, why in results:
         if why is not None:
@@ -804,6 +1097,8 @@ def classify(results):
             out["agree"].append(sc)
         elif d19_difference(sc, old, new, blob):
             out["d19"].append((sc, old, new))
+        elif sc in fresh and freshness_refusal(sc, old, new, fresh[sc]):
+            out["fresh"].append(sc)
         elif sc in known and known[sc] == (old, new):
             out["known"].append(sc)
         else:
@@ -813,10 +1108,11 @@ def classify(results):
 
 def report(results, seconds):
     c = classify(results)
-    lines = ["%d scenarios in %.1f s: %d agree, %d D-19, %d known differences, "
-             "%d unexpected, %d not creatable here"
+    lines = ["%d scenarios in %.1f s: %d agree, %d D-19, %d D-09 refusals, "
+             "%d known differences, %d unexpected, %d not creatable here"
              % (len(results), seconds, len(c["agree"]), len(c["d19"]),
-                len(c["known"]), len(c["unexpected"]), len(c["not_creatable"]))]
+                len(c["fresh"]), len(c["known"]), len(c["unexpected"]),
+                len(c["not_creatable"]))]
     for sc, why in c["not_creatable"]:
         lines.append("  not creatable here: %s (%s)" % (key_of(sc), why))
     for sc, old, new in c["unexpected"]:
@@ -984,13 +1280,15 @@ def nf_predict(sc, root):
 
 def nf_build(root_name, layout, target, state, base, top):
     """The repo for one (root name, layout, content) under `base` -> (repo,
-    {top-relative path: HEAD blob})."""
+    {top-relative path: HEAD blob}, (commit, tree) of the review).
+    DECIDED_FILE is committed beside the layout files."""
     b = Builder(top)
     os.makedirs(base)
     repo = os.path.join(base, root_name)
     files = collections.OrderedDict(NF_FILES[k] for k in NF_LAYOUTS[layout])
     files.update(NF_ALWAYS)
-    b.init_repo(repo, files)
+    b.init_repo(repo, files, extra=((DECIDED_FILE, DECIDED_TEXT),))
+    reviewed = reviewed_of(b, repo)
     blobs = {}
     for rel in files:
         blobs[rel] = b.git(repo, "rev-parse", "HEAD:" + rel).decode().strip()
@@ -1007,17 +1305,18 @@ def nf_build(root_name, layout, target, state, base, top):
             modify(path)
             b.git(repo, "add", "--", rel)
             restore(path, snap)
-    return repo, blobs
+    return repo, blobs, reviewed
 
 
-def nf_state(form, blob):
-    return fixture_state(form, "obsolete-head", blob)
+def nf_state(form, blob, reviewed=None):
+    return fixture_state(form, "obsolete-head", blob, reviewed)
 
 
-def nf_run(scenarios, helper=None, workers=None):
+def nf_run(scenarios, old_dir, helper=None, workers=None):
     """[(scenario, 2.14.1 outcome, helper outcome, prediction)] in order.
     One repo per (root name, layout, content); every temp folder is removed
-    afterwards."""
+    afterwards. `old_dir` holds the dd8e4ab modules
+    (`materialize_dd8e4ab`)."""
     top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfgrid-"))
     try:
         shim = make_shim(top)
@@ -1040,19 +1339,20 @@ def nf_run(scenarios, helper=None, workers=None):
             memo = {}
 
             def one(index, sc):
-                repo, head = repos[(sc.root, sc.layout, sc.target, sc.state)]
+                repo, head, reviewed = repos[(sc.root, sc.layout, sc.target,
+                                              sc.state)]
                 fizz, d19, b, d = nf_predict(sc, repo)
                 session = os.path.join(repo, NF_SESSIONS[sc.session]) \
                     if NF_SESSIONS[sc.session] else repo
                 files_dir = os.path.join(top, "f%04d" % index)
                 os.makedirs(files_dir)
                 blob = head.get(b) if b is not None else None
-                state = nf_state(sc.form, blob)
+                state = nf_state(sc.form, blob, reviewed)
                 state_path = os.path.join(files_dir, "state.json")
                 with open(state_path, "w", encoding="utf-8") as fh:
                     json.dump(state, fh)
                 old = side_2141(state, state_path, files_dir, session, env,
-                                "/bin/sh", memo)
+                                "/bin/sh", old_dir, memo)
                 new = side_helper(state_path, files_dir, session, env, helper)
                 return sc, old, new, (fizz, d19, b, d, blob)
 
@@ -1166,7 +1466,7 @@ class TestNameFormGrid(unittest.TestCase):
     def setUpClass(cls):
         cls.scenarios = nf_scenarios()
         start = time.time()
-        cls.results = nf_run(cls.scenarios)
+        cls.results = nf_run(cls.scenarios, materialize_dd8e4ab(cls))
         cls.seconds = time.time() - start
         cls.by_scenario = {r[0]: r for r in cls.results}
         cls.classes = nf_classify(cls.results)
@@ -1190,8 +1490,8 @@ class TestNameFormGrid(unittest.TestCase):
         nf_pathspec_path say, by real git."""
         top = os.path.realpath(tempfile.mkdtemp(prefix="vc-nfmodel-"))
         try:
-            repo, head = nf_build("repo", "all", (), "clean",
-                                  os.path.join(top, "b"), top)
+            repo, head, _ = nf_build("repo", "all", (), "clean",
+                                     os.path.join(top, "b"), top)
             by_blob = {v: k for k, v in head.items()}
             env = clean_env()
             env["GIT_CEILING_DIRECTORIES"] = top
@@ -1279,7 +1579,7 @@ class TestParityGrid(unittest.TestCase):
     def setUpClass(cls):
         cls.scenarios = all_scenarios()
         start = time.time()
-        cls.results = run_grid(cls.scenarios)
+        cls.results = run_grid(cls.scenarios, materialize_dd8e4ab(cls))
         cls.seconds = time.time() - start
         cls.by_scenario = {r[0]: r for r in cls.results}
         cls.classes = classify(cls.results)
@@ -1319,12 +1619,18 @@ class TestParityGrid(unittest.TestCase):
                          report(self.results, self.seconds))
 
     def test_regression_rows_give_the_2141_decision(self):
+        fresh = dict(FRESHNESS_REFUSALS)
         for sc, expected in REGRESSION_ROWS:
             with self.subTest(scenario=key_of(sc)):
                 _, old, new, _, why = self.by_scenario[sc]
                 self.assertIsNone(why)
                 self.assertEqual(outcome(old), expected)
-                self.assertEqual(new, old)
+                if sc in fresh:
+                    # D-09: the helper refuses here, everything else equal.
+                    self.assertTrue(freshness_refusal(sc, old, new,
+                                                      fresh[sc]), new)
+                else:
+                    self.assertEqual(new, old)
 
     def test_d19_rows_differ_exactly_as_decided(self):
         for sc in D19_ROWS:
@@ -1338,6 +1644,53 @@ class TestParityGrid(unittest.TestCase):
                 self.assertEqual(outcome(new), OPEN)
         self.assertGreaterEqual(len(self.classes["d19"]), len(D19_ROWS))
 
+    def test_freshness_refusals_are_found_exactly(self):
+        all_listed = [sc for sc, _ in FRESHNESS_REFUSALS]
+        self.assertEqual(len(set(all_listed)), len(all_listed))
+        # A listed scenario this filesystem cannot create (the Linux-only
+        # rows) is excused here exactly as the grid excuses it:
+        # test_not_creatable_only_where_a_filesystem_may_refuse holds it to
+        # MAY_BE_UNCREATABLE, and test_everything_is_creatable_on_linux
+        # forbids it on Linux, where CI checks it.
+        uncreatable = {sc for sc, _ in self.classes["not_creatable"]}
+        listed = [sc for sc in all_listed if sc not in uncreatable]
+        for sc, cause in FRESHNESS_REFUSALS:
+            if sc in uncreatable:
+                continue
+            with self.subTest(scenario=key_of(sc)):
+                _, old, new, _, why = self.by_scenario[sc]
+                self.assertIsNone(why)
+                self.assertIn(cause, ("unverifiable", "deleted"))
+                self.assertTrue(freshness_refusal(sc, old, new, cause),
+                                (old, new))
+        self.assertEqual(sorted(map(key_of, self.classes["fresh"])),
+                         sorted(map(key_of, listed)))
+        # Nothing outside the list refuses for freshness.
+        for sc, _, new, _, why in self.results:
+            if why is None and new and "stale" in new:
+                self.assertIn(sc, set(listed), key_of(sc))
+
+    def test_mutant_freshness_refusal_rejects_other_shapes(self):
+        sc, cause = FRESHNESS_REFUSALS[0]
+        _, old, new, _, _ = self.by_scenario[sc]
+        self.assertTrue(freshness_refusal(sc, old, new, cause))
+        other = "deleted" if cause == "unverifiable" else "unverifiable"
+        bad = (
+            dict(new, counts=[9, 9, 9]),
+            dict(new, blobs={"x.ts": "f" * 40}),
+            dict(new, action="write"),
+            dict(new, next="stop-refused"),
+            dict(new, stale=new["stale"] * 2),
+            dict(new, stale=[dict(new["stale"][0], cause=other)]),
+        )
+        for mutant in bad:
+            with self.subTest(mutant=mutant):
+                self.assertFalse(freshness_refusal(sc, old, mutant, cause))
+        # 2.14.1 itself stopping, or refusing, is never a D-09 difference.
+        self.assertFalse(freshness_refusal(sc, {"stop": "gate"}, new, cause))
+        self.assertFalse(freshness_refusal(sc, dict(old, action="refuse"),
+                                           new, cause))
+
     def test_known_differences_are_still_found_exactly(self):
         for sc, old, new in KNOWN_DIFFERENCES:
             with self.subTest(scenario=key_of(sc)):
@@ -1345,6 +1698,65 @@ class TestParityGrid(unittest.TestCase):
                 self.assertIsNone(why)
                 self.assertEqual((got_old, got_new), (old, new))
                 self.assertNotEqual(old, new)
+
+
+class TestGridStatesBindReviewedTree(unittest.TestCase):
+    """Every grid state carries a dismissal (BUGS_HASH). Each one, in both
+    grid classes, sits on a reviewed tree of its own repo that holds the
+    dismissed file, unchanged on disk, so both sides see the write path for
+    real reviewed code. Scenarios are built only (no side runs)."""
+
+    def test_decision_bearing_states_bind_reviewed_tree(self):
+        top = os.path.realpath(tempfile.mkdtemp(prefix="vc-gridlock-"))
+        env = clean_env()
+        saved = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(env)
+        try:
+            shim = make_shim(top)
+
+            def grid_one(index, sc):
+                base = os.path.join(top, "s%04d" % index)
+                try:
+                    _, _, state, _ = build(sc, base, top, shim)
+                except NotCreatable:
+                    return None
+                repo = os.path.join(base, "repo" + ENDINGS[sc.ending])
+                return (key_of(sc), repo, state)
+
+            def nf_one(index, layout):
+                repo, head, reviewed = nf_build(
+                    "repo", layout, (), "clean",
+                    os.path.join(top, "n%03d" % index), top)
+                rel = NF_FILES[NF_LAYOUTS[layout][0]][0]
+                return ("nf " + layout, repo,
+                        nf_state(rel, head[rel], reviewed))
+
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(8, os.cpu_count() or 2)) as pool:
+                built = list(pool.map(lambda a: grid_one(*a),
+                                      enumerate(all_scenarios())))
+                built += list(pool.map(lambda a: nf_one(*a),
+                                       enumerate(NF_LAYOUTS)))
+            built = [b for b in built if b is not None]
+            self.assertGreaterEqual(len(built), 150)
+            problems = {}
+            for label, repo, state in built:
+                if decided_files(state) != [DECIDED_FILE]:
+                    problems[label] = decided_files(state)
+                    continue
+                found = check_decided_fixture(repo, state)
+                if found:
+                    problems[label] = found
+            self.assertEqual(problems, {})
+            # Mutant: a grid state without its reviewed tree is caught.
+            label, repo, state = built[0]
+            del state["passes"][-1]["reviewed_tree"]
+            self.assertNotEqual(check_decided_fixture(repo, state), [])
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+            shutil.rmtree(top, ignore_errors=True)
 
 
 class TestScriptUnderBash(unittest.TestCase):
@@ -1355,8 +1767,9 @@ class TestScriptUnderBash(unittest.TestCase):
         bash = "/bin/bash"
         self.assertTrue(os.path.exists(bash))
         rows = [sc for sc, _ in REGRESSION_ROWS] + list(D19_ROWS)
-        a = run_grid(rows, shell="/bin/sh")
-        b = run_grid(rows, shell=bash)
+        old_dir = materialize_dd8e4ab(self)
+        a = run_grid(rows, old_dir, shell="/bin/sh")
+        b = run_grid(rows, old_dir, shell=bash)
         for (sc, old_sh, _, _, _), (_, old_bash, _, _, _) in zip(a, b):
             with self.subTest(scenario=key_of(sc)):
                 self.assertEqual(old_bash, old_sh)
