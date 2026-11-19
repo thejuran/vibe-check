@@ -366,15 +366,16 @@ def stale_decisions(state, blobs, cwd=None):
     """Sorted list of {"hash": str, "kind": "deferred"|"dismissed", "cause": one of CAUSES}
     for every open last-pass record closed by a CURRENT owner decision whose reviewed
     code is not provably unchanged on disk. [] when no record is decision-closed, and in
-    that case NO git command runs. Never raises: any failure after the candidates are
-    known reports every candidate with cause `unverifiable` (fail closed)."""
-    try:
-        candidates = decided_records(state, blobs)
-    except Exception:  # a state carry_state cannot read closes nothing here
-        return []
+    that case NO git command runs. A malformed state yields [] without raising
+    (carry_state.open_findings reads it as having no open record). Any other failure
+    while the candidates are worked out PROPAGATES: the caller (finalize_inputs.run)
+    turns it into its gate stop, so a defect can never read as "nothing stale". Any
+    failure after the candidates are known reports every candidate with cause
+    `unverifiable` (fail closed)."""
+    candidates = decided_records(state, blobs)
     if not candidates:
         return []
     try:
         return _stale(state, candidates, cwd)
-    except Exception:  # never raise; nothing proven unchanged -> refuse
+    except Exception:  # noqa: BLE001  (nothing proven unchanged -> refuse)
         return _all_unverifiable(candidates)
