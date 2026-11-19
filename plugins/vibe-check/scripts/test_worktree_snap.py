@@ -270,10 +270,11 @@ class _Chain(_Phases, tdc._RealChain):
         return _printed(proc.stdout, "LAST_REVIEWED_SHA")
 
     # -- the two passes --------------------------------------------------- #
-    def pass1(self, route="default", record_tree=True):
+    def pass1(self, route="default", record_tree=True, base=None):
+        """`base` is the committed file (default `tdc.base_file()`)."""
         if route == "all":
             self._lookup_fences("all")
-        self.L0 = tdc.base_file()
+        self.L0 = list(base) if base is not None else tdc.base_file()
         self.repo = tdc.RealDiffRepo.make(self, self.L0)
         if route == "GSD":
             phase_start = self.repo.base
@@ -322,7 +323,8 @@ class _Chain(_Phases, tdc._RealChain):
             over["nearby_line_ranges"] = json.loads(nearby)
         s2, res = tdc.run_pass(
             self.s1, L2, [self.finding(L2)] if rereport else [], 2, changed,
-            decided=tdc.target_decided(self.s1), **over)
+            decided=tdc.target_decided(self.s1),
+            removed=tdc.removed_arg(self.removed_printed), **over)
         return s2, res, changed, nearby
 
     def card(self, s2):
@@ -539,7 +541,9 @@ class TestReReview999_28(_Chain):
         tree, nearby = self.collect(self.state_path, **kw)
         over = {"nearby_line_ranges": json.loads(nearby)} if nearby else {}
         s2, _ = tdc.run_pass(self.s1, L_now, [self.finding(L_now)], 2, changed,
-                             decided=tdc.target_decided(self.s1), **over)
+                             decided=tdc.target_decided(self.s1),
+                             removed=tdc.removed_arg(self.removed_printed),
+                             **over)
         return s2, tree, nearby
 
     # 1. A mismatch must blank the nearby ranges too (prior pass decided).
@@ -885,7 +889,7 @@ class _CommittedChain(_Phases, tdc._RealChain):
                              "30-collect-score.md has no %s collect fence"
                              % self.ROUTE)
         self._lookup_fences(self.ROUTE)
-        self.L0 = tdc.base_file()
+        self.L0 = self.base_lines()
         self.repo = tdc.RealDiffRepo.make(self, self.L0)
         self.L1 = _block(self.L0, "committed")
         self.repo.write(self.L1)
@@ -898,6 +902,10 @@ class _CommittedChain(_Phases, tdc._RealChain):
         with open(gh, "w", encoding="utf-8") as fh:
             fh.write(FAKE_GH)
         os.chmod(gh, 0o755)
+
+    def base_lines(self):
+        """The committed base file under the reviewed block."""
+        return tdc.base_file()
 
     def head(self):
         return self.repo.git("rev-parse", "HEAD").stdout.strip()
@@ -982,7 +990,9 @@ class _CommittedChain(_Phases, tdc._RealChain):
         if use_nearby and nearby:
             over["nearby_line_ranges"] = json.loads(nearby)
         s2, res = tdc.run_pass(self.s1, L2, [self.finding(L2)], 2, changed,
-                               decided=tdc.target_decided(self.s1), **over)
+                               decided=tdc.target_decided(self.s1),
+                               removed=tdc.removed_arg(self.removed_printed),
+                               **over)
         return s2, res, changed, nearby, tree
 
 
@@ -1804,6 +1814,143 @@ class TestRemovedMutants(unittest.TestCase):
             self.assertEqual(nearby, "")
             results.append(removed == "")
         self.assertEqual(results, [True, False])
+
+
+
+# --------------------------------------------------------------------------- #
+# 999.44 shape 1 through the real fences: the owner decides the finding at
+# line 40, then deletes that line while the identical text is already
+# committed elsewhere in the file. Step 0 relocates the decision to that
+# other line exactly as 2.15.0 did; the `REMOVED_LINE_RANGES=` value the real
+# collect fence printed shows the decided line itself was removed, so the
+# move is re-asked (stale / nearby) instead of kept.
+# --------------------------------------------------------------------------- #
+SHAPE1_COPY_AT = 55  # base line holding the decided text; 54 after the deletion
+
+
+def _shape1_base(text):
+    """`tdc.base_file()` with `text` committed at line SHAPE1_COPY_AT:
+    outside the reviewed block 35-45 and more than 5 lines from it."""
+    base = tdc.base_file()
+    base[SHAPE1_COPY_AT - 1] = text
+    return base
+
+
+class _ReportAt:
+    """A finding re-reported at `self.report_line` (40 until a test moves
+    it), so pass 2 can report it where the identical text now sits."""
+
+    report_line = 40
+
+    def finding(self, lines):
+        return tdc.fresh("security", self.report_line, lines, TITLE, conf=75)
+
+
+class TestShape1ThroughFences(_ReportAt, _Chain):
+    """Default route, every fence run in a fresh shell; the step-0 simulator
+    receives what the real collect fence printed (`tdc.removed_arg`)."""
+
+    TEXT = "uncommitted_40 = query(user_input)"
+
+    def _shape1_pass2(self, rereport=True, record_tree=True):
+        """Decide at 40, delete line 40, review again -> pass-2 state. The
+        identical committed text moves from 55 to 54."""
+        self.report_line = 40
+        self.pass1(base=_shape1_base(self.TEXT), record_tree=record_tree)
+        L2 = list(self.L1)
+        del L2[39]
+        self.assertEqual(L2[SHAPE1_COPY_AT - 2], self.TEXT)
+        self.assertNotIn(self.TEXT, L2[:SHAPE1_COPY_AT - 2])
+        self.report_line = SHAPE1_COPY_AT - 1
+        s2, _, _, _ = self.pass2(L2, rereport=rereport)
+        return s2
+
+    def _body_shape1(self, rereport=True):
+        """Raises AssertionError unless the moved decision is re-asked."""
+        s2 = self._shape1_pass2(rereport=rereport)
+        self.assertEqual(json.loads(self.removed_printed), {F: [[40, 40]]})
+        self.assert_reopens(s2, self.h, SHAPE1_COPY_AT - 1)
+        self.assertIn(NEARBY_TEXT, self.card(s2))
+
+    def test_shape1_through_fences_reasks(self):
+        self._body_shape1(rereport=True)
+
+    def test_shape1_through_fences_reasks_without_rereport(self):
+        self._body_shape1(rereport=False)
+
+    def test_shift_through_fences_keeps(self):
+        """Ten lines inserted at the top: nothing reviewed was removed
+        (`REMOVED_LINE_RANGES={}`), so the shifted decision is kept at 50
+        even though the identical committed copy also exists (at 65)."""
+        self.pass1(base=_shape1_base(self.TEXT))
+        L2 = tdc.TOP_TEN + self.L1
+        self.report_line = 50
+        s2, _, _, _ = self.pass2(L2)
+        self.assertEqual(json.loads(self.removed_printed), {})
+        self.assert_keeps(s2, self.h, 50)
+
+    def test_shape1_without_recorded_tree_reasks(self):
+        """Pass 1 persisted no `reviewed_tree`: collect prints all three
+        values empty, removal cannot be ruled out, and the moved decision is
+        re-asked. With the forced re-ask off (2.15.0) it would be kept."""
+        s2 = self._shape1_pass2(record_tree=False)
+        self.assertEqual(self.removed_printed, "")
+        self.assert_reopens(s2, self.h, SHAPE1_COPY_AT - 1)
+        with mock.patch.object(tdc, "forced_reask_pairs",
+                               lambda moves, removed: {}):
+            s2 = self._shape1_pass2(record_tree=False)
+        self.assert_keeps(s2, self.h, SHAPE1_COPY_AT - 1)
+
+    def test_mutant_forced_reask_off_keeps_through_fences(self):
+        self._body_shape1()
+        with mock.patch.object(tdc, "forced_reask_pairs",
+                               lambda moves, removed: {}):
+            with self.assertRaises(AssertionError):
+                self._body_shape1()
+            self.assert_keeps(self._shape1_pass2(), self.h,
+                              SHAPE1_COPY_AT - 1)
+
+    def test_mutant_evidence_not_threaded_keeps(self):
+        self._body_shape1()
+        with mock.patch.object(tdc, "removed_arg",
+                               lambda printed: tdc.NOTHING_REMOVED):
+            with self.assertRaises(AssertionError):
+                self._body_shape1()
+            self.assert_keeps(self._shape1_pass2(), self.h,
+                              SHAPE1_COPY_AT - 1)
+
+
+class TestShape1ThroughFencesRange(_ReportAt, _CommittedChain):
+    """Range route: a new commit deletes the decided line while the
+    identical text is committed at another line."""
+
+    ROUTE = "range"
+    TEXT = "committed_40 = query(user_input)"
+
+    def base_lines(self):
+        return _shape1_base(self.TEXT)
+
+    def _pass2_deleted(self):
+        self.report_line = 40
+        self.pass1()
+        L2 = list(self.L1)
+        del L2[39]
+        self.assertEqual(L2[SHAPE1_COPY_AT - 2], self.TEXT)
+        self.move_end(L2)
+        self.report_line = SHAPE1_COPY_AT - 1
+        s2, _, _, _, _ = self.pass2(L2)
+        self.assertEqual(json.loads(self.removed_printed), {F: [[40, 40]]})
+        return s2
+
+    def test_shape1_range_commit_deletes_decided_line_reasks(self):
+        self.assert_reopens(self._pass2_deleted(), self.h, SHAPE1_COPY_AT - 1)
+
+    def test_shape1_range_forced_reask_off_keeps(self):
+        """The same journey with the forced re-ask off (2.15.0): kept."""
+        with mock.patch.object(tdc, "forced_reask_pairs",
+                               lambda moves, removed: {}):
+            s2 = self._pass2_deleted()
+        self.assert_keeps(s2, self.h, SHAPE1_COPY_AT - 1)
 
 
 if __name__ == "__main__":

@@ -1356,8 +1356,9 @@ class _ClearChain(tws._Chain):
         self.trees.append(tree)
         return tree, nearby
 
-    def decided_pass1(self, kind, route="default"):
-        """`_Chain.pass1` with the owner's answer `kind` (defer/dismiss)."""
+    def decided_pass1(self, kind, route="default", base=None):
+        """`_Chain.pass1` with the owner's answer `kind` (defer/dismiss) on
+        the committed file `base` (default `tdc.base_file()`)."""
         real = tdc.decide_on
 
         def answer(state, h, kind=None, reason=tdc.REASON):
@@ -1366,7 +1367,7 @@ class _ClearChain(tws._Chain):
 
         chosen = kind
         with mock.patch.object(tdc, "decide_on", answer):
-            self.pass1(route=route)
+            self.pass1(route=route, base=base)
         self.kind = kind
         self.assertEqual(self.s1["decisions"][self.h]["decision"], kind)
 
@@ -1383,8 +1384,10 @@ class _ClearChain(tws._Chain):
         over = {}
         if route == "all":
             over = tws._all_mode_over(file_lines, nearby)
-        elif nearby:
-            over["nearby_line_ranges"] = json.loads(nearby)
+        else:
+            over["removed"] = tdc.removed_arg(self.removed_printed)
+            if nearby:
+                over["nearby_line_ranges"] = json.loads(nearby)
         return tdc.run_pass(self.s1, file_lines, findings, 2, changed,
                             decided=tdc.target_decided(self.s1), **over)
 
@@ -1651,6 +1654,79 @@ class TestAllRouteClearable(_ClearChain):
                     else:
                         self.assert_keeps(s2, self.h, 40)
                     self.assert_writes(self.redecide_persist_close(s2))
+
+
+class TestShape1Clearable(tws._ReportAt, _ClearChain):
+    """999.44 shape 1 as a user journey, both kinds, every review through
+    the real prose fences: the owner decides the finding at line 40, then
+    deletes that line while the identical text is committed at line 55
+    (54 after the deletion). Close out refuses once with cause `line` (the
+    decided line no longer holds the reviewed text) and asks for a fresh
+    review. That review relocates the decision to 54 as 2.15.0 did, and the
+    printed `REMOVED_LINE_RANGES=` value re-asks it (stale). Close out then
+    neither writes nor loops back to the review; after the owner decides
+    again it writes."""
+
+    TEXT = tws.TestShape1ThroughFences.TEXT
+    MOVED_TO = tws.SHAPE1_COPY_AT - 1
+
+    def _decide_then_delete(self, kind):
+        self.report_line = 40
+        self.decided_pass1(kind, base=tws._shape1_base(self.TEXT))
+        L2 = list(self.L1)
+        del L2[39]
+        self.assertEqual(L2[self.MOVED_TO - 1], self.TEXT)
+        self.repo.write(L2)
+        result = self.close_out(self.state_path)
+        self.assert_refused(result, "line")
+        self.assertEqual(result["stale"][0]["hash"], self.h)
+        self.assertEqual(result["stale"][0]["kind"], KIND_WORD[kind])
+        self.report_line = self.MOVED_TO
+        return L2
+
+    def _persist_pass2(self, s2):
+        """Phase 4.5 for the fresh review: its state with the tree it just
+        recorded, so Close out sees reviewed code equal to disk."""
+        self.assertTrue(self.trees[-1], "the fresh review recorded no tree")
+        head = self.repo.git("rev-parse", "HEAD").stdout.strip()
+        _, path = self.persist(s2, head, self.trees[-1])
+        return path
+
+    def test_shape1_refuse_review_reask_redecide_write(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                L2 = self._decide_then_delete(kind)
+                s2, _, _, _ = self.pass2(L2)
+                self.assertEqual(json.loads(self.removed_printed),
+                                 {tdc.F: [[40, 40]]})
+                self.assertEqual(self.undecided(s2), [self.h])
+                rec = tdc.record_of(s2, self.h)
+                self.assertEqual(rec["line"], self.MOVED_TO)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "stale")
+                result = self.close_out(self._persist_pass2(s2))
+                self.assertNotEqual(result["action"], "write", result)
+                self.assertNotEqual(result["next"],
+                                    closeout_fresh.NEXT_REVIEW_AGAIN, result)
+                self.assert_writes(self.redecide_persist_close(s2))
+
+    def test_shape1_old_review_procedure_writes(self):
+        """The reproduction: the same journey with the forced re-ask off
+        (the 2.15.0 review-side procedure, equal to literal d5acc19 by
+        `TestShape1DifferentialV215`). The fresh review keeps the decision
+        on the other line and Close out writes without asking again."""
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                L2 = self._decide_then_delete(kind)
+                with mock.patch.object(tdc, "forced_reask_pairs",
+                                       lambda moves, removed: {}):
+                    s2, _, _, _ = self.pass2(L2)
+                self.assertEqual(self.undecided(s2), [])
+                rec = tdc.record_of(s2, self.h)
+                self.assertEqual(rec["line"], self.MOVED_TO)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "current")
+                self.assert_writes(self.close_out(self._persist_pass2(s2)))
 
 
 # --------------------------------------------------------------------------- #
