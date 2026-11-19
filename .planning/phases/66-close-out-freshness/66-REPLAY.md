@@ -1,7 +1,8 @@
 # Phase 66 — Replay and differential vs 2.15.0
 
 - **Candidate commit:** `cf1ea0bde6ad86cc1fae798d730d3b2d1c7fadb8` (cf1ea0bd, branch feat/v2.16-phase-66)
-- **Latest candidate:** `475b2e32a369c1b218aa6ee88a5d85e7c1fbd4d7` (gap closure, section 5)
+- **Gap-closure candidate:** `475b2e32a369c1b218aa6ee88a5d85e7c1fbd4d7` (gap closure, section 5)
+- **Latest candidate:** `fa5afc559e509a838acd29c12487d1b0e6ac44b5` (after the gap-closure review fixes and the WR-01 lock, section 6)
 - **Base:** `d5acc19` (2.15.0)
 - **Date:** 2026-11-18
 - **Evidence class: OFFLINE.** No live reviewer run (GATE-08). Every number below comes from a local run on the main checkout at the candidate commit.
@@ -95,3 +96,39 @@ Command: `python3 plugins/vibe-check/scripts/replay.py diff --base rev:d5acc19 -
 - Mutant counts: **5 helper** (removed-lines output, 66-10), **7 rule** (forced re-ask, 66-11), **2 fence-wiring** (66-12: forced re-ask off, evidence not threaded); each fails its named test.
 
 **Known behaviour (owner decision 2026-11-18):** when the removal evidence is missing — the code changed during the pass, or the prior pass recorded no reviewed tree, which also leaves the following pass without evidence — a deferred or dismissed decision whose line only shifted is asked again; 2.15.0 kept that decision; the owner chose the re-ask ("Re-ask them") on 2026-11-18 as a deliberate, tested difference.
+
+## 6. Re-run after the gap-closure review fixes and owner rulings (2026-11-19)
+
+- **Candidate commit:** `fa5afc559e509a838acd29c12487d1b0e6ac44b5` (fa5afc55, branch feat/v2.16-phase-66; HEAD after `test(66): lock owner-accepted neighbour re-ask (WR-01)`, clean tree). It includes review fixes e3888c9c (CR-01) and cb2da984 (WR-02), made after the 475b2e32 run in section 5.
+- **Base:** `d5acc19` (2.15.0)
+- **Date:** 2026-11-19
+- **Evidence class: OFFLINE.** No live reviewer run and no live session (GATE-08). Every number below comes from a local run on the main checkout at this candidate.
+
+Section 5 is the 475b2e32 record and is kept as history. Its statement in 5.4 that the first two collect lines are byte-identical to d5acc19 holds on the 13 `REMOVED_GRID` states, but no longer for files with non-ASCII names; see 6.4.
+
+### 6.1 Scorer replay
+
+Command: `python3 plugins/vibe-check/scripts/replay.py diff --base rev:d5acc19 --scorer path:$PWD/plugins/vibe-check/scripts/score.py --out <scratch>/replay-66-fa5afc55.md` (exit 0)
+
+- base sha256 = candidate sha256 = `c648872979e9bf3fd5e5f56f64f229de783c8e47258e45651cb5a06742f5e725`
+- roots: all (7 roots); allowances: none
+- runs compared: **170**
+- runs differing: **0** (allowed 0); allowances unused: 0
+- head recorded by the tool: fa5afc559e509a838acd29c12487d1b0e6ac44b5 (generated 2026-11-19T11:23:49Z)
+- `git diff --quiet d5acc19 -- plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/diff_ranges.py` → exit 0 (both byte-identical to 2.15.0)
+
+### 6.2 Plugin suite and stdlib check
+
+- `cd plugins/vibe-check/scripts && pytest -q -p no:cacheprovider` → **4340 passed, 0 xfailed, 2 warnings, 7132 subtests passed in 438.70s, exit 0**
+  - Scope: the plugin scripts directory only (the command 66-REVIEW-FIX.md used at cb2da984: 4337 passed, 7126 subtests). The 3 extra tests and 6 extra subtests are the WR-01 lock and its two mutants. This is not the three-root command of sections 3 and 5.2; `.github/scripts` and `docs/design/lean-v2.15/tools` were not re-run here.
+  - Parity grid: 284 scenarios, 198 agree, 12 D-19, 56 D-09 refusals, 0 known differences, 0 unexpected, 18 not creatable here.
+- `python3 -I .github/scripts/stdlib_only.py plugins/vibe-check` → **35 shipped .py files; third-party imports: none; exit 0**
+
+### 6.3 2.15.0 differentials
+
+`cd plugins/vibe-check/scripts && pytest -q -p no:cacheprovider -k "DifferentialV215 or only_intended"` → **12 passed, 4328 deselected, 428 subtests passed** (48.84s; run while the full suite was also running). This covers `TestOnlyIntendedDifferences` (Finalize: 76 named refusals and 2 shape 2 repair differences, all else byte-identical), `TestCollectDifferentialV215`, `TestShape1DifferentialV215` (only `shape1_kept`, `shape1_edited`, `no_evidence_shape1`, `no_evidence_shift` differ) and `TestQuotedNamesDifferentialV215`.
+
+### 6.4 Owner-accepted differences recorded on this candidate (2026-11-19)
+
+- **Non-ASCII names (review fix e3888c9c, owner: keep).** The since-review diff runs with `core.quotePath=false`, so `NEARBY_LINE_RANGES=` and `REMOVED_LINE_RANGES=` list a non-ASCII file under its real name; 2.15.0 omitted it from `NEARBY_LINE_RANGES=`. Locked by `TestQuotedNamesDifferentialV215::test_non_ascii_name_intended_second_line_difference` (2.15.0 `{"src/a.py":[[2,3]]}`, candidate adds `café.py` `[[9,10]]`). Names git still quotes (quotes, backslashes, control characters) and names that are not valid UTF-8 stay unsupported and fail safe: the first two lines stay byte-identical and `REMOVED_LINE_RANGES=` prints empty (unknown), so the moved decision is re-asked (`test_still_quoted_name_first_two_lines_identical_third_empty`, `TestQuotedNamesCR01`, `TestRemovedRiskyInputs`).
+- **WR-01 neighbour re-ask (owner: accept and record).** When a moved decision is force-re-asked, another deferred or dismissed decision within 5 lines of the relocated line is also re-asked although its code only shifted. Over-ask only; no `score.py` change. Locked by `TestShape1DeletedOriginal::test_wr01_neighbour_of_forced_reask_is_reasked_owner_accepted` (decision 3 lines away re-asked, 20 lines away kept, both kinds). Mutation: `test_mutant_moved_record_only_trips_the_neighbour_lock` simulates the rejected alternative (stamp only the moved record) in-process by patching `score._nearby_changed` so the forced ranges count only at their exact line, and the lock fails with the neighbour `current`; `test_mutant_a_never_forces_trips_the_neighbour_lock` shows it also fails when the forced pair is never added (all three decisions `current`). 3 passed, 6 subtests.
