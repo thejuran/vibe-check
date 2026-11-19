@@ -285,7 +285,12 @@ def _git(root, args, env=None):
     """`git <args>` in `root` -> stdout text; Unverifiable on any failure.
     `--no-optional-locks` and `core.fsmonitor=false` keep git from refreshing
     the index or starting a monitor: Close out writes nothing.
-    `core.quotePath=false` prints non-ASCII names raw (WHICH NAMES)."""
+    `core.quotePath=false` prints non-ASCII names raw (WHICH NAMES).
+    The output is decoded as the filesystem decodes paths (`os.fsdecode`,
+    UTF-8 with surrogateescape), so a repo top whose folder name is not
+    valid UTF-8 round-trips to the real folder; a U+FFFD replacement would
+    name a folder that does not exist and refuse every decision forever
+    (D-16). For valid UTF-8 output the text is the same as before."""
     try:
         proc = subprocess.run(
             ["git", "--no-optional-locks", "-c", "core.fsmonitor=false",
@@ -299,7 +304,7 @@ def _git(root, args, env=None):
     if proc.returncode != 0:
         raise Unverifiable("git %s failed (exit %d)"
                            % (args[0], proc.returncode))
-    return proc.stdout.decode("utf-8", "replace")
+    return os.fsdecode(proc.stdout)
 
 
 def _toplevel(cwd):

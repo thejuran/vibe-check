@@ -1595,6 +1595,59 @@ class TestClearableSpecialName(_ClearChain):
                 self.assert_writes(self.redecide_persist_close(s2))
 
 
+class TestClearableNonUtf8Folder(_ClearChain):
+    """D-16 loop freedom when the repo folder's own name is not valid UTF-8
+    (Linux accepts `repo\\xff`; macOS refuses to create it, so the test can
+    only run where the filesystem allows the name). Found by the first Linux
+    CI run of PR #13: git's output was decoded with U+FFFD replacement, so
+    the repo top no longer named a real folder and every decision refused
+    `unverifiable`, even right after the requested fresh review. Unchanged
+    code must write; an edit must refuse and then clear."""
+
+    FOLDER = os.fsdecode(b"repo\xff")
+
+    def setUp(self):
+        probe = tempfile.TemporaryDirectory()
+        self.addCleanup(probe.cleanup)
+        try:
+            os.makedirs(os.path.join(probe.name, self.FOLDER))
+        except OSError as exc:
+            self.skipTest("this filesystem refuses a non-UTF-8 folder "
+                          "name (%s)" % type(exc).__name__)
+        super().setUp()
+        real = gitfixture.make_repo
+        folder = self.FOLDER
+
+        def make_repo(tmp):
+            os.makedirs(os.path.join(tmp, folder))
+            path = real(os.path.join(tmp, folder))
+            return path
+
+        patcher = mock.patch.object(gitfixture, "make_repo", make_repo)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_non_utf8_folder_unchanged_writes(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                self.assertIn(os.fsencode(self.FOLDER),
+                              os.fsencode(self.repo.repo))
+                self.assert_writes(self.close_out(self.state_path))
+
+    def test_non_utf8_folder_refuse_review_write(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.decided_pass1(kind)
+                L2 = list(self.L1)
+                L2[39] = "uncommitted_40 = safe_query(user_input)"
+                self.repo.write(L2)
+                self.assert_refused(self.close_out(self.state_path), "line")
+                s2, _, _, _ = self.pass2(L2)
+                self.reasked_or_gone(s2)
+                self.assert_writes(self.redecide_persist_close(s2))
+
+
 class TestClearableFlagged(_ClearChain):
     """WR-01 loop freedom (D-16): a flagged decided file refuses with
     `flagged`; clearing the flag as the refusal says and reviewing again

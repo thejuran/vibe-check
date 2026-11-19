@@ -608,6 +608,28 @@ FRESHNESS_REFUSALS = (
        "clean", "obsolete-head"), "unverifiable"),
     (S("plain", "none", "root", "worktree-folder", "nl.ts\n",
        "clean", "obsolete-head"), "unverifiable"),
+    # Linux only (the repo folder name ends in byte 0xff; macOS cannot
+    # create it, so these are "not creatable here" there). First seen in the
+    # Linux CI run of PR #13, after closeout_fresh decoded the repo top with
+    # os.fsdecode (it had refused every non-UTF-8 folder before). Each one is
+    # the same D-09 refusal as the identical scenario with every other folder
+    # ending: the session's git cannot see the reviewed work tree (session
+    # outside it or inside .git, git missing, or GIT_DIR / work-tree settings
+    # pointing elsewhere), checked ending by ending in the Linux container.
+    (S("non-utf8", "none", "outside", "quotepath", "dir",
+       "untracked", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "folder", "deeper", "worktree-folder", "out.ts",
+       "deleted", "applied"), "unverifiable"),
+    (S("non-utf8", "repo-same", "inside-git", "git-prefix", "-x.ts",
+       "clean", "obsolete-old"), "unverifiable"),
+    (S("non-utf8", "repo-same", "inside-git", "ceiling-parent", ".git/config",
+       "edit", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "deeper", "git-dir-relative", "nl.ts\n",
+       "deleted", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "outside", "worktree-repo", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
+    (S("non-utf8", "none", "root", "no-git", "dir/y.ts",
+       "clean", "obsolete-head"), "unverifiable"),
 )
 
 
@@ -1623,9 +1645,18 @@ class TestParityGrid(unittest.TestCase):
         self.assertGreaterEqual(len(self.classes["d19"]), len(D19_ROWS))
 
     def test_freshness_refusals_are_found_exactly(self):
-        listed = [sc for sc, _ in FRESHNESS_REFUSALS]
-        self.assertEqual(len(set(listed)), len(listed))
+        all_listed = [sc for sc, _ in FRESHNESS_REFUSALS]
+        self.assertEqual(len(set(all_listed)), len(all_listed))
+        # A listed scenario this filesystem cannot create (the Linux-only
+        # rows) is excused here exactly as the grid excuses it:
+        # test_not_creatable_only_where_a_filesystem_may_refuse holds it to
+        # MAY_BE_UNCREATABLE, and test_everything_is_creatable_on_linux
+        # forbids it on Linux, where CI checks it.
+        uncreatable = {sc for sc, _ in self.classes["not_creatable"]}
+        listed = [sc for sc in all_listed if sc not in uncreatable]
         for sc, cause in FRESHNESS_REFUSALS:
+            if sc in uncreatable:
+                continue
             with self.subTest(scenario=key_of(sc)):
                 _, old, new, _, why = self.by_scenario[sc]
                 self.assertIsNone(why)
