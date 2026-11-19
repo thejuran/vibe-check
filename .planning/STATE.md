@@ -3,15 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: executing
-stopped_at: "Phase 66 gap plans 66-10..66-12 checker-passed; next /bm:execute-phase 66 --gaps-only"
-last_updated: "2026-11-19T01:04:53.648Z"
-last_activity: "2026-11-18 -- Phase 66 gap plans 66-10..66-12 created and checker-passed (999.44 shape 1 wider repair; owner chose re-ask on missing evidence)"
+last_updated: "2026-11-19T01:07:09.925Z"
+last_activity: 2026-11-19 -- Phase 66 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 12
   completed_plans: 9
-  percent: 75
+  percent: 0
 ---
 
 # Project State
@@ -26,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 66 (close-out-freshness) — EXECUTING
-Plan: 9 of 12 complete; gap plans 66-10..66-12 ready (999.44 shape 1 wider repair, owner decisions 2026-11-18)
-Status: Phase 66 gap plans ready — execute next (/bm:execute-phase 66 --gaps-only)
-Last activity: 2026-11-18 -- gap plans 66-10..66-12 created and checker-passed (2 checker passes)
+Plan: 10 of 12
+Status: Executing Phase 66
+Last activity: 2026-11-19 -- Phase 66 execution started
 
 ## Operator Next Steps
 
