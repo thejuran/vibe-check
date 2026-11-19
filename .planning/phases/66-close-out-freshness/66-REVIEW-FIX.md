@@ -99,3 +99,69 @@ All three findings the orchestrator scoped (CR-01, WR-01, WR-02) are fixed. Each
 ## Carried (not fixed here)
 
 IN-01, IN-02, IN-03, IN-04 and SA-01 are in backlog 999.46 (commit 1007eac0).
+
+## Gap-closure review fixes (2026-11-19)
+
+Source: the gap-closure `66-REVIEW.md` (plans 66-10..66-12, diff 65190000..HEAD). Scope set by the owner's rule: new work only for the reproduced silent finding loss (CR-01) and its direct test gap (WR-02). Base 1da712e3, head cb2da984, branch feat/v2.16-phase-66.
+
+| Finding | Status | Commits |
+|---|---|---|
+| CR-01: `REMOVED_LINE_RANGES` silently dropped C-quoted (non-ASCII) paths | fixed | 9b36b954 (RED), e3888c9c (fix) |
+| WR-02: parser's risky inputs untested; no mutants on quote, tab or `\` handling | fixed | cb2da984 |
+| WR-01: forced pair re-asks neighbouring decided records within ±5 lines | carried to owner | none |
+| WR-03: simulator records Needs-verification moves, prose excludes them | carried to owner | none |
+| IN-01, IN-02, IN-03, IN-04 | carried to owner | none |
+| SA-01, SA-02 | carried to owner (needs ruling) | none |
+
+### CR-01 (fixed)
+
+- **RED, 9b36b954 `test(66-review)`:** `TestQuotedNamesCR01` runs the production since-review call (`since_both`, tree to tree, real `git diff`) in a temp repo with global and system git config off. Result: 4 failed, 1 passed. Deleting line 10 of `café.py` gave removed `{}` ("known, nothing removed"), so the forced re-ask of a decision moved off that line returned `{}`. That is the 999.44 shape 1 silent keep, reproduced. A name git still quotes (`a"b.py`) gave a known value `{"src/a.py":[[3,3]]}` instead of unknown. The passing test is the quoted *added* file, which stays `{}`.
+- **Fix, e3888c9c `fix(66-review)`:**
+  1. The since-review `git diff` in `worktree_snap.since_both` now runs with `-c core.quotePath=false`. This is a flag on the existing call, following `closeout_fresh.py`. No git call was added; the `test_differential_no_extra_git_call` count is unchanged.
+  2. Fail safe. `_old_path` raises a new `UndecodablePath` in two cases: an old-side `--- ` name git still quotes (`"`, `\` or a control character) and a name that is not valid UTF-8 (the decoded name contains U+FFFD). `since_both` catches it, keeps the changed ranges and returns removed `None`. `collect` then prints `REMOVED_LINE_RANGES=` empty and notes "removed lines unknown". A quoted *new-side* name on an added file is still `{}` (`--- /dev/null`, no reviewed side).
+- **Invariant choice (deliberate, documented).** 66-10's contract said removed is empty *exactly* when nearby is empty. Keeping that for an undecodable name would have meant blanking `NEARBY_LINE_RANGES=`, which changes line 2 against d5acc19. I kept line 2 instead and relaxed the invariant. Removed is now empty **whenever** nearby is empty, **and also** when a reviewed-side name cannot be decoded. The forced re-ask rule already treats an empty removed value as unknown, so it re-asks every move; it never keeps one silently. The prose sentence in `30-collect-score.md` (since-review bullet) and the `worktree_snap.py` module and `collect` docstrings now say this. No locked prose phrase changed (`test_nv_render` and `test_simulator_matches_locked_prose` pass).
+- **Line-2 effect against d5acc19 (`TestQuotedNamesDifferentialV215`, literal d5acc19 helper as a subprocess):**
+  - Still-quoted name: the first two lines are byte-identical and the third is `REMOVED_LINE_RANGES=`.
+  - Non-ASCII name: the one intended line-2 difference from the mandated flag. 2.15.0 printed `{"src/a.py":[[2,3]]}` (the café.py change was missing). Now it prints `{"café.py":[[9,10]],"src/a.py":[[2,3]]}`, and REMOVED holds `café.py [[10,10]]`. Before this change the shared `NEARBY` map was blind to such files. The new value errs toward re-asking.
+  - All 13 existing `REMOVED_GRID` states are unchanged: first two lines byte-identical, third as before.
+- `score.py` and `diff_ranges.py`: `git diff --quiet d5acc19 --` exits 0. No new import in `worktree_snap.py`.
+- Residual note, not changed: JSON output uses `ensure_ascii`, so the printed key reads `café.py`. That is valid JSON and parses to the real name. The orchestrator compares it after parsing.
+
+### WR-02 (fixed)
+
+- **Tests, cb2da984:** `TestRemovedRiskyInputs`, real git through the production since-review call. Each input and its expected result:
+  - Name with a space (git appends a tab): `{"has space.py": [[10,10]]}`.
+  - `\ No newline at end of file` inside a hunk that also deletes lines: `[[10,10],[12,12]]`.
+  - Deleted last line of a file with no final newline: `[[11,12]]`.
+  - Rename with edits and `diff.renames` unset (git's default detects it): keyed by the old path, `[[10,10]]`.
+  - Rename with edits and `diff.renames=false` in the repo config: the whole old file, `[[1,12]]`.
+  - Binary change: `{}`.
+  - Mode-only change: `{}`.
+  - New file: `{}`.
+  - Deleted file: every line.
+  - Name that is not valid UTF-8 (byte 0xE9, trees built with `git mktree`): unknown (`None`).
+  - The non-ASCII and still-quoted cases are in `TestQuotedNamesCR01`.
+- **Mutants (`TestQuoteAndBodyMutants`, in-suite, plus applied in place to the real file):**
+
+| Mutant | Change | Named test that fails with it applied in place |
+|---|---|---|
+| M6 | a still-quoted name is skipped (`return None`, the pre-fix behaviour) | `TestQuotedNamesCR01::test_still_quoted_name_makes_removed_unknown` |
+| M7 | `-c core.quotePath=false` dropped | `TestQuotedNamesCR01::test_non_ascii_name_lists_the_removed_line` (the fail-safe then makes the value unknown, not `{}`) |
+| M8 | trailing-tab strip dropped | `TestRemovedRiskyInputs::test_space_name_strips_the_trailing_tab` |
+| M9 | `\` (no-newline) skip dropped | `TestRemovedRiskyInputs::test_no_newline_marker_inside_a_deleting_hunk` |
+| M10 | U+FFFD name accepted | `TestRemovedRiskyInputs::test_name_not_valid_utf8_makes_removed_unknown` |
+
+  Each mutant was written into `worktree_snap.py` by a scratch script. The script ran the named test (exit 1 each time, "1 failed"), restored the original bytes, and confirmed `git diff --quiet -- worktree_snap.py` is clean.
+
+### Verification (observed, HEAD cb2da984)
+
+- Full suite, `cd plugins/vibe-check/scripts && pytest -q -p no:cacheprovider`: **4337 passed, 2 warnings, 7126 subtests passed, 522.92 s, exit 0**.
+- 2.15.0 differentials, `pytest -q -p no:cacheprovider -k "DifferentialV215 or only_intended"`: **12 passed, 4325 deselected, 428 subtests passed, 71.44 s**. This includes the two new `TestQuotedNamesDifferentialV215` tests.
+- `test_worktree_snap.py` alone: 127 passed, 87 subtests.
+- `python3 -I .github/scripts/stdlib_only.py plugins/vibe-check`: 35 shipped .py files; third-party imports: none.
+- `git diff --quiet d5acc19 -- plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/diff_ranges.py`: exit 0.
+- Evidence class: offline only. There was no live reviewer run.
+
+### Carried to owner
+
+WR-01, WR-03, IN-01, IN-02, IN-03, IN-04, SA-01 and SA-02 are not fixed here, per the owner's scope rule. WR-03 depends on the SA-01 ruling. WR-01 has two options: document and lock the side effect, or add a per-hash key in score.py, which needs a ruling against the score.py byte-identity constraint.
