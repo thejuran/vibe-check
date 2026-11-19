@@ -2090,5 +2090,83 @@ class TestQuotedNamesCR01(_NamedRepo, unittest.TestCase):
         self.assertEqual(removed, {})
 
 
+def _named_collect_cli(case, helper, base, change):
+    """A fresh repo with `base` ({rel: text}) committed; `helper` takes and
+    collects pass 1, the state records its tree, `change` is written, and
+    `helper` takes and collects pass 2 -> that collect's (exit, stdout)."""
+    tmp = tempfile.TemporaryDirectory()
+    case.addCleanup(tmp.cleanup)
+    root = gitfixture.make_repo(tmp.name)
+    for rel, text in base.items():
+        gitfixture.write(root, rel, text)
+    gitfixture.git(root, "add", "-A")
+    gitfixture.git(root, "commit", "-q", "-m", "base")
+    state = os.path.join(tmp.name, "state.json")
+
+    def pass_():
+        take = _helper(helper, "take", root)
+        case.assertEqual(take.returncode, 0, take.stderr)
+        proc = _helper(helper, "collect", root, "--state", state, "--before",
+                       _printed(take.stdout, "REVIEWED_SNAPSHOT"))
+        return proc.returncode, proc.stdout
+
+    code, out = pass_()
+    case.assertEqual(code, 0)
+    with open(state, "w", encoding="utf-8") as fh:
+        json.dump({"passes": [{"pass_number": 1, "head_sha": "x",
+                               "reviewed_tree": _printed(out, "REVIEWED_TREE")}]},
+                  fh)
+    for rel, text in change.items():
+        gitfixture.write(root, rel, text)
+    return pass_()
+
+
+class TestQuotedNamesDifferentialV215(unittest.TestCase):
+    """CR-01 against the literal d5acc19 helper. A still-quoted name: the
+    first two lines are byte-identical and the third is empty (unknown).
+    A non-ASCII name: core.quotePath=false is the one intended change to
+    the second line (2.15.0 left the quoted file out of the nearby value;
+    it is now listed under its real name)."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, FIXED_DATES)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        v215 = _materialize_v215_snap(self)
+        self.old_helper = os.path.join(v215, "worktree_snap.py")
+        self.new_helper = os.path.join(SCRIPTS_DIR, "worktree_snap.py")
+
+    def both(self, base, change):
+        return (_named_collect_cli(self, self.old_helper, base, change),
+                _named_collect_cli(self, self.new_helper, base, change))
+
+    def test_still_quoted_name_first_two_lines_identical_third_empty(self):
+        base = {QUOTED: _numbered(), F: _numbered()}
+        change = {QUOTED: _drop_line(_numbered(), 10),
+                  F: _drop_line(_numbered(), 3)}
+        (old_code, old_out), (new_code, new_out) = self.both(base, change)
+        self.assertEqual(new_code, old_code)
+        lines = new_out.split("\n")
+        self.assertEqual(len(lines), 4, new_out)
+        self.assertEqual("\n".join(lines[:2]) + "\n", old_out)
+        self.assertEqual(lines[1], 'NEARBY_LINE_RANGES={"src/a.py":[[2,3]]}')
+        self.assertEqual(lines[2], "REMOVED_LINE_RANGES=")
+
+    def test_non_ascii_name_intended_second_line_difference(self):
+        base = {NON_ASCII: _numbered(), F: _numbered()}
+        change = {NON_ASCII: _drop_line(_numbered(), 10),
+                  F: _drop_line(_numbered(), 3)}
+        (old_code, old_out), (new_code, new_out) = self.both(base, change)
+        self.assertEqual(new_code, old_code)
+        old_lines, new_lines = old_out.split("\n"), new_out.split("\n")
+        self.assertEqual(new_lines[0], old_lines[0])
+        self.assertEqual(json.loads(_printed(old_out, "NEARBY_LINE_RANGES")),
+                         {F: [[2, 3]]})
+        self.assertEqual(json.loads(_printed(new_out, "NEARBY_LINE_RANGES")),
+                         {F: [[2, 3]], NON_ASCII: [[9, 10]]})
+        self.assertEqual(json.loads(_printed(new_out, "REMOVED_LINE_RANGES")),
+                         {F: [[3, 3]], NON_ASCII: [[10, 10]]})
+
+
 if __name__ == "__main__":
     unittest.main()

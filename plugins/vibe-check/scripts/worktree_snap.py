@@ -34,10 +34,16 @@ Two calls per pass:
   keyed by the reviewed-side path. An insertion next to a line does not list
   that line, so a deleted line and a line that only shifted can be told
   apart. `{}` means the evidence is known and nothing was removed; empty
-  means unknown, and it is empty exactly when `NEARBY_LINE_RANGES=` is. It
-  is parsed from the same single since-review diff text (no extra git call),
-  is used only by the review's decided-record relocation, and is never sent
-  to score.py.
+  means unknown. It is empty whenever `NEARBY_LINE_RANGES=` is, and also
+  when the diff names a reviewed-side file git still quotes under
+  core.quotePath=false (a `"`, `\\` or control character in the name) or
+  whose name is not valid UTF-8: such a file cannot be keyed by the name a
+  finding carries (66 review CR-01). `NEARBY_LINE_RANGES=` is left as it
+  was for that diff, so its first two lines stay those of 2.15.0. The diff
+  runs with core.quotePath=false, so a non-ASCII name is listed under its
+  real name in both values. It is parsed from the same single since-review
+  diff text (no extra git call), is used only by the review's decided-record
+  relocation, and is never sent to score.py.
 
   All three are the snapshot's, and only while the code is still the same at
   collect time. If the working tree, range end or PR head moved after the
@@ -125,6 +131,11 @@ USAGE = ("usage: worktree_snap.py take --root <repo top> "
 
 class SnapUnavailable(Exception):
     """This half cannot be produced; print the key with an empty value."""
+
+
+class UndecodablePath(Exception):
+    """A reviewed-side file name in the diff cannot be read as the name a
+    finding carries, so the removed lines of the whole diff are unknown."""
 
 
 def _git(root, args, env=None, stdin=None):
@@ -234,12 +245,20 @@ def _treeish(root, env, oid):
 
 
 def _old_path(line):
-    """The old-side path of a `--- ` header, or None when it has none."""
+    """The old-side path of a `--- ` header, or None for `/dev/null` (an
+    added file has no reviewed side). git appends a tab to a name holding a
+    space; it is stripped. Raises UndecodablePath for a name git still
+    C-quotes under core.quotePath=false (one holding `"`, `\\` or a control
+    character) or one that is not valid UTF-8 (decoded with U+FFFD): its
+    removed lines cannot be keyed by the name a finding carries, and
+    skipping it would print "known, nothing removed" (66 review CR-01)."""
     path = line[4:]
     if path.endswith("\t"):
         path = path[:-1]
-    if path == "/dev/null" or path.startswith('"'):
+    if path == "/dev/null":
         return None
+    if path.startswith('"') or "\ufffd" in path:
+        raise UndecodablePath()
     return path[2:] if path.startswith("a/") else path
 
 
@@ -279,7 +298,8 @@ def removed_from_diff(text):
     that prints as `--- x` is never read as a file header. An added file
     contributes nothing; a deleted file lists all its lines. Raises
     diff_ranges.RangeError on a body shorter or longer than its header or
-    with an unknown line tag."""
+    with an unknown line tag, and UndecodablePath when a reviewed-side name
+    cannot be decoded (the whole value is then unknown)."""
     out = {}
     path = None
     lines = diff_ranges._split_lines(text)
@@ -305,7 +325,12 @@ def since_both(root, prior, current=None):
     `prior`, both parsed from ONE `git diff`: the new-side changed-line
     ranges (`diff_ranges.ranges_from_diff`) and the old-side removed lines
     (`removed_from_diff`). An unchanged id is `({}, {})` with no git call,
-    so an unchanged PR head needs no local objects."""
+    so an unchanged PR head needs no local objects.
+
+    The diff runs with core.quotePath=false, so a non-ASCII name prints raw
+    and is keyed by its real name (as closeout_fresh.py does). The removed
+    lines are None (unknown) when a reviewed-side name is still quoted or
+    not valid UTF-8; the changed ranges are unaffected by that."""
     if not OBJECT_ID_RE.match(prior or ""):
         raise SnapUnavailable("not an object id")
     if current is not None and current == prior:
@@ -316,11 +341,17 @@ def since_both(root, prior, current=None):
     if current is not None:
         _treeish(root, env, current)
         ends.append(current)
-    text = _git(root, ["diff", *DIFF_FLAGS, *ends, "--"], env=env)
+    text = _git(root, ["-c", "core.quotePath=false", "diff", *DIFF_FLAGS,
+                       *ends, "--"], env=env)
     try:
-        return diff_ranges.ranges_from_diff(text), removed_from_diff(text)
+        ranges = diff_ranges.ranges_from_diff(text)
+        try:
+            removed = removed_from_diff(text)
+        except UndecodablePath:
+            removed = None
     except diff_ranges.RangeError as exc:
         raise SnapUnavailable(str(exc))
+    return ranges, removed
 
 
 def since(root, prior, current=None):
@@ -453,7 +484,8 @@ def collect(root, state_path, rng=None, pr_head=None, nonce=None):
     which can only re-ask. Otherwise the nearby ranges compare the PRIOR
     pass's id with what is there now (the same state the reviewers read),
     and the removed lines come from the same diff. The removed value is
-    empty whenever the nearby value is: unknown is never `{}`."""
+    empty whenever the nearby value is, and also when a reviewed-side file
+    name in the diff cannot be decoded: unknown is never `{}`."""
     notes = []
     route = _route(rng, pr_head)
     before = _consume_before(root, nonce, route)
@@ -475,8 +507,13 @@ def collect(root, state_path, rng=None, pr_head=None, nonce=None):
         ranges, removed_lines = since_both(root, prior_tree(state_path),
                                            current)
         nearby = json.dumps(ranges, separators=(",", ":"), sort_keys=True)
-        removed = json.dumps(removed_lines, separators=(",", ":"),
-                             sort_keys=True)
+        if removed_lines is None:
+            removed = ""
+            notes.append("removed lines unknown: a reviewed-side file name "
+                         "git had to quote")
+        else:
+            removed = json.dumps(removed_lines, separators=(",", ":"),
+                                 sort_keys=True)
     except (SnapUnavailable, OSError) as exc:
         nearby, removed = "", ""
         notes.append("nearby ranges unavailable: %s" % exc)
