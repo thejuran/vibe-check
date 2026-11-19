@@ -48,12 +48,15 @@ batch_card / finalize_gate. Nothing is stubbed. Names that a later change
 adds to carry_state are read with getattr so this module always imports.
 """
 
+import ast
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -66,6 +69,7 @@ import score  # noqa: E402
 from test_carry_state import append_pass, e2e_gate  # noqa: E402
 from test_score import GOLDEN_DIGEST  # noqa: E402
 import test_nv_render  # noqa: E402
+import worktree_snap  # noqa: E402
 
 
 F = "src/a.py"
@@ -73,6 +77,16 @@ OPEN = ("new", "persisted", "needs-recheck")
 TITLE_A = "Unchecked return at A"
 REASON = "false positive, guarded upstream"
 _BAND_ORDER = ("low", "medium", "warning", "critical")
+# The since-review call printed `REMOVED_LINE_RANGES={}`: nothing the last
+# pass reviewed was removed. Never mutated.
+NOTHING_REMOVED = {}
+
+
+def removed_arg(printed):
+    """The `removed` argument for a printed `REMOVED_LINE_RANGES=` value:
+    the parsed map for a non-empty value, None for an empty one (the
+    evidence is unavailable)."""
+    return json.loads(printed) if printed else None
 
 
 # --------------------------------------------------------------------------- #
@@ -165,10 +179,15 @@ def deletion_hunk_ranges(file, t):
     return {file: [[max(t, 1), t + 1]]}
 
 
-def next_cf(state, lines, decided=frozenset()):
+def next_cf(state, lines, decided=frozenset(), moves=None):
     """05-state.md step 2 + 30-collect-score.md step 0: the next pass's
     carry-forward from the last pass (open statuses only), each lead and each
-    member given its own HEAD read at its (possibly relocated) line."""
+    member given its own HEAD read at its (possibly relocated) line.
+
+    With a `moves` list, every case-2 move of a decided record is appended
+    to it as `{"file", "stored_line", "line", "member"}` (the prose's
+    `$MOVED_DECIDED`); `member` is simulator-only and true for a member. The
+    lead's own member that moves with the lead is not recorded twice."""
     out = []
     for f in state["passes"][-1]["findings"]:
         if f.get("status") not in OPEN:
@@ -176,6 +195,9 @@ def next_cf(state, lines, decided=frozenset()):
         e = json.loads(json.dumps(f))
         stored = e.get("line")
         e["line"] = relocate_decided(lines, e, decided)
+        if moves is not None and e["line"] != stored:
+            moves.append({"file": e.get("file"), "stored_line": stored,
+                          "line": e["line"], "member": False})
         e["canonical_line_content"], e["canonical_window"] = head_read(
             lines, e.get("line"))
         for m in e.get("members", []):
@@ -188,7 +210,12 @@ def next_cf(state, lines, decided=frozenset()):
                 # phantom row of whatever code now sits on that line.
                 m["line"] = e["line"]
             else:
+                m_stored = m.get("line")
                 m["line"] = relocate_decided(lines, m, decided)
+                if moves is not None and m["line"] != m_stored:
+                    moves.append({"file": m.get("file"),
+                                  "stored_line": m_stored,
+                                  "line": m["line"], "member": True})
             m["canonical_line_content"], m["canonical_window"] = head_read(
                 lines, m.get("line"))
         out.append(e)
@@ -209,11 +236,59 @@ def fresh(agent, line, lines, title, conf=70, severity="warning",
             "canonical_line_content": code}
 
 
-def run_pass(state, lines, findings, n, ranges, decided=frozenset(), **over):
-    """(new state, score result) for pass `n` through the real scorer."""
+def forced_reask_pairs(moves, removed):
+    """The forced re-ask of a moved decided record (999.44 shape 1),
+    simulating the rule in 30-collect-score.md step 2 for the moves step 0
+    remembered in `$MOVED_DECIDED`.
+
+    A move is re-asked when the evidence is empty (`removed` is None: the
+    printed `REMOVED_LINE_RANGES=` value is empty, so removal cannot be ruled
+    out) or when `removed` lists a range for the move's `file` that contains
+    the move's `stored_line` (the owner's own decided line is gone, so the
+    identical text found elsewhere is other code). -> {file: [[line, line],
+    ...]} of the relocated lines, in move order; `{}` when nothing is
+    forced."""
+    pairs = {}
+    for mv in moves:
+        spans = None if removed is None else removed.get(mv["file"]) or []
+        if spans is None or any(a <= mv["stored_line"] <= b
+                                for a, b in spans):
+            pairs.setdefault(mv["file"], []).append([mv["line"], mv["line"]])
+    return pairs
+
+
+def stamp_map_with_pairs(env, pairs):
+    """Merge forced `pairs` into the map the decision stamp reads, in place
+    on `env`: the caller's `nearby_line_ranges`, or `changed_line_ranges`
+    when it sent none. A pair whose line already lies inside a range of that
+    map is dropped (the move is re-asked already). When a pair remains,
+    `nearby_line_ranges` becomes a deep copy of the map with every range it
+    held kept and the pairs appended; otherwise `env` is left untouched.
+    `changed_line_ranges` is never changed (it feeds the score)."""
+    base = (env["nearby_line_ranges"] if "nearby_line_ranges" in env
+            else env["changed_line_ranges"])
+    merged = json.loads(json.dumps(base))
+    added = False
+    for file, spans in pairs.items():
+        for line, _ in spans:
+            if any(a <= line <= b for a, b in merged.get(file, [])):
+                continue
+            merged.setdefault(file, []).append([line, line])
+            added = True
+    if added:
+        env["nearby_line_ranges"] = merged
+
+
+def run_pass(state, lines, findings, n, ranges, decided=frozenset(),
+             removed=NOTHING_REMOVED, **over):
+    """(new state, score result) for pass `n` through the real scorer.
+
+    `removed` is the since-review `REMOVED_LINE_RANGES=` value (None when it
+    was printed empty); it is never an envelope key."""
+    moves = []
     env = {"command": "deep-review", "all_mode": False, "pass_number": n,
            "changed_line_ranges": ranges,
-           "carryforward": (next_cf(state, lines, decided)
+           "carryforward": (next_cf(state, lines, decided, moves)
                             if state["passes"] else []),
            "findings": findings}
     if state["passes"]:
@@ -226,6 +301,7 @@ def run_pass(state, lines, findings, n, ranges, decided=frozenset(), **over):
     # An override of None removes the key (an envelope written before it).
     for k in [k for k, v in over.items() if v is None]:
         del env[k]
+    stamp_map_with_pairs(env, forced_reask_pairs(moves, removed))
     result = score.run(env)
     return append_pass(state, result, n, "h%d" % n), result
 
@@ -992,49 +1068,271 @@ def far_twin_scenario():
 SHAPE1_COPY_LINE = 50  # old line of the identical copy; line 49 after the deletion
 
 
-def deleted_original_scenario(test, kind, copy="kept"):
-    """999.44 shape 1 (Phase 57 WR-01): the decided line is DELETED while
+EVIDENCE_MODES = ("real", "unknown", "nothing")
+
+
+def captured_run_pass(*args, run=None, **kw):
+    """`run` (default `run_pass`) with the envelope it sent to `score.run`
+    captured (a deep copy taken at the call) -> (state, result, envelope)."""
+    from unittest import mock
+    seen = []
+    real = score.run
+
+    def spy(env):
+        seen.append(json.loads(json.dumps(env)))
+        return real(env)
+
+    with mock.patch.object(score, "run", side_effect=spy):
+        state, result = (run or run_pass)(*args, **kw)
+    assert len(seen) == 1, len(seen)
+    return state, result, seen[0]
+
+
+def real_pass2(test, s1, L0, L1, findings, evidence="real", run=None):
+    """Pass 2 of a decision made on `L0`, after the change to `L1`, fed the
+    way 30-collect-score.md step 2 describes from ONE real `git diff`:
+    `changed_line_ranges` from the exact-range builder and the since-review
+    values from the same diff.
+
+    `evidence`:
+      "real"    `NEARBY_LINE_RANGES=` and `REMOVED_LINE_RANGES=` printed: the
+                envelope carries `nearby_line_ranges` = the ranges, and
+                `removed` = `worktree_snap.removed_from_diff` of that diff;
+      "unknown" both printed empty: no `nearby_line_ranges`, `removed` None;
+      "nothing" as "real" but `removed` = `{}` (what the 2.15.0 procedure,
+                which had no removal evidence, effectively assumed).
+    `findings` is a callable of `L1` returning the pass-2 agent findings.
+    `run` replaces `run_pass` (the 2.15.0 procedure in the differential);
+    it is called without `removed`.
+
+    -> (s2, repo): `repo` holds L0 committed and L1 on disk, plus `ranges`,
+    `removed` (the evidence the pass was fed), `env` (the envelope sent to
+    `score.run`) and `result`."""
+    if evidence not in EVIDENCE_MODES:
+        raise ValueError(evidence)
+    repo = RealDiffRepo.make(test, L0)
+    repo.write(L1)
+    text = repo.diff()
+    ranges = _builder()(text)
+    removed = (worktree_snap.removed_from_diff(text) if evidence == "real"
+               else None if evidence == "unknown" else {})
+    over = {} if evidence == "unknown" else {"nearby_line_ranges": ranges}
+    kw = dict(decided=target_decided(s1), **over)
+    if run is None:
+        kw["removed"] = removed
+    s2, result, env = captured_run_pass(s1, L1, findings(L1), 2, ranges,
+                                        run=run, **kw)
+    repo.ranges, repo.removed, repo.env, repo.result = (ranges, removed, env,
+                                                        result)
+    return s2, repo
+
+
+def deleted_original_scenario(test, kind, copy="kept", report="read_at",
+                              evidence="real"):
+    """999.44 shape 1 (Phase 57 WR-01): the decided line is removed while
     identical text remains elsewhere in the file.
 
     Pass 1: `bugs` A at line 10 (`line_10 = 10`), decided `kind`. Between the
-    passes line 10 is deleted, and nothing else changes.
+    passes line 10 is deleted (or replaced), and nothing else changes.
 
     `copy` says where the identical text comes from:
       "kept"   the copy was already in the reviewed file (old line 50, line 49
                after the deletion) and is untouched; the change is the
                deletion alone (the 999.44 record: "identical text remained at
                line 49");
+      "edited" line 10 is replaced in place (`line_10 = 'edited'`) and the
+               copy stays untouched at line 50;
       "added"  the copy is written by the same change that deletes line 10
                (old line 49 replaced by `line_10 = 10`, line 48 after the
                deletion), so the change also touches the copy's own line.
 
-    Pass 2 is driven the way 30-collect-score.md step 0 describes: the real
-    `git diff` of the change in a temp repo, through the exact-range builder,
-    gives `changed_line_ranges`; the carried record is relocated with
-    `relocate_decided` against `$DECIDED_HASHES` (`carry_state.py decided`);
-    the same agent re-reports the finding at the line the record was read at.
+    Pass 2 is driven the way 30-collect-score.md steps 0 and 2 describe (see
+    `real_pass2`, `evidence`): the carried record is relocated with
+    `relocate_decided` against `$DECIDED_HASHES` (`carry_state.py decided`).
+    `report`: "read_at" — the same agent re-reports the finding at the line
+    the record was read at; "none" — no finding at pass 2.
 
-    -> (s1, s2, hA, repo, L1): `repo` holds L0 committed and L1 on disk."""
+    -> (s1, s2, hA, repo, L1): see `real_pass2` for `repo`."""
     L0 = base_file()
     L1 = list(L0)
     if copy == "kept":
         L0[SHAPE1_COPY_LINE - 1] = L0[9]
         L1 = list(L0)
+        del L1[9]
+    elif copy == "edited":
+        L0[SHAPE1_COPY_LINE - 1] = L0[9]
+        L1 = list(L0)
+        L1[9] = "line_10 = 'edited'"
     elif copy == "added":
         L1[48] = L0[9]
+        del L1[9]
     else:
         raise ValueError(copy)
-    del L1[9]
+    if report not in ("read_at", "none"):
+        raise ValueError(report)
     s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
-    repo = RealDiffRepo.make(test, L0)
-    repo.write(L1)
-    ranges = _builder()(repo.diff())
     decided = target_decided(s1)
     read_at = next_cf(s1, L1, decided)[0]["line"]
-    s2, _ = run_pass(s1, L1,
-                     [fresh("bugs", read_at, L1, TITLE_A, conf=STABLE_CONF)],
-                     2, ranges, decided=decided)
+
+    def findings(lines):
+        if report == "none":
+            return []
+        return [fresh("bugs", read_at, lines, TITLE_A, conf=STABLE_CONF)]
+
+    s2, repo = real_pass2(test, s1, L0, L1, findings, evidence)
     return s1, s2, hA, repo, L1
+
+
+def _shape1_lines(name):
+    """(L0, L1, report_line) of one single-decision shape 1 grid change: the
+    decision is `bugs` A at line 10 of `L0`; `report_line` is where the same
+    agent re-reports it on `L1` (None: no pass-2 finding)."""
+    L0 = base_file()
+    top20 = ["inserted_%02d = 0" % i for i in range(20)]
+    if name == "unchanged":
+        return L0, list(L0), 10
+    if name == "pure_shift":
+        return L0, top20 + L0, 30
+    if name == "d21_copy_added":
+        L1 = list(L0)
+        L1[29] = L0[9]
+        return L0, L1, 10
+    if name == "far_edit":
+        return L0, _edited(L0, 40), 10
+    if name == "nearby_edit":
+        return L0, _edited(L0, 12), 10
+    if name == "decided_line_edited_no_copy":
+        return L0, _edited(L0, 10), None
+    if name == "decided_line_deleted_no_copy":
+        L1 = list(L0)
+        del L1[9]
+        return L0, L1, None
+    if name == "same_edit_copy":
+        L1 = list(L0)
+        L1[48] = L0[9]
+        del L1[9]
+        return L0, L1, 48
+    if name == "tie":
+        # Copies at old lines 5 and 16: lines 5 and 15 after the deletion,
+        # both 5 lines from the stored line 10 (case 3, no move).
+        L0[4] = L0[15] = L0[9]
+        L1 = list(L0)
+        del L1[9]
+        return L0, L1, None
+    if name == "lookup_stored_line":
+        # The stored line 10 survives (moved to 30); old line 30 is deleted,
+        # so the removed lines name 30, the relocated line, not 10.
+        L1 = list(L0)
+        del L1[29]
+        return L0, top20 + L1, 30
+    if name == "shape1_kept":
+        L0[SHAPE1_COPY_LINE - 1] = L0[9]
+        L1 = list(L0)
+        del L1[9]
+        return L0, L1, SHAPE1_COPY_LINE - 1
+    if name == "shape1_edited":
+        L0[SHAPE1_COPY_LINE - 1] = L0[9]
+        L1 = list(L0)
+        L1[9] = "line_10 = 'edited'"
+        return L0, L1, SHAPE1_COPY_LINE
+    raise ValueError(name)
+
+
+# Grid scenario -> (change, evidence). The `no_evidence_*` rows replay a
+# change with both since-review values printed empty.
+SHAPE1_GRID = {
+    "unchanged": ("unchanged", "real"),
+    "pure_shift": ("pure_shift", "real"),
+    "d21_copy_added": ("d21_copy_added", "real"),
+    "far_edit": ("far_edit", "real"),
+    "nearby_edit": ("nearby_edit", "real"),
+    "decided_line_edited_no_copy": ("decided_line_edited_no_copy", "real"),
+    "decided_line_deleted_no_copy": ("decided_line_deleted_no_copy", "real"),
+    "same_edit_copy": ("same_edit_copy", "real"),
+    "tie": ("tie", "real"),
+    "lookup_stored_line": ("lookup_stored_line", "real"),
+    "no_evidence_unchanged": ("unchanged", "unknown"),
+    "shape1_kept": ("shape1_kept", "real"),
+    "shape1_edited": ("shape1_edited", "real"),
+    "no_evidence_shape1": ("shape1_kept", "unknown"),
+    "no_evidence_shift": ("pure_shift", "unknown"),
+}
+
+
+def shape1_case(test, kind, name, run=None, evidence=None):
+    """Grid scenario `name` for a decision of `kind` -> (s1, s2, hA, repo,
+    L1); `evidence` overrides the grid's; `run` as in `real_pass2`."""
+    change, ev = SHAPE1_GRID[name]
+    L0, L1, at = _shape1_lines(change)
+    s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
+
+    def findings(lines):
+        return ([] if at is None else
+                [fresh("bugs", at, lines, TITLE_A, conf=STABLE_CONF)])
+
+    s2, repo = real_pass2(test, s1, L0, L1, findings, evidence or ev, run=run)
+    return s1, s2, hA, repo, L1
+
+
+TITLE_B = "Unchecked return at B"
+
+
+def two_decisions_scenario(test, kind, evidence="real"):
+    """Two decisions, two re-asks from two sources. Pass 1: `bugs` A at line
+    10 (identical text already at old line 50) and `bugs` B (another title)
+    at line 30, both decided `kind`. Between the passes line 10 is deleted
+    and old line 32 is edited: A moves to 49 off a removed line (the forced
+    re-ask) and B moves to 29 beside an edit (the since-review map's
+    re-ask). No pass-2 finding. -> (s2, hA, hB, repo)."""
+    L0 = base_file()
+    L0[SHAPE1_COPY_LINE - 1] = L0[9]
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
+                       fresh("bugs", 30, L0, TITLE_B, conf=STABLE_CONF)],
+                      1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 2, r1
+    by_line = {f["line"]: f["stable_hash"] for f in r1["findings"]}
+    hA, hB = by_line[10], by_line[30]
+    s1 = decide_on(s1, hA, kind=kind)
+    s1 = decide_on(s1, hB, kind=kind)
+    L1 = list(L0)
+    L1[31] = "line_32 = 'edited'"
+    del L1[9]
+    s2, repo = real_pass2(test, s1, L0, L1, lambda lines: [], evidence)
+    return s2, hA, hB, repo
+
+
+def member_move_scenario(test, kind):
+    """A decided obligation MEMBER moved off a removed line. Pass 1: `bugs` A
+    at line 10 (identical text already at old line 50) decided `kind`. Pass
+    2, code unchanged: a critical `security` B at line 8 leads the group and
+    A rides as a member carrying its obligation. Between passes 2 and 3 line
+    10 is deleted; pass 3 has no finding, real evidence.
+    -> (s3, hA, repo, moves): `moves` is what step 0 recorded at pass 3."""
+    L0 = base_file()
+    L0[SHAPE1_COPY_LINE - 1] = L0[9]
+    s1, hA = pass1(L0, conf=STABLE_CONF, kind=kind)
+    b = fresh("security", 8, L0, "Injection at B", conf=95,
+              severity="critical", category="injection")
+    s2, r2 = run_pass(s1, L0, [b], 2, {F: []}, decided=target_decided(s1),
+                      nearby_line_ranges={})
+    assert len(r2["findings"]) == 1, r2["findings"]
+    row = r2["findings"][0]
+    owed = [m for m in row.get("members", [])
+            if (m.get("obligation") or {}).get("stable_hash") == hA]
+    assert row["agent"] == "security" and len(owed) == 1, row
+    L1 = list(L0)
+    del L1[9]
+    moves = []
+    next_cf(s2, L1, target_decided(s2), moves)
+    repo = RealDiffRepo.make(test, L0)
+    repo.write(L1)
+    text = repo.diff()
+    ranges = _builder()(text)
+    repo.removed = worktree_snap.removed_from_diff(text)
+    s3, _ = run_pass(s2, L1, [], 3, ranges, decided=target_decided(s2),
+                     removed=repo.removed, nearby_line_ranges=ranges)
+    return s3, hA, repo, moves
 
 
 def _two_copy_lines():
@@ -2897,6 +3195,13 @@ class TestCrossModuleGuards(_Base):
                 self.assertIn(test_nv_render.norm(phrase),
                               test_nv_render.norm(section))
         self.assertTrue(test_nv_render.decided_relocation_holds(collect))
+        forced = " ".join(forced_reask_pairs.__doc__.split())
+        for phrase in ("30-collect-score.md", "`$MOVED_DECIDED`",
+                       "`stored_line`", "the evidence is empty",
+                       "contains the move's `stored_line`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, forced)
+        self.assertTrue(test_nv_render.forced_reask_holds(collect))
 
     def _assert_decided_matches(self, state):
         recs = carry_state.open_findings(state)
@@ -4140,18 +4445,10 @@ class TestRealDiffRanges60(_RealChain):
 SHAPE1_KINDS = ("defer", "dismiss")
 
 
-class TestShape1DeletedOriginal(_RealChain):
-    """999.44 shape 1 through the real chain, for both decision kinds: real
-    `git diff` ranges, step-0 relocation (`relocate_decided`), the real
-    scorer and state, then the real `finalize_inputs` CLI on a repo whose
-    last pass is bound to the reviewed code (`reviewed_tree` = the pass-2
-    tree, unchanged on disk), so Close out's outcome comes from the decision
-    state the review left, not from a code-changed-since-review check.
-
-    D-11: deleting the decided line while identical text remains elsewhere
-    (shape 1) is a different case from the owner-accepted D-21 behaviour of
-    adding an identical copy while the original stays; the D-21 control and
-    an ordinary line-shift control must keep."""
+class _Shape1Bodies(_RealChain):
+    """The 999.44 shape 1 scenario bodies (no tests of its own): each `_body_*`
+    runs one scenario for one kind and raises AssertionError when the
+    repaired behaviour does not hold."""
 
     def _closeout(self, repo, state, lines):
         """`finalize_inputs.py` on `state`, run in `repo` after binding the
@@ -4186,43 +4483,171 @@ class TestShape1DeletedOriginal(_RealChain):
             % (rec and rec["line"], rec and rec["snapshot"]))
         self.assertNotEqual(e2e_gate(s2, {}), "write")
 
-    @unittest.expectedFailure
-    def test_shape1_deleted_original_is_reasked_at_pass2_known_limit(self):
-        """Owner-accepted known limit, 999.44 shape 1: the decided line 10 is
-        deleted while identical text was already at old line 50 (49 after the
-        deletion) and is untouched. The correct outcome is a re-ask at pass
-        2; today step-0 relocation moves the decision to line 49 and keeps it
-        current, so this test fails by design. A correct check needs the
-        lines removed since the previous review, which the change ranges do
-        not carry (new-side line numbers only). Close out's code-changed-
-        since-review refusal does not bound it: it only applies before a
-        review has run on the deleted code, and that review relocates again.
-        If this test starts passing, the limit is gone: remove the marker."""
-        for kind in SHAPE1_KINDS:
-            with self.subTest(kind=kind):
-                _, s2, hA, _, _ = deleted_original_scenario(self, kind)
-                self._not_kept(s2, hA)
+    def _body_reasked(self, kind, report="read_at"):
+        _, s2, hA, repo, _ = deleted_original_scenario(self, kind,
+                                                       report=report)
+        self.assertEqual(repo.removed, {F: [[10, 10]]})
+        self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
+        self._not_kept(s2, hA)
 
-    @unittest.expectedFailure
-    def test_shape1_closeout_does_not_write_on_deleted_original_known_limit(
-            self):
-        """Owner-accepted known limit, 999.44 shape 1: Close out on the
-        pass-2 state of the same change should not write. The outcome must
-        come from the review's decision state (relocation), never from the
-        code-changed-since-review refusal: the last pass is bound to the code
-        on disk, so `next` must not be `stop-review-again`. Today Close out
-        writes with the decision current at line 49, so this test fails by
-        design. The Close out refusal does not bound the limit: it applies
-        only before a review has run on the deleted code, and that review
-        relocates and keeps the decision again. If this test starts passing,
-        the limit is gone: remove the marker."""
+    def _body_closeout(self, kind):
+        _, s2, hA, repo, L1 = deleted_original_scenario(self, kind)
+        result = self._closeout(repo, s2, L1)
+        self.assertNotEqual(result["next"], "stop-review-again", result)
+        self.assertNotEqual(result["action"], "write", result)
+        s2 = decide_on(s2, hA, kind=kind)
+        self.assertEqual(self._closeout(repo, s2, L1)["action"], "write")
+
+    def _body_edited(self, kind):
+        _, s2, hA, repo, _ = deleted_original_scenario(self, kind,
+                                                       copy="edited")
+        self.assertEqual(repo.removed, {F: [[10, 10]]})
+        self.assert_reopens(s2, hA, SHAPE1_COPY_LINE)
+
+    def _body_no_evidence(self, kind):
+        _, s2, hA, repo, _ = shape1_case(self, kind, "no_evidence_shape1")
+        self.assertIsNone(repo.removed)
+        self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
+        _, s2, hA, repo, _ = shape1_case(self, kind, "no_evidence_shift")
+        self.assertIsNone(repo.removed)
+        self.assert_reopens(s2, hA, 30)
+
+    def _body_lookup(self, kind):
+        _, s2, hA, repo, _ = shape1_case(self, kind, "lookup_stored_line")
+        self.assertEqual(repo.removed, {F: [[30, 30]]})
+        self.assert_keeps(s2, hA, 30)
+
+    def _body_pure_shift(self, kind):
+        _, s2, hA, repo, _ = shape1_case(self, kind, "pure_shift")
+        self.assertEqual(repo.removed, {})
+        self.assert_keeps(s2, hA, 30)
+
+    def _body_two_decisions(self, kind):
+        s2, hA, hB, repo = two_decisions_scenario(self, kind)
+        self.assertEqual(repo.removed, {F: [[10, 10], [32, 32]]})
+        self.assert_reopens(s2, hA, SHAPE1_COPY_LINE - 1)
+        self.assert_reopens(s2, hB, 29)
+
+    def _body_member(self, kind):
+        s3, hA, _, moves = member_move_scenario(self, kind)
+        rec = record_of(s3, hA)
+        self.assertIsNotNone(rec, "member decision orphaned")
+        self.assertNotEqual(carry_state.decision_state(rec, s3), "current",
+                            rec)
+        self.assertNotEqual(e2e_gate(s3, {}), "write")
+        self.assertIn({"file": F, "stored_line": 10,
+                       "line": SHAPE1_COPY_LINE - 1, "member": True}, moves)
+
+    def _body_score(self, kind):
+        _, _, _, real, _ = deleted_original_scenario(self, kind)
+        _, _, _, none, _ = deleted_original_scenario(self, kind,
+                                                     evidence="nothing")
+        scores = lambda r: sorted((f["stable_hash"], f["line"],
+                                   f["orchestrator_score"])
+                                  for f in r["findings"])
+        self.assertTrue(real.result["findings"])
+        self.assertEqual(scores(real.result), scores(none.result))
+        self.assertEqual(real.env["changed_line_ranges"],
+                         none.env["changed_line_ranges"])
+
+
+class TestShape1DeletedOriginal(_Shape1Bodies):
+    """999.44 shape 1 through the real chain, for both decision kinds: real
+    `git diff` ranges and removed lines from one diff, step-0 relocation
+    (`relocate_decided`) with its moves recorded, the forced re-ask, the real
+    scorer and state, then the real `finalize_inputs` CLI on a repo whose
+    last pass is bound to the reviewed code (`reviewed_tree` = the pass-2
+    tree, unchanged on disk), so Close out's outcome comes from the decision
+    state the review left, not from a code-changed-since-review check.
+
+    When the decided line was removed since the review and identical text
+    exists elsewhere, the decision follows the text and is re-asked there.
+
+    D-11: deleting the decided line while identical text remains elsewhere
+    (shape 1) is a different case from the owner-accepted D-21 behaviour of
+    adding an identical copy while the original stays; the D-21 control and
+    an ordinary line-shift control must keep."""
+
+    def test_shape1_deleted_original_is_reasked_at_pass2(self):
+        """999.44 shape 1: the decided line 10 is deleted while identical
+        text was already at old line 50 (49 after the deletion) and is
+        untouched. The decision follows the text to line 49 and is re-asked
+        there (stale, cause nearby), whether or not the reviewer re-reports
+        the finding: the removed lines name the decided line, so the
+        identical text is other code."""
+        for kind in SHAPE1_KINDS:
+            for report in ("read_at", "none"):
+                with self.subTest(kind=kind, report=report):
+                    self._body_reasked(kind, report)
+
+    def test_shape1_closeout_does_not_write_on_deleted_original(self):
+        """Close out on the pass-2 state of the same change does not write.
+        Its outcome comes from the review's decision state: the last pass is
+        bound to the code on disk, so `next` is not `stop-review-again`.
+        After the owner decides again, Close out writes (no loop)."""
         for kind in SHAPE1_KINDS:
             with self.subTest(kind=kind):
-                _, s2, _, repo, L1 = deleted_original_scenario(self, kind)
-                result = self._closeout(repo, s2, L1)
-                self.assertNotEqual(result["next"], "stop-review-again",
-                                    result)
-                self.assertNotEqual(result["action"], "write", result)
+                self._body_closeout(kind)
+
+    def test_shape1_edited_in_place_with_copy_elsewhere_reasks(self):
+        """Line 10 replaced in place while identical text stays at line 50:
+        the decision moves to 50 and is re-asked."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_edited(kind)
+
+    def test_shape1_no_removal_evidence_reasks(self):
+        """Owner decision 2026-11-18 ("Re-ask them"): with both since-review
+        values printed empty, removal cannot be ruled out, so any decision
+        step 0 moved is re-asked: the shape 1 deletion (at 49) and a pure
+        shift (at 30) alike."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_no_evidence(kind)
+
+    def test_removed_lookup_uses_the_stored_line(self):
+        """20 lines inserted above and old line 30 deleted: the removed lines
+        name 30, which is the record's relocated line, not its stored line
+        10, so the moved decision keeps at 30."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_lookup(kind)
+
+    def test_shape1_forced_pair_merges_with_other_reasks(self):
+        """The forced pair is merged into the since-review map: A (moved off
+        its removed line) is re-asked at 49 and B (moved beside an edit) is
+        still re-asked at 29 by the map's own range."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_two_decisions(kind)
+
+    def test_shape1_member_move_is_reasked(self):
+        """A decided obligation member moved off a removed line is recorded
+        as a move and its decision is re-asked."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_member(kind)
+
+    def test_forced_pair_never_changes_a_score(self):
+        """The forced pair goes only to the map the decision stamp reads:
+        every finding scores the same with and without it, and
+        `changed_line_ranges` is the same."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                self._body_score(kind)
+
+    def test_forced_map_is_well_formed_for_the_scorer(self):
+        """The built map is the one `score._stamp_ranges` uses (a malformed
+        map would fall back to `changed_line_ranges` and lose the re-ask)."""
+        for name in ("shape1_kept", "no_evidence_shape1",
+                     "no_evidence_shift"):
+            with self.subTest(name=name):
+                _, _, _, repo, _ = shape1_case(self, "dismiss", name)
+                nearby = repo.env.get("nearby_line_ranges")
+                self.assertIsInstance(nearby, dict)
+                self.assertIs(score._stamp_ranges(
+                    nearby, repo.env["changed_line_ranges"]), nearby)
+                self.assertNotEqual(nearby, repo.env["changed_line_ranges"])
 
     def test_shape1_copy_written_by_the_same_change_reasks_control(self):
         """Control: when the identical text is written by the same change
@@ -4255,7 +4680,9 @@ class TestShape1DeletedOriginal(_RealChain):
                 self.assertEqual(ranges, {F: [[30, 30]]})
                 s2, _ = run_pass(
                     s1, L1, [fresh("bugs", 10, L1, TITLE_A, conf=STABLE_CONF)],
-                    2, ranges, decided=target_decided(s1))
+                    2, ranges, decided=target_decided(s1),
+                    removed=worktree_snap.removed_from_diff(repo.diff()),
+                    nearby_line_ranges=ranges)
                 self.assert_keeps(s2, hA, 10)
                 self.assertEqual(self._closeout(repo, s2, L1)["action"],
                                  "write")
@@ -4274,10 +4701,273 @@ class TestShape1DeletedOriginal(_RealChain):
                 self.assertEqual(ranges, {F: [[1, 20]]})
                 s2, _ = run_pass(
                     s1, L1, [fresh("bugs", 30, L1, TITLE_A, conf=STABLE_CONF)],
-                    2, ranges, decided=target_decided(s1))
+                    2, ranges, decided=target_decided(s1),
+                    removed=worktree_snap.removed_from_diff(repo.diff()),
+                    nearby_line_ranges=ranges)
                 self.assert_keeps(s2, hA, 30)
                 self.assertEqual(self._closeout(repo, s2, L1)["action"],
                                  "write")
+
+
+# --------------------------------------------------------------------------- #
+# 999.44 shape 1: the repair against the literal 2.15.0 procedure.
+# --------------------------------------------------------------------------- #
+V215_COMMIT = "d5acc19"
+V215_TDC = "plugins/vibe-check/scripts/test_decision_continuity.py"
+V215_FUNCS = ("relocate_decided", "next_cf", "run_pass")
+SHAPE1_INTENDED = ("shape1_kept", "shape1_edited", "no_evidence_shape1",
+                   "no_evidence_shift")
+_V215_BYTES = []
+
+
+def _clean_git_env():
+    """os.environ with the developer's git config off and no inherited
+    `GIT_*` variable (a hook or a linked worktree may set GIT_DIR)."""
+    env = gitfixture.helper_env()
+    for key in list(env):
+        if key.startswith("GIT_") and key not in ("GIT_CONFIG_GLOBAL",
+                                                  "GIT_CONFIG_NOSYSTEM"):
+            del env[key]
+    return env
+
+
+def _v215_bytes():
+    """This file as committed at d5acc19 (read once per process)."""
+    if not _V215_BYTES:
+        spec = V215_COMMIT + ":" + V215_TDC
+        proc = subprocess.run(["git", "show", spec], cwd=HERE,
+                              env=_clean_git_env(), stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=60)
+        if proc.returncode != 0:
+            raise AssertionError(
+                "cannot read %s (needs full history): %s"
+                % (spec, proc.stderr.decode(errors="replace")))
+        _V215_BYTES.append(proc.stdout)
+    return _V215_BYTES[0]
+
+
+def _v215_run_pass():
+    """The 2.15.0 `run_pass`, with its `relocate_decided` and `next_cf`,
+    taken from the d5acc19 blob of this file and run against today's
+    unchanged helpers (`head_read`, `append_pass`, `score`, `carry_state`,
+    `_deferred_read`): the old procedure, never a hand-written copy."""
+    src = _v215_bytes().decode("utf-8")
+    ns = dict(globals())
+    found = set()
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.FunctionDef) and node.name in V215_FUNCS:
+            code = ast.get_source_segment(src, node)
+            exec(compile(code, "%s@%s" % (V215_TDC, V215_COMMIT), "exec"), ns)
+            found.add(node.name)
+    assert found == set(V215_FUNCS), found
+    return ns["run_pass"]
+
+
+def _canon(x):
+    return json.dumps(x, sort_keys=True)
+
+
+def assert_only_intended(diffs, intended):
+    """Both directions: every differing scenario is listed in `intended`,
+    and every listed scenario differs."""
+    unlisted = sorted(set(diffs) - set(intended))
+    silent = sorted(set(intended) - set(diffs))
+    if unlisted or silent:
+        raise AssertionError("unlisted differences %r; listed but identical "
+                             "%r" % (unlisted, silent))
+
+
+class _Differential(_RealChain):
+
+    def _pair(self, kind, name):
+        """(old, new) for grid scenario `name`: each a (s2, hA, repo)."""
+        old_run = _v215_run_pass()
+        _, s_old, hA, r_old, _ = shape1_case(self, kind, name, run=old_run)
+        _, s_new, hB, r_new, _ = shape1_case(self, kind, name)
+        self.assertEqual(hA, hB)
+        return (s_old, hA, r_old), (s_new, hB, r_new)
+
+    def _differs(self, old, new):
+        return any(_canon(a) != _canon(b) for a, b in (
+            (old[2].env, new[2].env), (old[0], new[0]),
+            (old[2].result, new[2].result)))
+
+    def _grid_diffs(self, names, kinds=SHAPE1_KINDS):
+        """{scenario: [(kind, old, new), ...]} for the scenarios whose
+        envelope, state or score result differ on some kind."""
+        out = {}
+        for name in names:
+            for kind in kinds:
+                old, new = self._pair(kind, name)
+                if self._differs(old, new):
+                    out.setdefault(name, []).append((kind, old, new))
+        return out
+
+
+class TestShape1DifferentialV215(_Differential):
+    """The shape 1 repair against the literal 2.15.0 (d5acc19) relocation and
+    envelope procedure, fed the same inputs on every grid scenario: the
+    canonical JSON of the envelope, the new state and the score result are
+    byte-identical except on `SHAPE1_INTENDED`, where 2.15.0 kept the
+    decision and the repair re-asks it."""
+
+    def test_differential_old_procedure_is_literal_d5acc19(self):
+        env = _clean_git_env()
+        old = subprocess.run(
+            ["git", "rev-parse", V215_COMMIT + ":" + V215_TDC], cwd=HERE,
+            env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(old.returncode, 0, old.stderr)
+        now = subprocess.run(
+            ["git", "hash-object", "--no-filters", "--stdin"], cwd=HERE,
+            env=env, input=_v215_bytes(), capture_output=True,
+            timeout=60)
+        self.assertEqual(now.returncode, 0, now.stderr)
+        self.assertEqual(now.stdout.decode().strip(), old.stdout.strip())
+        self.assertTrue(callable(_v215_run_pass()))
+
+    def test_differential_only_intended_scenarios_differ(self):
+        diffs = self._grid_diffs(SHAPE1_GRID)
+        assert_only_intended(diffs, SHAPE1_INTENDED)
+        for name in SHAPE1_INTENDED:
+            self.assertEqual([k for k, _, _ in diffs[name]],
+                             list(SHAPE1_KINDS), name)
+            for kind, old, new in diffs[name]:
+                with self.subTest(name=name, kind=kind):
+                    s_old, h, _ = old
+                    rec = self._current(s_old, h)
+                    self.assertEqual(carry_state.decision_state(rec, s_old),
+                                     "current")
+                    self.assertEqual(e2e_gate(s_old, {}), "write")
+                    s_new, h, _ = new
+                    rec = self._current(s_new, h)
+                    self.assertEqual(carry_state.decision_state(rec, s_new),
+                                     "stale")
+                    self.assertEqual(carry_state.stale_cause(rec, s_new),
+                                     "nearby")
+                    self.assertNotEqual(e2e_gate(s_new, {}), "write")
+        # The check itself trips both ways.
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED[1:])
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED + ("pure_shift",))
+
+    def test_differential_closeout_only_shape1_differs(self):
+        """Real `finalize_inputs` CLI on shape1_kept: the 2.15.0 state lets
+        Close out write; the repaired state does not, and not through the
+        code-changed refusal."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                old_run = _v215_run_pass()
+                _, s_old, _, r_old, L1 = shape1_case(self, kind,
+                                                     "shape1_kept",
+                                                     run=old_run)
+                _, s_new, _, r_new, _ = shape1_case(self, kind,
+                                                    "shape1_kept")
+                close = _Shape1Bodies._closeout
+                self.assertEqual(close(self, r_old, s_old, L1)["action"],
+                                 "write")
+                result = close(self, r_new, s_new, L1)
+                self.assertNotEqual(result["action"], "write", result)
+                self.assertNotEqual(result["next"], "stop-review-again",
+                                    result)
+
+
+class TestForcedReaskMutants(_Shape1Bodies, _Differential):
+    """Each mutant of the forced re-ask rule makes a named scenario body
+    fail, while the real code passes it."""
+
+    def _trips(self, target, attr, mutant, body, kinds=SHAPE1_KINDS):
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                body(kind)
+                with mock.patch.object(target, attr, mutant):
+                    with self.assertRaises(AssertionError):
+                        body(kind)
+
+    def test_mutant_a_never_forces(self):
+        self._trips(sys.modules[__name__], "forced_reask_pairs",
+                    lambda moves, removed: {}, self._body_reasked)
+
+    def test_mutant_b_no_evidence_read_as_nothing_removed(self):
+        real = forced_reask_pairs
+        self._trips(sys.modules[__name__], "forced_reask_pairs",
+                    lambda moves, removed: real(
+                        moves, {} if removed is None else removed),
+                    self._body_no_evidence)
+
+    def test_mutant_c_forces_every_move(self):
+        real = forced_reask_pairs
+
+        def mutant(moves, removed):
+            return real(moves, None)
+
+        self._trips(sys.modules[__name__], "forced_reask_pairs", mutant,
+                    self._body_pure_shift)
+        # The differential's unlisted-identical check trips too.
+        names = ("pure_shift", "lookup_stored_line") + SHAPE1_INTENDED
+        assert_only_intended(self._grid_diffs(names, ("dismiss",)),
+                             SHAPE1_INTENDED)
+        with mock.patch.object(sys.modules[__name__], "forced_reask_pairs",
+                               mutant):
+            diffs = self._grid_diffs(names, ("dismiss",))
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED)
+
+    def test_mutant_d_looks_up_the_relocated_line(self):
+        real = forced_reask_pairs
+
+        def mutant(moves, removed):
+            return real([dict(m, stored_line=m["line"]) for m in moves],
+                        removed)
+
+        for body in (self._body_lookup, self._body_reasked):
+            with self.subTest(body=body.__name__):
+                self._trips(sys.modules[__name__], "forced_reask_pairs",
+                            mutant, body)
+
+    def test_mutant_e_pair_added_to_changed_line_ranges(self):
+        real = stamp_map_with_pairs
+
+        def mutant(env, pairs):
+            real(env, pairs)
+            changed = json.loads(json.dumps(env["changed_line_ranges"]))
+            for file, spans in pairs.items():
+                changed.setdefault(file, []).extend(spans)
+            env["changed_line_ranges"] = changed
+
+        self._trips(sys.modules[__name__], "stamp_map_with_pairs", mutant,
+                    self._body_score)
+
+    def test_mutant_f_pairs_replace_the_base_map(self):
+        def mutant(env, pairs):
+            if pairs:
+                env["nearby_line_ranges"] = json.loads(json.dumps(pairs))
+
+        self._trips(sys.modules[__name__], "stamp_map_with_pairs", mutant,
+                    self._body_two_decisions)
+        # The direction: decision B, re-asked by the base map, comes back
+        # `current` (a wrong keep), not merely different.
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind, check="wrong keep"):
+                with mock.patch.object(sys.modules[__name__],
+                                       "stamp_map_with_pairs", mutant):
+                    s2, _, hB, _ = two_decisions_scenario(self, kind)
+                rec = self._current(s2, hB)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "current")
+
+    def test_mutant_g_member_moves_not_recorded(self):
+        real = next_cf
+
+        def mutant(state, lines, decided=frozenset(), moves=None):
+            out = real(state, lines, decided, moves)
+            if moves is not None:
+                moves[:] = [m for m in moves if not m["member"]]
+            return out
+
+        self._trips(sys.modules[__name__], "next_cf", mutant,
+                    self._body_member)
 
 
 # 999.44 shape 2 (Phase 57 REVIEW-GAPS IN-03): two decisions whose `covers`

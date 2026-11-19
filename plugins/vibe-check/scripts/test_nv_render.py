@@ -165,6 +165,7 @@ DECIDED_RELOCATION_PHRASES = (
     "a null canonical stays `fixed-since-last` for an ordinary record",
     "`snapshot.nearby_at`",
     "general relocation stays out of scope",
+    "`$MOVED_DECIDED`",
 )
 
 # Whole-file phrases the decided rule depends on: the NV heading (Phase 53
@@ -189,6 +190,39 @@ def decided_relocation_holds(text):
     return (_all_in(_section(text, DECIDED_START, DECIDED_END),
                     DECIDED_RELOCATION_PHRASES)
             and _all_in(text, DECIDED_CONTEXT_PHRASES))
+
+
+# The forced re-ask (999.44 shape 1): a decided record step 0 moved off a
+# line the last pass reviewed and that was removed since (or when removal
+# cannot be ruled out) gets a one-line pair in the map the decision stamp
+# reads. The phrases are checked INSIDE that paragraph (in the since-review
+# bullet, up to the next step-2 bullet); the context phrases describe the
+# third collect line earlier in the same bullet.
+FORCED_REASK_START = "**Forced re-ask of a moved decided record (999.44 shape 1).**"
+FORCED_REASK_END = "\n   - **"
+
+FORCED_REASK_PHRASES = (
+    "Forced re-ask of a moved decided record (999.44 shape 1)",
+    "`$MOVED_DECIDED`",
+    "when the printed `REMOVED_LINE_RANGES=` value is empty",
+    "contains the entry's `stored_line`",
+    "`[<line>, <line>]`",
+    "unless a range there already contains that line",
+    "`changed_line_ranges` plus the forced pairs",
+    "With no forced pair",
+)
+
+FORCED_REASK_CONTEXT_PHRASES = (
+    "Each prints exactly three lines",
+    "`REMOVED_LINE_RANGES=<json>`",
+    "is never sent in the envelope",
+)
+
+
+def forced_reask_holds(text):
+    return (_all_in(_section(text, FORCED_REASK_START, FORCED_REASK_END),
+                    FORCED_REASK_PHRASES)
+            and _all_in(text, FORCED_REASK_CONTEXT_PHRASES))
 
 
 # The step-2 `changed-line ranges` bullet: the ranges come from
@@ -342,6 +376,8 @@ CASES = (
     ("nv_recheck_hint_holds", nv_recheck_hint_holds, DISPATCH, HINT_PHRASES),
     ("decided_relocation_holds", decided_relocation_holds, COLLECT,
      DECIDED_RELOCATION_PHRASES + DECIDED_CONTEXT_PHRASES),
+    ("forced_reask_holds", forced_reask_holds, COLLECT,
+     FORCED_REASK_PHRASES + FORCED_REASK_CONTEXT_PHRASES),
     ("state_binding_holds", state_binding_holds, STATE, STATE_BINDING_PHRASES),
     ("deferred_binding_holds", deferred_binding_holds, STATE,
      DEFERRED_BINDING_PHRASES),
@@ -478,6 +514,14 @@ class TestNvRenderMutation(unittest.TestCase):
         section = _section(original, DECIDED_START, DECIDED_END)
         self._assert_trips(decided_relocation_holds, original,
                            original.replace(section, "", 1))
+
+    def test_forced_reask_deleting_mutant(self):
+        self._deleting("forced_reask_holds")
+
+    def test_forced_reask_in_paragraph_deleting_mutant(self):
+        self._deleting_in_section(forced_reask_holds, COLLECT,
+                                  FORCED_REASK_START, FORCED_REASK_END,
+                                  FORCED_REASK_PHRASES)
 
     def test_state_binding_deleting_mutant(self):
         self._deleting("state_binding_holds")
