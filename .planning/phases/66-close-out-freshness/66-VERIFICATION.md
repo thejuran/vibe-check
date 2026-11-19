@@ -167,3 +167,7 @@ With that override the phase would be 9/9 with one human item pending (status `h
 
 _Verified: 2026-11-19T00:28:42Z_
 _Verifier: Claude (bm-verifier)_
+
+## Owner decision on the gap (2026-11-18)
+
+The owner chose **(b) the wider repair** (answered live in the execute-phase orchestrator session), replacing the 66-07 known-limit choice. Scope as found by 66-07: `worktree_snap.py collect` also reports the reviewed-side lines removed since the review; the review step-0 prose and the test simulator then re-ask a decision whose original line was removed instead of relocating it to identical text elsewhere (as when a decided line is deleted with no copy). Keep the D-21 identical-copy-added control, the 20-line insertion control and the same-edit control passing; turn the two `_known_limit` xfail tests into passing tests; include a 2.15.0 (d5acc19) differential for the change and mutation checks. No override applied. Next: `/bm:plan-phase 66 --gaps`.
