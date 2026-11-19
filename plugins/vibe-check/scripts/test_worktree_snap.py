@@ -21,9 +21,11 @@ and the ranges they print go through the real score.py, carry_state.py and
 batch_card.py. Run with bare `pytest`.
 """
 
+import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -96,6 +98,15 @@ class _Phases:
     def _env(self, state_path):
         return {"STATE_FILE": state_path}
 
+    def _keep_removed(self, proc):
+        """Keep the collect call's whole stdout and its
+        `REMOVED_LINE_RANGES=` value (None when the helper prints no such
+        line, as 2.15.0's does); the callers' (tree, nearby) return is
+        unchanged."""
+        self.collect_stdout = proc.stdout
+        self.removed_printed = _printed_or_none(proc.stdout,
+                                                "REMOVED_LINE_RANGES")
+
     def take_only(self, state_path):
         """Just this pass's take, wherever the prose puts it -> snapshot
         literal ("" for e7075ea's file-based take)."""
@@ -111,6 +122,7 @@ class _Phases:
         proc = _bash(self._fill(self.collect_fence).replace(
             "<REVIEWED_SNAPSHOT>", snap), self.repo.repo, self._env(state_path))
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self._keep_removed(proc)
         return (_printed(proc.stdout, "REVIEWED_TREE"),
                 _printed(proc.stdout, "NEARBY_LINE_RANGES"))
 
@@ -138,6 +150,7 @@ class _Phases:
         proc = _bash(self._fill(self.collect_fence).replace(
             "<REVIEWED_SNAPSHOT>", snap), self.repo.repo, env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self._keep_removed(proc)
         return (_printed(proc.stdout, "REVIEWED_TREE"),
                 _printed(proc.stdout, "NEARBY_LINE_RANGES"))
 
@@ -201,6 +214,13 @@ def _printed(stdout, key):
             if ln.startswith(key + "=")]
     assert len(vals) == 1, (key, stdout)
     return vals[0]
+
+
+def _printed_or_none(stdout, key):
+    """`_printed`, or None when `key` is not printed at all."""
+    if not any(ln.startswith(key + "=") for ln in stdout.splitlines()):
+        return None
+    return _printed(stdout, key)
 
 
 class _Chain(_Phases, tdc._RealChain):
@@ -1223,6 +1243,487 @@ class TestProse(unittest.TestCase):
 
     def test_envelope_names_nearby_line_ranges(self):
         self.assertIn("`nearby_line_ranges`", tdr._collect_text())
+
+
+
+# --------------------------------------------------------------------------- #
+# 999.44 shape 1: the reviewed-side lines removed since the last review.
+# `NEARBY_LINE_RANGES=` carries new-side numbers only, so a deleted decided
+# line and a line that only shifted look the same. `collect` prints a third
+# line, `REMOVED_LINE_RANGES=`, with the old-side (reviewed-side) numbers of
+# the `-` lines of the same since-review diff.
+# --------------------------------------------------------------------------- #
+
+def _since_review_diff(case, old, new, *extra, delete=False, add=None):
+    """Real `git diff <DIFF_FLAGS> <extra> HEAD --` text in a fresh repo
+    whose HEAD holds `old` as src/a.py and whose working tree holds `new`
+    (or no src/a.py with `delete`; `add` stages one extra new file)."""
+    repo = tdc.RealDiffRepo.make(case, old)
+    if delete:
+        os.remove(os.path.join(repo.repo, F))
+    elif new is not None:
+        repo.write(new)
+    if add is not None:
+        gitfixture.write(repo.repo, add, "\n".join(tdc.base_file()) + "\n")
+        repo.stage(add)
+    return repo.git("diff", *worktree_snap.DIFF_FLAGS, *extra,
+                    "HEAD", "--").stdout
+
+
+def _lines_deleted(lines, *numbers):
+    """`lines` without the 1-based line `numbers`."""
+    drop = set(numbers)
+    return [ln for i, ln in enumerate(lines, 1) if i not in drop]
+
+
+def _look_alike_pair():
+    """Line 10 holds `-- a/other.py` at HEAD and `++ b/other.py` in the
+    working tree, so the hunk body prints `--- a/other.py` and
+    `+++ b/other.py`."""
+    old = tdc.base_file()
+    old[9] = "-- a/other.py"
+    new = list(old)
+    new[9] = "++ b/other.py"
+    return old, new
+
+
+WIDTHS = ((), ("-U0",), ("-U10",))
+
+
+def _changes():
+    """(label, old, new, expected removed_from_diff) on a 60-line file."""
+    L = tdc.base_file()
+    replaced = list(L)
+    replaced[9] = "line_10 = 'replaced'"
+    return (
+        ("line 10 deleted", L, _lines_deleted(L, 10), {F: [[10, 10]]}),
+        ("line 10 replaced in place", L, replaced, {F: [[10, 10]]}),
+        ("20 lines inserted at the top", L,
+         ["top_%d = 0" % i for i in range(20)] + L, {}),
+        ("one line inserted between 9 and 10", L,
+         L[:9] + ["inserted = 1"] + L[9:], {}),
+        ("lines 10-12 and 30 deleted", L, _lines_deleted(L, 10, 11, 12, 30),
+         {F: [[10, 12], [30, 30]]}),
+        ("20 inserted at top and old 30 deleted", L,
+         ["top_%d = 0" % i for i in range(20)] + _lines_deleted(L, 30),
+         {F: [[30, 30]]}),
+    )
+
+
+class TestRemovedFromDiff(unittest.TestCase):
+    """`worktree_snap.removed_from_diff` on real `git diff` text: old-side
+    numbers of the `-` lines only, keyed by the old-side path."""
+
+    def test_each_change_at_every_context_width(self):
+        for label, old, new, want in _changes():
+            for extra in WIDTHS:
+                with self.subTest(change=label, width=extra):
+                    text = _since_review_diff(self, old, new, *extra)
+                    self.assertTrue(text)
+                    self.assertEqual(worktree_snap.removed_from_diff(text), want)
+
+    def test_line_deleted(self):
+        L = tdc.base_file()
+        text = _since_review_diff(self, L, _lines_deleted(L, 10))
+        self.assertEqual(worktree_snap.removed_from_diff(text), {F: [[10, 10]]})
+
+    def test_insertion_next_to_a_line_does_not_list_it(self):
+        L = tdc.base_file()
+        for extra in WIDTHS:
+            with self.subTest(width=extra):
+                text = _since_review_diff(
+                    self, L, L[:9] + ["inserted = 1"] + L[9:], *extra)
+                self.assertEqual(worktree_snap.removed_from_diff(text), {})
+
+    def test_old_side_numbers_after_an_insertion_above(self):
+        L = tdc.base_file()
+        new = ["top_%d = 0" % i for i in range(20)] + _lines_deleted(L, 30)
+        text = _since_review_diff(self, L, new)
+        self.assertEqual(worktree_snap.removed_from_diff(text), {F: [[30, 30]]})
+
+    def test_file_deleted(self):
+        L = tdc.base_file()
+        text = _since_review_diff(self, L, None, delete=True)
+        self.assertIn("+++ /dev/null", text)
+        self.assertEqual(worktree_snap.removed_from_diff(text), {F: [[1, 60]]})
+
+    def test_file_added(self):
+        L = tdc.base_file()
+        text = _since_review_diff(self, L, None, add="src/b.py")
+        self.assertIn("--- /dev/null", text)
+        self.assertEqual(worktree_snap.removed_from_diff(text), {})
+
+    def test_header_look_alike_body_lines(self):
+        old, new = _look_alike_pair()
+        for extra in WIDTHS:
+            with self.subTest(width=extra):
+                text = _since_review_diff(self, old, new, *extra)
+                self.assertIn("\n--- a/other.py\n", text)
+                self.assertIn("\n+++ b/other.py\n", text)
+                got = worktree_snap.removed_from_diff(text)
+                self.assertEqual(got, {F: [[10, 10]]})
+                self.assertEqual(list(got), [F])
+
+    def test_empty_diff(self):
+        L = tdc.base_file()
+        text = _since_review_diff(self, L, L)
+        self.assertEqual(text, "")
+        self.assertEqual(worktree_snap.removed_from_diff(text), {})
+
+
+class TestCollectRemoved(_Chain):
+    """The third line through the real prose fences (default route)."""
+
+    DEFAULT_GRID = ("pass1_no_state", "identical_tree", "edit_above",
+                    "line_38_deleted", "top_ten_inserted",
+                    "state_without_reviewed_tree", "unknown_tree_id",
+                    "empty_snapshot", "edit_between_take_and_collect")
+
+    def _state(self, name):
+        """Drive grid state `name` on the default route -> (nearby,
+        removed) as the collect fence printed them."""
+        if name == "state_without_reviewed_tree":
+            self.pass1(record_tree=False)
+        else:
+            self.pass1()
+        if name == "pass1_no_state":
+            return "", self.removed_printed
+        if name == "unknown_tree_id":
+            bogus = json.loads(json.dumps(self.s1))
+            bogus["passes"][-1]["reviewed_tree"] = "0" * 40
+            self.s1, self.state_path = self.persist(
+                bogus, bogus["passes"][-1]["head_sha"], None)
+        if name == "empty_snapshot":
+            _, nearby = self.collect(self.state_path, skip_take=True)
+            return nearby, self.removed_printed
+        if name == "edit_between_take_and_collect":
+            L2 = tdc._edited(self.L1, 37)
+            _, nearby = self.collect(self.state_path,
+                                     between=lambda: self.repo.write(L2))
+            return nearby, self.removed_printed
+        L2 = list(self.L1)
+        if name == "edit_above":
+            L2[36] = "uncommitted_37 = guard_removed"
+        elif name == "line_38_deleted":
+            del L2[37]
+        elif name == "top_ten_inserted":
+            L2 = tdc.TOP_TEN + L2
+        _, _, _, nearby = self.pass2(L2)
+        return nearby, self.removed_printed
+
+    def test_pass_one_prints_empty(self):
+        self.pass1()
+        self.assertEqual(self.removed_printed, "")
+
+    def test_identical_tree_prints_empty_object(self):
+        nearby, removed = self._state("identical_tree")
+        self.assertEqual(nearby, "{}")
+        self.assertEqual(removed, "{}")
+
+    def test_deleted_line_prints_its_reviewed_side_number(self):
+        nearby, removed = self._state("line_38_deleted")
+        self.assertEqual(nearby, '{"src/a.py":[[37,38]]}')
+        self.assertEqual(removed, '{"src/a.py":[[38,38]]}')
+
+    def test_insertion_at_top_prints_empty_object(self):
+        nearby, removed = self._state("top_ten_inserted")
+        self.assertEqual(json.loads(nearby), {F: [[1, 10]]})
+        self.assertEqual(removed, "{}")
+
+    def test_unknown_evidence_prints_empty(self):
+        for name in ("state_without_reviewed_tree", "unknown_tree_id",
+                     "empty_snapshot", "edit_between_take_and_collect"):
+            with self.subTest(state=name):
+                nearby, removed = self._state(name)
+                self.assertEqual(nearby, "")
+                self.assertEqual(removed, "")
+
+    def test_removed_empty_iff_nearby_empty(self):
+        for name in self.DEFAULT_GRID:
+            with self.subTest(state=name):
+                nearby, removed = self._state(name)
+                self.assertIsNotNone(removed, "no REMOVED_LINE_RANGES= line")
+                self.assertEqual(removed == "", nearby == "", (nearby, removed))
+
+    def test_cli_prints_exactly_three_lines_in_order(self):
+        self._state("identical_tree")
+        keys = [ln.split("=", 1)[0] for ln in self.collect_stdout.splitlines()]
+        self.assertEqual(keys, ["REVIEWED_TREE", "NEARBY_LINE_RANGES",
+                                "REMOVED_LINE_RANGES"])
+        self.assertTrue(self.collect_stdout.endswith("\n"))
+
+
+class _CommittedRemovedCases:
+    """The third line on the range and PR routes."""
+
+    def test_unchanged_end_prints_empty_object(self):
+        self.pass1()
+        self.assertEqual(self.removed_printed, "")
+        _, _, _, nearby, _ = self.pass2(self.L1)
+        self.assertEqual(nearby, "{}")
+        self.assertEqual(self.removed_printed, "{}")
+
+    def test_new_commit_deleting_a_line_prints_its_old_number(self):
+        self.pass1()
+        L2 = list(self.L1)
+        del L2[37]
+        self.move_end(L2)
+        _, _, _, nearby, _ = self.pass2(L2)
+        self.assertEqual(json.loads(nearby), {F: [[37, 38]]})
+        self.assertEqual(self.removed_printed, '{"src/a.py":[[38,38]]}')
+
+    def test_state_without_snapshot_prints_empty(self):
+        self.pass1(record=False)
+        _, _, _, nearby, _ = self.pass2(self.L1)
+        self.assertEqual((nearby, self.removed_printed), ("", ""))
+
+
+class TestCollectRemovedRange(_CommittedRemovedCases, _CommittedChain):
+    ROUTE = "range"
+
+
+class TestCollectRemovedPR(_CommittedRemovedCases, _CommittedChain):
+    ROUTE = "PR"
+
+
+# --------------------------------------------------------------------------- #
+# Two-sided differential against the literal 2.15.0 helper (d5acc19).
+# --------------------------------------------------------------------------- #
+
+V215_COMMIT = "d5acc19"
+V215_REL = "plugins/vibe-check/scripts/"
+V215_SNAP_MODULES = ("worktree_snap.py", "diff_ranges.py")
+# Each grid state with the third line the candidate must print for it
+# (`""` = the evidence is unknown; `{}` = known, nothing removed).
+REMOVED_GRID = (
+    ("pass1_no_state", ""),
+    ("identical_tree", "{}"),
+    ("edit_above", '{"src/a.py":[[37,37]]}'),
+    ("line_38_deleted", '{"src/a.py":[[38,38]]}'),
+    ("top_ten_inserted", "{}"),
+    ("state_without_reviewed_tree", ""),
+    ("unknown_tree_id", ""),
+    ("empty_snapshot", ""),
+    ("edit_between_take_and_collect", ""),
+    ("range_unchanged_end", "{}"),
+    ("range_commit_deletes_line", '{"src/a.py":[[38,38]]}'),
+    ("pr_unchanged_head", "{}"),
+    ("pr_moved_head", '{"src/a.py":[[43,43]]}'),
+)
+# Fixed commit dates, so the two identically built repos get the same
+# commit ids (the range and PR routes print a commit id).
+FIXED_DATES = {"GIT_AUTHOR_DATE": "2026-01-01T00:00:00+0000",
+               "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+0000"}
+
+
+def _clean_env():
+    """os.environ with the developer's git config off and no inherited
+    `GIT_*` variable other than the two config keys."""
+    env = gitfixture.helper_env()
+    for key in list(env):
+        if key.startswith("GIT_") and key not in ("GIT_CONFIG_GLOBAL",
+                                                  "GIT_CONFIG_NOSYSTEM"):
+            del env[key]
+    return env
+
+
+def _git_show_v215(name):
+    proc = subprocess.run(
+        ["git", "show", V215_COMMIT + ":" + V215_REL + name], cwd=SCRIPTS_DIR,
+        env=_clean_env(), stdin=subprocess.DEVNULL, capture_output=True,
+        timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError("cannot read %s at %s (needs full history): %s"
+                             % (name, V215_COMMIT,
+                                proc.stderr.decode(errors="replace")))
+    return proc.stdout
+
+
+def _materialize_v215_snap(case):
+    """worktree_snap.py and diff_ranges.py as committed at d5acc19, in a
+    fresh temp dir removed when `case` ends -> the dir."""
+    tmp = tempfile.mkdtemp(prefix="v215-snap-")
+    case.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+    for name in V215_SNAP_MODULES:
+        with open(os.path.join(tmp, name), "wb") as fh:
+            fh.write(_git_show_v215(name))
+    return tmp
+
+
+def _helper(helper, cmd, root, *args):
+    return subprocess.run(
+        ["python3", helper, cmd, "--root", root, *args], cwd=root,
+        env=_clean_env(), stdin=subprocess.DEVNULL, capture_output=True,
+        text=True, timeout=120)
+
+
+def _grid_collect(case, name, helper):
+    """Build grid state `name` in a fresh repo, with `helper` taking and
+    collecting every pass -> the final collect's (exit code, stdout)."""
+    L0 = tdc.base_file()
+    repo = tdc.RealDiffRepo.make(case, L0)
+    committed = name.startswith(("range_", "pr_"))
+    L1 = _block(L0, "committed") if committed else _uncommitted(L0)
+    repo.write(L1)
+    if committed:
+        repo.commit("work under review")
+    state = os.path.join(os.path.dirname(repo.repo), "state.json")
+
+    def head():
+        return repo.git("rev-parse", "HEAD").stdout.strip()
+
+    def route():
+        if name.startswith("range_"):
+            return ["--range", "%s..HEAD" % repo.base]
+        if name.startswith("pr_"):
+            return ["--pr-head", head()]
+        return []
+
+    def take():
+        proc = _helper(helper, "take", repo.repo, *route())
+        case.assertEqual(proc.returncode, 0, proc.stderr)
+        return _printed(proc.stdout, "REVIEWED_SNAPSHOT")
+
+    def collect(nonce):
+        proc = _helper(helper, "collect", repo.repo, "--state", state,
+                       "--before", nonce, *route())
+        return proc.returncode, proc.stdout
+
+    if name == "pass1_no_state":
+        return collect(take())
+    code, out = collect(take())
+    case.assertEqual(code, 0)
+    tree = _printed(out, "REVIEWED_TREE")
+    case.assertRegex(tree, r"^[0-9a-f]{40}$")
+    entry = {"pass_number": 1, "head_sha": head()}
+    if name == "unknown_tree_id":
+        entry["reviewed_tree"] = "0" * 40
+    elif name != "state_without_reviewed_tree":
+        entry["reviewed_tree"] = tree
+    with open(state, "w", encoding="utf-8") as fh:
+        json.dump({"passes": [entry]}, fh)
+    L2 = list(L1)
+    if name == "edit_above":
+        L2[36] = "uncommitted_37 = guard_removed"
+    elif name in ("line_38_deleted", "range_commit_deletes_line"):
+        del L2[37]
+    elif name == "top_ten_inserted":
+        L2 = tdc.TOP_TEN + L2
+    elif name == "pr_moved_head":
+        L2[42] = "committed_43 = moved"
+    if L2 != L1:
+        repo.write(L2)
+        if committed:
+            repo.commit("moved end")
+    if name == "empty_snapshot":
+        return collect("")
+    nonce = take()
+    if name == "edit_between_take_and_collect":
+        repo.write(tdc._edited(L1, 37))
+    return collect(nonce)
+
+
+class TestCollectDifferentialV215(unittest.TestCase):
+    """The first two printed lines and the exit code are byte-identical to
+    the literal d5acc19 helper on every grid state; the only difference is
+    the added third line."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, FIXED_DATES)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.v215 = _materialize_v215_snap(self)
+        self.old_helper = os.path.join(self.v215, "worktree_snap.py")
+        self.new_helper = os.path.join(SCRIPTS_DIR, "worktree_snap.py")
+
+    def run_both(self, name):
+        return (_grid_collect(self, name, self.old_helper),
+                _grid_collect(self, name, self.new_helper))
+
+    def test_differential_materializer_is_literal_d5acc19(self):
+        env = _clean_env()
+        for name in V215_SNAP_MODULES:
+            with self.subTest(module=name):
+                old = subprocess.run(
+                    ["git", "rev-parse", V215_COMMIT + ":" + V215_REL + name],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(old.returncode, 0, old.stderr)
+                now = subprocess.run(
+                    ["git", "hash-object", "--no-filters",
+                     os.path.join(self.v215, name)],
+                    cwd=SCRIPTS_DIR, env=env, capture_output=True, text=True,
+                    stdin=subprocess.DEVNULL, timeout=60)
+                self.assertEqual(now.returncode, 0, now.stderr)
+                self.assertEqual(now.stdout.strip(), old.stdout.strip())
+
+    def test_differential_v215_prints_no_removed_line(self):
+        for name, _ in REMOVED_GRID:
+            with self.subTest(state=name):
+                code, out = _grid_collect(self, name, self.old_helper)
+                self.assertEqual(code, 0)
+                self.assertNotIn("REMOVED_LINE_RANGES", out)
+                self.assertEqual(len(out.splitlines()), 2, out)
+
+    def test_differential_first_two_lines_identical_third_added(self):
+        for name, want in REMOVED_GRID:
+            with self.subTest(state=name):
+                (old_code, old_out), (new_code, new_out) = self.run_both(name)
+                self.assertEqual(new_code, old_code)
+                lines = new_out.split("\n")
+                self.assertEqual(lines[-1], "", new_out)
+                self.assertEqual(len(lines), 4, new_out)
+                self.assertEqual("\n".join(lines[:2]) + "\n", old_out)
+                self.assertEqual(lines[2], "REMOVED_LINE_RANGES=" + want)
+                nearby = _printed(new_out, "NEARBY_LINE_RANGES")
+                self.assertEqual(want == "", nearby == "", new_out)
+
+    def test_differential_no_extra_git_call(self):
+        """`collect` makes the same git calls in both modules on the
+        deletion state: the third line comes from the one diff text."""
+        old_mod = _load_module(self.old_helper, "worktree_snap_v215")
+        root = tdc.RealDiffRepo.make(self, tdc.base_file()).repo
+        L1 = _uncommitted(tdc.base_file())
+        gitfixture.write(root, F, "\n".join(L1) + "\n")
+        prior = worktree_snap.take(root)
+        state = os.path.join(os.path.dirname(root), "state.json")
+        with open(state, "w", encoding="utf-8") as fh:
+            json.dump({"passes": [{"pass_number": 1, "reviewed_tree": prior}]}, fh)
+        gitfixture.write(root, F, "\n".join(_lines_deleted(L1, 38)) + "\n")
+        counts = []
+        real_run = subprocess.run
+        for mod in (old_mod, worktree_snap):
+            calls = []
+
+            def counting(argv, *a, **kw):
+                if argv and argv[0] == "git":
+                    calls.append(argv)
+                return real_run(argv, *a, **kw)
+
+            nonce, _ = mod.take_before(root)
+            with mock.patch.object(subprocess, "run", counting):
+                out = mod.collect(root, state, nonce=nonce)
+            self.assertRegex(out[0], r"^[0-9a-f]{40}$")
+            self.assertEqual(json.loads(out[1]), {F: [[37, 38]]})
+            counts.append(len(calls))
+        self.assertGreater(counts[0], 0)
+        self.assertEqual(counts[1], counts[0])
+
+
+def _load_module(path, name, pairs=()):
+    """The module at `path`, with each `(old, new)` replaced once (every
+    `old` must occur exactly once in the real source)."""
+    with open(path, "r", encoding="utf-8") as fh:
+        src = fh.read()
+    for old, new in pairs:
+        if src.count(old) != 1:
+            raise AssertionError("mutant text must occur once: %r" % old)
+        src = src.replace(old, new, 1)
+    spec = importlib.util.spec_from_loader(name, loader=None)
+    mod = importlib.util.module_from_spec(spec)
+    mod.__file__ = path
+    exec(compile(src, path, "exec"), mod.__dict__)
+    return mod
 
 
 if __name__ == "__main__":
