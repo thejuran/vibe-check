@@ -665,8 +665,8 @@ class TestCollectInternals(unittest.TestCase):
             return out
 
         with mock.patch.object(worktree_snap, "_current", hooked):
-            tree, nearby, _ = worktree_snap.collect(self.root, self.state,
-                                                    nonce=nonce)
+            tree, nearby, _, _ = worktree_snap.collect(self.root, self.state,
+                                                       nonce=nonce)
         self.assertRegex(tree, r"^[0-9a-f]{40}$")
         self.assertEqual(json.loads(nearby), {F: [[38, 38]]})
 
