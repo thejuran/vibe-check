@@ -36,7 +36,7 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
 
 ### 🚧 v2.16 Publication readiness (Phases 66-71, in progress)
 
-- [ ] **Phase 66: Close out freshness** - Close out refuses stale deferred/dismissed decisions and asks for a fresh review; the three legacy wrong-keep shapes get repair, safe refusal or recorded non-reproduction (999.40, 999.44)
+- [x] **Phase 66: Close out freshness** - Close out refuses stale deferred/dismissed decisions and asks for a fresh review; the three legacy wrong-keep shapes get repair, safe refusal or recorded non-reproduction (999.40, 999.44) — completed 2026-11-19 (12/12 plans; re-verified passed 18/18, offline evidence; live checks owned by Phase 71)
 - [ ] **Phase 67: Trusted incremental scope** - A crafted commit id in repository state cannot hide a committed change from an incremental review; the effective range is shown (999.27)
 - [ ] **Phase 68: Unambiguous phase and scope binding** - Ambiguous phase names and container names are refused before state is touched; narrowed `--all`, colliding branch keys and PR/range identities get explicit outcomes (999.39 SA-01/WR-01, 999.45)
 - [ ] **Phase 69: Safe helper invocation** - Repository Python startup code cannot run through helper or hook calls; empty or missing helper paths refuse (999.43)
@@ -62,7 +62,7 @@ Audit tech_debt, 17/17 requirements, integration 7/7, flows 2/2 ([audit](milesto
   3. Each of the three 999.44 shapes (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has a recorded outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample or control. The D-21 identical-copy addition is distinguished from deleted-original relocation. No decision-identity redesign.
   4. Replay against 2.15.0 differs only by the intended refusals; every other run is unchanged.
 
-**Plans:** 12 plans (9 executed; 3 gap-closure plans for the 999.44 shape 1 repair, planned 2026-11-18)
+**Plans:** 12/12 plans complete (9 original + 3 gap-closure plans for the 999.44 shape 1 repair; verified passed 2026-11-19)
 
 Plans:
 **Wave 1**

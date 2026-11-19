@@ -9,9 +9,9 @@ Requirements for this milestone. Each maps to one roadmap phase. Baseline: plugi
 
 ### Close out freshness (FRESH) — 999.40, 999.44
 
-- [ ] **FRESH-01**: When a deferred or dismissed decision refers to code whose exact line or nearby lines changed since the review, Close out refuses and asks the user to run a fresh review; it never starts paid reviewers automatically.
-- [ ] **FRESH-02**: When the reviewed code is unchanged, Close out still completes for both decision kinds; fix-verdict freshness, 999.28 score parity and real-edit reopening behave as in 2.15.0.
-- [ ] **FRESH-03**: Each of the three bounded legacy wrong-keep shapes in 999.44 (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has an evidence-backed outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample/control. No decision-identity redesign.
+- [x] **FRESH-01**: When a deferred or dismissed decision refers to code whose exact line or nearby lines changed since the review, Close out refuses and asks the user to run a fresh review; it never starts paid reviewers automatically.
+- [x] **FRESH-02**: When the reviewed code is unchanged, Close out still completes for both decision kinds; fix-verdict freshness, 999.28 score parity and real-edit reopening behave as in 2.15.0.
+- [x] **FRESH-03**: Each of the three bounded legacy wrong-keep shapes in 999.44 (deleted-original relocation with identical text elsewhere, an older covering decision winning over a newer one, untracked files without change ranges) has an evidence-backed outcome: a reproduced wrong keep repaired, the unsupported decision safely refused, or non-reproduction recorded with its counterexample/control. No decision-identity redesign.
 
 ### Trusted incremental scope (SCOPE) — 999.27
 
@@ -77,9 +77,9 @@ Which phases cover which requirements. Updated during roadmap creation (2026-11-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FRESH-01 | Phase 66 | Pending |
-| FRESH-02 | Phase 66 | Pending |
-| FRESH-03 | Phase 66 | Pending |
+| FRESH-01 | Phase 66 | Complete |
+| FRESH-02 | Phase 66 | Complete |
+| FRESH-03 | Phase 66 | Complete |
 | SCOPE-01 | Phase 67 | Pending |
 | SCOPE-02 | Phase 67 | Pending |
 | BIND-01 | Phase 68 | Pending |

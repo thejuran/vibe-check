@@ -106,7 +106,9 @@ Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-
 
 ## Current State: v2.16 Publication readiness started (2026-11-16)
 
-v2.16 activated via `/bm:new-milestone` from the agreed Publication readiness scope; defining requirements. Baseline plugin 2.15.0.
+v2.16 activated via `/bm:new-milestone` from the agreed Publication readiness scope. Baseline plugin 2.15.0.
+
+**Phase 66 Close out freshness complete (2026-11-19, 12/12 plans, re-verification passed 18/18, offline evidence).** Close out refuses deferred/dismissed decisions whose reviewed code changed and asks for a fresh review. All three 999.44 shapes have outcomes: shape 1 was repaired via the removed-lines evidence plus a forced re-ask, shape 2 was repaired, and shape 3 is safely refused. Owner-accepted differences from 2.15.0: re-ask when removal evidence is missing (2026-11-18); non-ASCII file names now included in change ranges, and a neighbour within ±5 lines of a forced re-ask is also re-asked (both 2026-11-19). Replay vs 2.15.0: 170 runs, 0 differing; `score.py` byte-identical to d5acc19. Carried review items: 999.46, 999.47. Next: Phase 67.
 
 ### Earlier: v2.15 shipped (2026-11-16)
 
@@ -379,7 +381,7 @@ crash-proofed and built the test-sufficiency agent on top of.
 
 <!-- v2.16 Publication readiness — REQ-IDs in REQUIREMENTS.md. -->
 
-- [ ] Close out refuses stale ordinary owner decisions; legacy wrong-keep shapes resolved (999.40, 999.44)
+- [x] Close out refuses stale ordinary owner decisions; legacy wrong-keep shapes resolved (999.40, 999.44) — Validated in Phase 66: Close out freshness (2026-11-19, offline evidence; live checks owned by Phase 71)
 - [ ] Incremental review base cannot be silently narrowed by repository state (999.27)
 - [ ] Ambiguous phase/scope inputs refuse instead of targeting the wrong phase or state (999.39, 999.45)
 - [ ] Helper invocations ignore repository Python startup code and refuse empty paths (999.43)
@@ -509,4 +511,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-16 after starting milestone v2.16 Publication readiness.*
+*Last updated: 2026-11-19 after Phase 66 (Close out freshness) completed.*
