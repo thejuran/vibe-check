@@ -48,12 +48,15 @@ batch_card / finalize_gate. Nothing is stubbed. Names that a later change
 adds to carry_state are read with getattr so this module always imports.
 """
 
+import ast
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -4442,22 +4445,10 @@ class TestRealDiffRanges60(_RealChain):
 SHAPE1_KINDS = ("defer", "dismiss")
 
 
-class TestShape1DeletedOriginal(_RealChain):
-    """999.44 shape 1 through the real chain, for both decision kinds: real
-    `git diff` ranges and removed lines from one diff, step-0 relocation
-    (`relocate_decided`) with its moves recorded, the forced re-ask, the real
-    scorer and state, then the real `finalize_inputs` CLI on a repo whose
-    last pass is bound to the reviewed code (`reviewed_tree` = the pass-2
-    tree, unchanged on disk), so Close out's outcome comes from the decision
-    state the review left, not from a code-changed-since-review check.
-
-    When the decided line was removed since the review and identical text
-    exists elsewhere, the decision follows the text and is re-asked there.
-
-    D-11: deleting the decided line while identical text remains elsewhere
-    (shape 1) is a different case from the owner-accepted D-21 behaviour of
-    adding an identical copy while the original stays; the D-21 control and
-    an ordinary line-shift control must keep."""
+class _Shape1Bodies(_RealChain):
+    """The 999.44 shape 1 scenario bodies (no tests of its own): each `_body_*`
+    runs one scenario for one kind and raises AssertionError when the
+    repaired behaviour does not hold."""
 
     def _closeout(self, repo, state, lines):
         """`finalize_inputs.py` on `state`, run in `repo` after binding the
@@ -4492,8 +4483,6 @@ class TestShape1DeletedOriginal(_RealChain):
             % (rec and rec["line"], rec and rec["snapshot"]))
         self.assertNotEqual(e2e_gate(s2, {}), "write")
 
-    # Bodies: each runs one scenario for one kind and raises AssertionError
-    # when the repaired behaviour does not hold (the mutant tests reuse them).
     def _body_reasked(self, kind, report="read_at"):
         _, s2, hA, repo, _ = deleted_original_scenario(self, kind,
                                                        report=report)
@@ -4560,6 +4549,24 @@ class TestShape1DeletedOriginal(_RealChain):
         self.assertEqual(scores(real.result), scores(none.result))
         self.assertEqual(real.env["changed_line_ranges"],
                          none.env["changed_line_ranges"])
+
+
+class TestShape1DeletedOriginal(_Shape1Bodies):
+    """999.44 shape 1 through the real chain, for both decision kinds: real
+    `git diff` ranges and removed lines from one diff, step-0 relocation
+    (`relocate_decided`) with its moves recorded, the forced re-ask, the real
+    scorer and state, then the real `finalize_inputs` CLI on a repo whose
+    last pass is bound to the reviewed code (`reviewed_tree` = the pass-2
+    tree, unchanged on disk), so Close out's outcome comes from the decision
+    state the review left, not from a code-changed-since-review check.
+
+    When the decided line was removed since the review and identical text
+    exists elsewhere, the decision follows the text and is re-asked there.
+
+    D-11: deleting the decided line while identical text remains elsewhere
+    (shape 1) is a different case from the owner-accepted D-21 behaviour of
+    adding an identical copy while the original stays; the D-21 control and
+    an ordinary line-shift control must keep."""
 
     def test_shape1_deleted_original_is_reasked_at_pass2(self):
         """999.44 shape 1: the decided line 10 is deleted while identical
@@ -4700,6 +4707,267 @@ class TestShape1DeletedOriginal(_RealChain):
                 self.assert_keeps(s2, hA, 30)
                 self.assertEqual(self._closeout(repo, s2, L1)["action"],
                                  "write")
+
+
+# --------------------------------------------------------------------------- #
+# 999.44 shape 1: the repair against the literal 2.15.0 procedure.
+# --------------------------------------------------------------------------- #
+V215_COMMIT = "d5acc19"
+V215_TDC = "plugins/vibe-check/scripts/test_decision_continuity.py"
+V215_FUNCS = ("relocate_decided", "next_cf", "run_pass")
+SHAPE1_INTENDED = ("shape1_kept", "shape1_edited", "no_evidence_shape1",
+                   "no_evidence_shift")
+_V215_BYTES = []
+
+
+def _clean_git_env():
+    """os.environ with the developer's git config off and no inherited
+    `GIT_*` variable (a hook or a linked worktree may set GIT_DIR)."""
+    env = gitfixture.helper_env()
+    for key in list(env):
+        if key.startswith("GIT_") and key not in ("GIT_CONFIG_GLOBAL",
+                                                  "GIT_CONFIG_NOSYSTEM"):
+            del env[key]
+    return env
+
+
+def _v215_bytes():
+    """This file as committed at d5acc19 (read once per process)."""
+    if not _V215_BYTES:
+        spec = V215_COMMIT + ":" + V215_TDC
+        proc = subprocess.run(["git", "show", spec], cwd=HERE,
+                              env=_clean_git_env(), stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=60)
+        if proc.returncode != 0:
+            raise AssertionError(
+                "cannot read %s (needs full history): %s"
+                % (spec, proc.stderr.decode(errors="replace")))
+        _V215_BYTES.append(proc.stdout)
+    return _V215_BYTES[0]
+
+
+def _v215_run_pass():
+    """The 2.15.0 `run_pass`, with its `relocate_decided` and `next_cf`,
+    taken from the d5acc19 blob of this file and run against today's
+    unchanged helpers (`head_read`, `append_pass`, `score`, `carry_state`,
+    `_deferred_read`): the old procedure, never a hand-written copy."""
+    src = _v215_bytes().decode("utf-8")
+    ns = dict(globals())
+    found = set()
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.FunctionDef) and node.name in V215_FUNCS:
+            code = ast.get_source_segment(src, node)
+            exec(compile(code, "%s@%s" % (V215_TDC, V215_COMMIT), "exec"), ns)
+            found.add(node.name)
+    assert found == set(V215_FUNCS), found
+    return ns["run_pass"]
+
+
+def _canon(x):
+    return json.dumps(x, sort_keys=True)
+
+
+def assert_only_intended(diffs, intended):
+    """Both directions: every differing scenario is listed in `intended`,
+    and every listed scenario differs."""
+    unlisted = sorted(set(diffs) - set(intended))
+    silent = sorted(set(intended) - set(diffs))
+    if unlisted or silent:
+        raise AssertionError("unlisted differences %r; listed but identical "
+                             "%r" % (unlisted, silent))
+
+
+class _Differential(_RealChain):
+
+    def _pair(self, kind, name):
+        """(old, new) for grid scenario `name`: each a (s2, hA, repo)."""
+        old_run = _v215_run_pass()
+        _, s_old, hA, r_old, _ = shape1_case(self, kind, name, run=old_run)
+        _, s_new, hB, r_new, _ = shape1_case(self, kind, name)
+        self.assertEqual(hA, hB)
+        return (s_old, hA, r_old), (s_new, hB, r_new)
+
+    def _differs(self, old, new):
+        return any(_canon(a) != _canon(b) for a, b in (
+            (old[2].env, new[2].env), (old[0], new[0]),
+            (old[2].result, new[2].result)))
+
+    def _grid_diffs(self, names, kinds=SHAPE1_KINDS):
+        """{scenario: [(kind, old, new), ...]} for the scenarios whose
+        envelope, state or score result differ on some kind."""
+        out = {}
+        for name in names:
+            for kind in kinds:
+                old, new = self._pair(kind, name)
+                if self._differs(old, new):
+                    out.setdefault(name, []).append((kind, old, new))
+        return out
+
+
+class TestShape1DifferentialV215(_Differential):
+    """The shape 1 repair against the literal 2.15.0 (d5acc19) relocation and
+    envelope procedure, fed the same inputs on every grid scenario: the
+    canonical JSON of the envelope, the new state and the score result are
+    byte-identical except on `SHAPE1_INTENDED`, where 2.15.0 kept the
+    decision and the repair re-asks it."""
+
+    def test_differential_old_procedure_is_literal_d5acc19(self):
+        env = _clean_git_env()
+        old = subprocess.run(
+            ["git", "rev-parse", V215_COMMIT + ":" + V215_TDC], cwd=HERE,
+            env=env, capture_output=True, text=True,
+            stdin=subprocess.DEVNULL, timeout=60)
+        self.assertEqual(old.returncode, 0, old.stderr)
+        now = subprocess.run(
+            ["git", "hash-object", "--no-filters", "--stdin"], cwd=HERE,
+            env=env, input=_v215_bytes(), capture_output=True,
+            timeout=60)
+        self.assertEqual(now.returncode, 0, now.stderr)
+        self.assertEqual(now.stdout.decode().strip(), old.stdout.strip())
+        self.assertTrue(callable(_v215_run_pass()))
+
+    def test_differential_only_intended_scenarios_differ(self):
+        diffs = self._grid_diffs(SHAPE1_GRID)
+        assert_only_intended(diffs, SHAPE1_INTENDED)
+        for name in SHAPE1_INTENDED:
+            self.assertEqual([k for k, _, _ in diffs[name]],
+                             list(SHAPE1_KINDS), name)
+            for kind, old, new in diffs[name]:
+                with self.subTest(name=name, kind=kind):
+                    s_old, h, _ = old
+                    rec = self._current(s_old, h)
+                    self.assertEqual(carry_state.decision_state(rec, s_old),
+                                     "current")
+                    self.assertEqual(e2e_gate(s_old, {}), "write")
+                    s_new, h, _ = new
+                    rec = self._current(s_new, h)
+                    self.assertEqual(carry_state.decision_state(rec, s_new),
+                                     "stale")
+                    self.assertEqual(carry_state.stale_cause(rec, s_new),
+                                     "nearby")
+                    self.assertNotEqual(e2e_gate(s_new, {}), "write")
+        # The check itself trips both ways.
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED[1:])
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED + ("pure_shift",))
+
+    def test_differential_closeout_only_shape1_differs(self):
+        """Real `finalize_inputs` CLI on shape1_kept: the 2.15.0 state lets
+        Close out write; the repaired state does not, and not through the
+        code-changed refusal."""
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind):
+                old_run = _v215_run_pass()
+                _, s_old, _, r_old, L1 = shape1_case(self, kind,
+                                                     "shape1_kept",
+                                                     run=old_run)
+                _, s_new, _, r_new, _ = shape1_case(self, kind,
+                                                    "shape1_kept")
+                close = _Shape1Bodies._closeout
+                self.assertEqual(close(self, r_old, s_old, L1)["action"],
+                                 "write")
+                result = close(self, r_new, s_new, L1)
+                self.assertNotEqual(result["action"], "write", result)
+                self.assertNotEqual(result["next"], "stop-review-again",
+                                    result)
+
+
+class TestForcedReaskMutants(_Shape1Bodies, _Differential):
+    """Each mutant of the forced re-ask rule makes a named scenario body
+    fail, while the real code passes it."""
+
+    def _trips(self, target, attr, mutant, body, kinds=SHAPE1_KINDS):
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                body(kind)
+                with mock.patch.object(target, attr, mutant):
+                    with self.assertRaises(AssertionError):
+                        body(kind)
+
+    def test_mutant_a_never_forces(self):
+        self._trips(sys.modules[__name__], "forced_reask_pairs",
+                    lambda moves, removed: {}, self._body_reasked)
+
+    def test_mutant_b_no_evidence_read_as_nothing_removed(self):
+        real = forced_reask_pairs
+        self._trips(sys.modules[__name__], "forced_reask_pairs",
+                    lambda moves, removed: real(
+                        moves, {} if removed is None else removed),
+                    self._body_no_evidence)
+
+    def test_mutant_c_forces_every_move(self):
+        real = forced_reask_pairs
+
+        def mutant(moves, removed):
+            return real(moves, None)
+
+        self._trips(sys.modules[__name__], "forced_reask_pairs", mutant,
+                    self._body_pure_shift)
+        # The differential's unlisted-identical check trips too.
+        names = ("pure_shift", "lookup_stored_line") + SHAPE1_INTENDED
+        assert_only_intended(self._grid_diffs(names, ("dismiss",)),
+                             SHAPE1_INTENDED)
+        with mock.patch.object(sys.modules[__name__], "forced_reask_pairs",
+                               mutant):
+            diffs = self._grid_diffs(names, ("dismiss",))
+        with self.assertRaises(AssertionError):
+            assert_only_intended(diffs, SHAPE1_INTENDED)
+
+    def test_mutant_d_looks_up_the_relocated_line(self):
+        real = forced_reask_pairs
+
+        def mutant(moves, removed):
+            return real([dict(m, stored_line=m["line"]) for m in moves],
+                        removed)
+
+        for body in (self._body_lookup, self._body_reasked):
+            with self.subTest(body=body.__name__):
+                self._trips(sys.modules[__name__], "forced_reask_pairs",
+                            mutant, body)
+
+    def test_mutant_e_pair_added_to_changed_line_ranges(self):
+        real = stamp_map_with_pairs
+
+        def mutant(env, pairs):
+            real(env, pairs)
+            changed = json.loads(json.dumps(env["changed_line_ranges"]))
+            for file, spans in pairs.items():
+                changed.setdefault(file, []).extend(spans)
+            env["changed_line_ranges"] = changed
+
+        self._trips(sys.modules[__name__], "stamp_map_with_pairs", mutant,
+                    self._body_score)
+
+    def test_mutant_f_pairs_replace_the_base_map(self):
+        def mutant(env, pairs):
+            if pairs:
+                env["nearby_line_ranges"] = json.loads(json.dumps(pairs))
+
+        self._trips(sys.modules[__name__], "stamp_map_with_pairs", mutant,
+                    self._body_two_decisions)
+        # The direction: decision B, re-asked by the base map, comes back
+        # `current` (a wrong keep), not merely different.
+        for kind in SHAPE1_KINDS:
+            with self.subTest(kind=kind, check="wrong keep"):
+                with mock.patch.object(sys.modules[__name__],
+                                       "stamp_map_with_pairs", mutant):
+                    s2, _, hB, _ = two_decisions_scenario(self, kind)
+                rec = self._current(s2, hB)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "current")
+
+    def test_mutant_g_member_moves_not_recorded(self):
+        real = next_cf
+
+        def mutant(state, lines, decided=frozenset(), moves=None):
+            out = real(state, lines, decided, moves)
+            if moves is not None:
+                moves[:] = [m for m in moves if not m["member"]]
+            return out
+
+        self._trips(sys.modules[__name__], "next_cf", mutant,
+                    self._body_member)
 
 
 # 999.44 shape 2 (Phase 57 REVIEW-GAPS IN-03): two decisions whose `covers`
