@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.16
 milestone_name: Publication readiness
 status: executing
-stopped_at: "Phase 66 all 9 plans complete (candidate cf1ea0bd green); code review + verification next"
-last_updated: "2026-11-18T06:00:00.000Z"
-last_activity: 2026-11-18 -- Phase 66 66-09 complete (9/9 plans); full offline suite green on cf1ea0bd
+stopped_at: "Phase 66 verified gaps_found (8/9): 999.44 shape 1 — owner chose the wider repair; next /bm:plan-phase 66 --gaps"
+last_updated: "2026-11-18T09:00:00.000Z"
+last_activity: 2026-11-18 -- Phase 66 code review fixed CR-01/WR-01/WR-02 (suite 4729 green); verification gaps_found on SC3/FRESH-03 shape 1
 progress:
   total_phases: 6
   completed_phases: 0
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-11-16)
 ## Current Position
 
 Phase: 66 (close-out-freshness) — EXECUTING
-Plan: 9 of 9 complete (phase verification pending)
-Status: Executing Phase 66
+Plan: 9 of 9 complete; gap closure pending (999.44 shape 1 wider repair, owner decision 2026-11-18)
+Status: Phase 66 gaps_found — gap planning next (/bm:plan-phase 66 --gaps)
 Last activity: 2026-11-18 -- 999.44: shape 1 owner-accepted known limit, shape 2 repaired (owner-approved), shape 3 safe refusal; loop-freedom proven
 
 ## Operator Next Steps
 
-- `/bm:execute-phase 66` (Close out freshness) in progress on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
+- `/bm:plan-phase 66 --gaps` (999.44 shape 1 wider repair; see 66-VERIFICATION.md owner decision) on `feat/v2.16-phase-66`; context in .planning/phases/66-close-out-freshness/66-CONTEXT.md
 - Fully relaunch Claude Code so the installed 2.15.0 plugin loads, then confirm installed_plugins.json shows 2.15.0 at origin/main (runbook step 9)
 - Paid checks and portal submission require separate approval
 
