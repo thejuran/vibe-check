@@ -1953,5 +1953,142 @@ class TestShape1ThroughFencesRange(_ReportAt, _CommittedChain):
         self.assert_keeps(s2, self.h, SHAPE1_COPY_AT - 1)
 
 
+# --------------------------------------------------------------------------- #
+# 66 review CR-01: file names git quotes. With git's default
+# core.quotePath=true every non-ASCII name prints C-quoted
+# (`--- "a/caf\303\251.py"`), and a quoted old-side header gave no entry, so
+# a decided line deleted from `café.py` printed `{}` ("known, nothing
+# removed") and the forced re-ask never fired: the 999.44 shape 1 silent
+# keep. Names git quotes even with core.quotePath=false (`"`, `\`, control
+# characters) cannot be keyed by the name a finding carries, so the removed
+# value is unknown (printed empty) for the whole diff.
+#
+# Every case runs the production since-review call (`since_both`, tree to
+# tree, the real `git diff`) in a fresh temp repo with the developer's global
+# and system git config switched off.
+# --------------------------------------------------------------------------- #
+NON_ASCII = "café.py"
+QUOTED = 'a"b.py'
+
+
+def _numbered(n=12, last_newline=True):
+    text = "\n".join("line_%02d = %d" % (i, i) for i in range(1, n + 1))
+    return text + ("\n" if last_newline else "")
+
+
+def _drop_line(text, number):
+    lines = text.split("\n")
+    del lines[number - 1]
+    return "\n".join(lines)
+
+
+class _NamedRepo:
+    """A temp repo for the named-file cases; every git call (the test's and
+    the production helper's) runs without global or system git config."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.root = gitfixture.make_repo(tmp.name)
+
+    def files(self, files):
+        """Write {rel: text | bytes}; a None value deletes the file."""
+        for rel, data in files.items():
+            path = os.path.join(self.root, rel)
+            if data is None:
+                os.remove(path)
+            else:
+                gitfixture.write(self.root, rel, data)
+
+    def base(self, files, config=()):
+        for key, value in config:
+            gitfixture.git(self.root, "config", key, value)
+        self.files(files)
+        gitfixture.git(self.root, "add", "-A")
+        gitfixture.git(self.root, "commit", "-q", "-m", "base")
+
+    def since(self, after, mod=None):
+        """(nearby ranges, removed lines) between the reviewed tree (the
+        committed base) and the tree after `after` is applied, from the
+        production since-review call of `mod` (default: worktree_snap)."""
+        mod = mod or worktree_snap
+        prior = mod.take(self.root)
+        after()
+        return mod.since_both(self.root, prior, mod.take(self.root))
+
+    def collect_printed(self, after, mod=None):
+        """(NEARBY_LINE_RANGES=, REMOVED_LINE_RANGES=) values `collect`
+        prints for a second pass whose reviewed tree is the base."""
+        mod = mod or worktree_snap
+        prior = mod.take(self.root)
+        state = os.path.join(self.tmp, "state.json")
+        with open(state, "w", encoding="utf-8") as fh:
+            json.dump({"passes": [{"pass_number": 1,
+                                   "reviewed_tree": prior}]}, fh)
+        after()
+        nonce, _ = mod.take_before(self.root)
+        out = mod.collect(self.root, state, nonce=nonce)
+        self.assertRegex(out[0], r"^[0-9a-f]{40}$")
+        return out[1], (out[2] if len(out) > 3 else None)
+
+
+class TestQuotedNamesCR01(_NamedRepo, unittest.TestCase):
+    """CR-01: a deleted line in a non-ASCII-named file is listed under its
+    real name; a name git still has to quote makes the value unknown."""
+
+    def test_non_ascii_name_lists_the_removed_line(self):
+        self.base({NON_ASCII: _numbered()})
+        _, removed = self.since(
+            lambda: self.files({NON_ASCII: _drop_line(_numbered(), 10)}))
+        self.assertEqual(removed, {NON_ASCII: [[10, 10]]})
+
+    def test_non_ascii_name_printed_value_forces_the_reask(self):
+        """The shape 1 journey on the printed value: the decision moved
+        from deleted line 10 to an identical line is re-asked, not kept."""
+        self.base({NON_ASCII: _numbered()})
+        nearby, removed = self.collect_printed(
+            lambda: self.files({NON_ASCII: _drop_line(_numbered(), 10)}))
+        self.assertEqual(json.loads(removed), {NON_ASCII: [[10, 10]]})
+        self.assertEqual(json.loads(nearby), {NON_ASCII: [[9, 10]]})
+        move = [{"file": NON_ASCII, "stored_line": 10, "line": 19}]
+        self.assertEqual(
+            tdc.forced_reask_pairs(move, tdc.removed_arg(removed)),
+            {NON_ASCII: [[19, 19]]})
+
+    def test_still_quoted_name_makes_removed_unknown(self):
+        self.base({QUOTED: _numbered(), F: _numbered()})
+        _, removed = self.since(lambda: self.files({
+            QUOTED: _drop_line(_numbered(), 10),
+            F: _drop_line(_numbered(), 3)}))
+        self.assertIsNone(removed)
+
+    def test_still_quoted_name_prints_removed_empty(self):
+        """Printed empty, so the forced rule re-asks every move; the
+        nearby value is the one 2.15.0 printed (see the differential)."""
+        self.base({QUOTED: _numbered(), F: _numbered()})
+        nearby, removed = self.collect_printed(lambda: self.files({
+            QUOTED: _drop_line(_numbered(), 10),
+            F: _drop_line(_numbered(), 3)}))
+        self.assertEqual(removed, "")
+        self.assertEqual(json.loads(nearby), {F: [[2, 3]]})
+        move = [{"file": F, "stored_line": 7, "line": 9}]
+        self.assertEqual(
+            tdc.forced_reask_pairs(move, tdc.removed_arg(removed)),
+            {F: [[9, 9]]})
+
+    def test_quoted_added_file_is_not_unknown(self):
+        """An added file has no reviewed side: `--- /dev/null`, so a quoted
+        new-side name removes nothing and the value stays known."""
+        self.base({F: _numbered()})
+        _, removed = self.since(lambda: self.files({QUOTED: _numbered()})
+                                or gitfixture.git(self.root, "add", QUOTED))
+        self.assertEqual(removed, {})
+
+
 if __name__ == "__main__":
     unittest.main()
