@@ -807,6 +807,19 @@ class TestFlaggedFiles(DecidedCase):
     def test_flagged_is_a_cause(self):
         self.assertIn("flagged", closeout_fresh.CAUSES)
 
+    def test_flagged_spot_file_is_flagged(self):
+        # A spot in another file whose edits git cannot see: its window
+        # check is blind, so nothing is proven unchanged.
+        rec = {"stable_hash": "h", "file": "src/a.py", "line": 10}
+        cand = [(rec, {"decision": "defer"}, [("src/b.py", 5)])]
+        paths = {"src/a.py", "src/b.py"}
+        on_disk = lambda f: True  # noqa: E731
+        self.assertEqual(closeout_fresh.stale_from_ranges(
+            cand, {}, paths, on_disk, {"src/b.py"}),
+            [{"hash": "h", "kind": "deferred", "cause": "flagged"}])
+        self.assertEqual(closeout_fresh.stale_from_ranges(
+            cand, {}, paths, on_disk, set()), [])
+
 
 class TestFixPrecedence(DecidedCase):
     """A fresh fix-obsolete verdict on the current blob is newer evidence

@@ -20,6 +20,10 @@ CAUSES. Each stale record carries exactly one cause token (D-01):
                   (D-06)
     untracked     the decided file is absent from the reviewed tree, so
                   there is no saved copy to compare against (D-09)
+    flagged       the decided file (or a file one of its spots is in) is
+                  flagged skip-worktree or assume-unchanged in the index:
+                  git compares the index copy, not the disk, so its edits
+                  cannot be seen; the owner clears the flag, then reviews
     unverifiable  the comparison could not be made: missing or malformed
                   `reviewed_tree`, the vibe-check store missing, a git
                   failure or timeout, or a malformed record
@@ -35,7 +39,11 @@ numbering and a stored `line` is checked with no relocation. With `-R` the
 prefixes; `diff_ranges` strips only `b/`. A file deleted or renamed since the
 review comes out of that diff as a whole-file range, so its decided line is
 hit; `--no-renames` keeps a rename from pairing the old name with the new one
-and hiding that range.
+and hiding that range. That diff reads the disk through the index, and git
+never looks at the disk for an entry flagged skip-worktree or
+assume-unchanged, so one more read (`git ls-files -v -z`, whole index, no
+path on the argv) lists those entries and a decision resting on one is
+`flagged` (fail closed, edited or not).
 
 WHICH LINES. A record is judged at its own line and, inside the window, at
 the line of every open same-hash copy and every member its row covers (no
@@ -45,7 +53,8 @@ obligation of its own): the same spot set the review stamps from
 CAUSE ORDER, per record: a decision value other than defer/dismiss, a `file`
 the parsed diff cannot key (see WHICH NAMES) or a `line` that is not a
 positive int -> `unverifiable`; the file absent from the reviewed tree ->
-`untracked`; the own line hit -> `line`, else any spot's window hit ->
+`untracked`; the file or a spot's file flagged skip-worktree or
+assume-unchanged -> `flagged`; the own line hit -> `line`, else any spot's window hit ->
 `nearby`; then, when the file is gone from disk, a hit becomes `deleted` and
 no hit becomes `unverifiable` (the diff and the disk disagree, so nothing is
 proven).
@@ -93,7 +102,8 @@ _NEARBY_LINES = 5
 # The `next` value a stale-decision refusal reports.
 NEXT_REVIEW_AGAIN = "stop-review-again"
 
-CAUSES = ("line", "nearby", "deleted", "untracked", "unverifiable")
+CAUSES = ("line", "nearby", "deleted", "untracked", "unverifiable",
+          "flagged")
 
 # Prefixes swapped on purpose: the diff runs with `-R`, which puts the source
 # prefix on the `+++` header, and diff_ranges strips only `b/` there. The
@@ -214,7 +224,8 @@ def _kind(decision):
     return _KIND.get(value, "dismissed"), value in _KIND
 
 
-def _cause(record, decision, spots, ranges, reviewed_paths, on_disk):
+def _cause(record, decision, spots, ranges, reviewed_paths, on_disk,
+           flagged=frozenset()):
     """The cause token for one decided record, or None when its reviewed
     code is provably unchanged (CAUSE ORDER in the module docstring)."""
     file, line = record.get("file"), record.get("line")
@@ -222,6 +233,8 @@ def _cause(record, decision, spots, ranges, reviewed_paths, on_disk):
         return "unverifiable"
     if file not in reviewed_paths:
         return "untracked"
+    if file in flagged or any(f in flagged for f, _ in spots):
+        return "flagged"
     hit = None
     if _in_ranges(line, ranges.get(file, [])):
         hit = "line"
@@ -244,14 +257,17 @@ def _row(record, decision, cause):
             "cause": cause}
 
 
-def stale_from_ranges(candidates, ranges, reviewed_paths, on_disk):
+def stale_from_ranges(candidates, ranges, reviewed_paths, on_disk,
+                      flagged=frozenset()):
     """Sorted stale rows for `candidates` ([(record, decision, spots)]) given
     the reverse-diff `ranges` ({file: [[start, end], ...]} in reviewed-tree
-    numbering), the set of paths in the reviewed tree and `on_disk(file)`
-    (is the file present in the working tree). Pure."""
+    numbering), the set of paths in the reviewed tree, `on_disk(file)` (is
+    the file present in the working tree) and the set of index paths flagged
+    skip-worktree or assume-unchanged. Pure."""
     out = []
     for rec, decision, spots in sorted(candidates, key=lambda c: _sort_key(c[0])):
-        cause = _cause(rec, decision, spots, ranges, reviewed_paths, on_disk)
+        cause = _cause(rec, decision, spots, ranges, reviewed_paths, on_disk,
+                       flagged)
         if cause is not None:
             out.append(_row(rec, decision, cause))
     return out
@@ -349,17 +365,28 @@ def reviewed_files(root, reviewed_id):
     return {p for p in out.split("\0") if p}
 
 
+def flagged_files(root):
+    """The index paths git does not compare against the disk: tag `S`
+    (skip-worktree) or a lowercase tag (assume-unchanged) in
+    `git ls-files -v -z`. Read once for the whole index; no path on the
+    argv, and `-z` prints every name raw."""
+    out = _git(root, ["ls-files", "-v", "-z"], env=_store_env_ro(root))
+    return {e[2:] for e in out.split("\0")
+            if len(e) > 2 and e[1] == " " and (e[0] == "S" or e[0].islower())}
+
+
 def _stale(state, candidates, cwd):
     try:
         reviewed_id = _reviewed_id(state)
         top = _toplevel(cwd)
         ranges = changed_ranges(top, reviewed_id)
         paths = reviewed_files(top, reviewed_id)
+        flagged = flagged_files(top)
     except Unverifiable:
         return _all_unverifiable(candidates)
     return stale_from_ranges(
         candidates, ranges, paths,
-        lambda f: os.path.isfile(os.path.join(top, f)))
+        lambda f: os.path.isfile(os.path.join(top, f)), flagged)
 
 
 def stale_decisions(state, blobs, cwd=None):
